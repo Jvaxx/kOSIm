@@ -164,55 +164,27 @@ namespace kOS.UserIO
         }
 
         /// <summary>
-        /// Map the bytes containing the terminal's own control codes into our
-        /// Unicode system with its fake control codes.  In this base class, all it
-        /// does it just mostly passthru things as-is with no conversion.
-        /// Subclasses of this should perform their own manipulations, then fallthrough
-        /// to this base class implementation at the bottom, to allow chains of
-        /// subclasses to all operate on the data.
+        /// The key encoding this mapper's terminal sends. Input conversion is done by a
+        /// <see cref="TerminalInputDecoder"/> for this dialect.
+        /// </summary>
+        protected virtual TerminalInputDialect InputDialect
+        {
+            get { return TerminalInputDialect.Plain; }
+        }
+
+        /// <summary>
+        /// Map the chars containing the terminal's own control codes into our
+        /// Unicode system with its fake control codes.
+        /// <br/>
+        /// Each call converts a complete piece of input on its own, as before. The mappings
+        /// are documented on <see cref="TerminalInputDecoder"/>.
         /// </summary>
         /// <param name="inChars">chars in the terminal's way of thinking</param>
         /// <returns>chars in our Unicode way of thinking</returns>
         public virtual string InputConvert(char[] inChars)
         {
-            List<char> outChars = new List<char>();
-            
-            char prevCh = '\0'; // dummy for first pass
-            
-            foreach (char ch in inChars)
-            {
-                switch (ch)
-                {
-                    case (char)0x08: // control-H, the ASCII backspace
-                        outChars.Add((char)UnicodeCommand.DELETELEFT);
-                        break;
-                    case (char)0x7f: // ASCII 127 = the delete character
-                        outChars.Add((char)UnicodeCommand.DELETERIGHT);
-                        break;
-                    case '\r':
-                        if (prevCh != '\n') // A \r after a \n should be ignored - we already got it from the \n:
-                            outChars.Add((char)UnicodeCommand.STARTNEXTLINE);
-                        break;
-                    case '\n':
-                        if (prevCh != '\r') // A \n after a \r should be ignored - we already got it from the \r:
-                            outChars.Add((char)UnicodeCommand.STARTNEXTLINE);
-                        break;
-                    case (char)0x0c: // control-L.
-                    case (char)0x12: // control-R.
-                        outChars.Add((char)UnicodeCommand.REQUESTREPAINT);
-                        break;
-                    case (char)0x03: // Control-C. map to BREAK just as if the telnet client had sent a hard break in the protocol.
-                        outChars.Add((char)UnicodeCommand.BREAK);
-                        break;
-                    case (char)0x00: // null char - dummy input that should be gone by the time everything got processed by the other mappers.
-                        break; // skip over and do nothing with it.
-                    default:
-                        outChars.Add(ch); // dummy passthrough
-                        break;
-                }
-                prevCh = ch;
-            }
-            return new string(outChars.ToArray());
+            var decoder = new TerminalInputDecoder(InputDialect);
+            return decoder.Decode(new string(inChars)) + decoder.Flush();
         }
         
         /// <summary>

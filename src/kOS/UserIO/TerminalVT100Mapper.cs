@@ -141,52 +141,26 @@ namespace kOS.UserIO
             return base.OutputConvert(sb.ToString());
         }
 
+        protected override TerminalInputDialect InputDialect
+        {
+            get { return TerminalInputDialect.VT100; }
+        }
+
         /// <summary>
-        /// Provide the VT100 specific mappings of input chars, then fallback to the
-        /// base class's mapping to see if there's other conversions to do.
+        /// VT100 input (ESC [ sequences, DEL as backspace, BEL), converted by the base
+        /// class's <see cref="TerminalInputDecoder"/>. Kept as an override so code compiled
+        /// against earlier versions still binds.
         /// </summary>
         /// <returns>input mapped into our internal pretend Unicode terminal's codes</returns>
         public override string InputConvert(char[] inChars)
         {
-            List<char> outChars = new List<char>();
-
-            for (int index = 0; index < inChars.Length; ++index)
-            {
-                switch (inChars[index])
-                {
-                    case ESCAPE_CHARACTER:
-                        if (index + 1 < inChars.Length && inChars[index + 1] == '[')
-                            // ESC followed by '[' is called the CSI (Control Sequence Initiator) and it's how most VT100 codes start.
-                        {
-                            int numConsumed;
-                            char ch = ConvertVT100InputCSI(inChars, index + 2, out numConsumed);
-                            if (numConsumed > 0)
-                            {
-                                outChars.Add(ch);
-                                index += (1 + numConsumed); // 1+ is for the '[' char.
-                            }
-                        }
-                        else
-                            outChars.Add(inChars[index]); // dummy passthrough.  Send ESC as-is.
-                        break;
-
-                    case DELETE_CHARACTER: 
-                        outChars.Add((char)UnicodeCommand.DELETELEFT); // Map to the same as backspace, because Vt100 sends it for the backspace key, annoyingly.
-                        break;
-
-                    case BELL_CHAR:
-                        outChars.Add((char)UnicodeCommand.BEEP);
-                        break;
-
-                    default:
-                        outChars.Add(inChars[index]); // dummy passthrough
-                        break;
-                }
-            }
-            return base.InputConvert(outChars.ToArray()); // See if the base class has any more mappings to do on top of these:
+            return base.InputConvert(inChars);
         }
 
         /// <summary>
+        /// No longer used by kOS, which decodes input with <see cref="TerminalInputDecoder"/>;
+        /// kept unchanged for subclasses compiled against earlier versions.
+        /// <br/>
         /// Return the Unicode (which might be a UnicodeCommand enum value) from the Vt100 CSI sequence
         /// passed in.
         /// </summary>

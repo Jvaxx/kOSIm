@@ -21,6 +21,19 @@ namespace kOS.Safe.UserIO
             return HasPrefix(typeString, "vt10");
         }
 
+        /// <summary>
+        /// The key encoding to expect from a terminal type, matching the mapper that
+        /// <c>TerminalUnicodeMapper.TerminalMapperFactory</c> picks for it.
+        /// </summary>
+        public static TerminalInputDialect InputDialectFor(string typeString)
+        {
+            if (IsXterm(typeString))
+                return TerminalInputDialect.Xterm;
+            if (IsVT100(typeString))
+                return TerminalInputDialect.VT100;
+            return TerminalInputDialect.Plain;
+        }
+
         private static bool HasPrefix(string typeString, string prefix)
         {
             return typeString != null && typeString.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);

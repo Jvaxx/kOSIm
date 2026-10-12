@@ -87,44 +87,20 @@ namespace kOS.UserIO
             return base.OutputConvert(sb.ToString());
         }
         
+        protected override TerminalInputDialect InputDialect
+        {
+            get { return TerminalInputDialect.Xterm; }
+        }
+
         /// <summary>
-        /// Provide the XTERM specific mappings of input chars, then fallback to the
-        /// base VT100 mappings for most of its work.
+        /// xterm input (VT100 plus the 8-bit CSI character 0x9b), converted by the base
+        /// class's <see cref="TerminalInputDecoder"/>. Kept as an override so code compiled
+        /// against earlier versions still binds.
         /// </summary>
-        /// <param name="inChars"></param>
         /// <returns>input mapped into our internal pretend Unicode terminal's codes</returns>
         public override string InputConvert(char[] inChars)
         {
-            List<char> outChars = new List<char>();
-            
-            for (int index = 0 ; index < inChars.Length ; ++index )
-            {
-                switch (inChars[index])
-                {
-                    case (char)0x9b:
-                        // 0x9b is a single 8-bit char alternative to VT100's CSI pair of chars, ESC followed by [.
-                        // (In fact DEC referred to 0x9b AS the "CSI character".)
-                        // This started appearing on Vt220 models, and xterm borrowed it, as a
-                        // more compact way to encode the control sequences.  When you see 0x9b, it means the same
-                        // exact thing as ESC [.
-                        int numConsumed;
-                        char ch = ConvertVT100InputCSI(inChars,index+1,out numConsumed);
-                        if (numConsumed > 0)
-                        {
-                            outChars.Add(ch);
-                            index += numConsumed;
-                        }
-                        break;
-                    case (char)(UnicodeCommand.RESIZESCREEN):
-                        outChars.Add(inChars[index]); // dummy passthrough - just trapped this to notice the new resize direction.
-                        break;
-                    default:
-                        outChars.Add(inChars[index]); // dummy passthrough
-                        break;
-                }
-            }            
-            return base.InputConvert(outChars.ToArray()); // See if the base class has any more mappings to do on top of these:
+            return base.InputConvert(inChars);
         }
-
     }
 }
