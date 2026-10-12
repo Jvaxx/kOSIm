@@ -40,6 +40,14 @@ namespace kOS.Safe.Serialization
         {
             var valueDumper = value as IDumper;
 
+            // Primitive structures became IDumpers so a bare scalar can be written to JSON
+            // (#2824). Type-less dumps are only used for terminal display, where a nested
+            // primitive must stay inline instead of printing as a ["value"] sub-dump.
+            // Typed dumps (JSON files, messages, saves) keep the wrapped form unchanged.
+            if (!includeType && IsPrimitiveStructure(value)) {
+                return Structure.ToPrimitive(value);
+            }
+
             if (valueDumper != null) {
                 return Dump(valueDumper, includeType);
             } else if (value is Dump) {

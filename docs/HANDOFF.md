@@ -2,22 +2,22 @@
 
 ## Resume here
 
-**NET-01/02 (telnet parsing, decoding, EOF and shutdown) is implemented, headless-tested and committed**, alongside BUFFER-01–04, EDIT-01/02 and IO-01–03. No unfinished edit is pending. Phase 0 remains partially complete: broader compatibility fixtures are missing.
+**NET-01/02 (telnet) and FMT-01 (the 3 former known test failures) are done.** BUFFER-01–04, EDIT-01/02, IO-01–03 and NET-01/02 are committed. FMT-01 is committed too. The headless suite is fully green (675/675) and the known-failure baseline is empty. Phase 0 remains partially complete: broader compatibility fixtures are missing.
 
-The user **deferred further Proton checks**. Continue local implementation/tests; do not deploy, terminate/restart the game, or request immediate game verification. No UI redesign, hosted testing/release automation, or push. Commit only when the user asks (they did for the checkpoint and NET-01/02 commits).
+The user **deferred further Proton checks**. Continue local implementation/tests; do not deploy, terminate/restart the game, or request immediate game verification. No UI redesign, hosted testing/release automation, or push. Commit only when the user asks.
 
 Suggested next tasks (all headless; confirm the choice with the user):
 
-1. Investigate the 3 known lexicon-formatting failures (`SafeSerializationMgr.DumpValue()`, `IDumper` before primitive handling). Fix or document; remove baseline entries only once they're fixed.
-2. Phase 0 compatibility fixtures: boot/flight scripts, character-grid dashboards, compiled KSM round-trips, and recorded telnet byte streams replayed through `TelnetInputParser`/`TelnetInputDispatcher`.
-3. Optional telnet follow-up: terminal mappers (`src/kOS/UserIO/Terminal*Mapper.cs`) still convert each read separately, so `\r\n` or `ESC [` split across reads is mishandled (pre-existing). This needs the mappers moved to `kOS.Safe` or given a stateful wrapper, plus tests.
-4. `INPUT-01` (focus/flight-control lock cleanup) is mostly Unity behavior. Design and test what's possible headlessly; real verification waits for Proton.
+1. Phase 0 compatibility fixtures: boot/flight scripts, character-grid dashboards, compiled KSM round-trips, and recorded telnet byte streams replayed through `TelnetInputParser`/`TelnetInputDispatcher`.
+2. Optional telnet follow-up: terminal mappers (`src/kOS/UserIO/Terminal*Mapper.cs`) still convert each read separately, so `\r\n` or `ESC [` split across reads is mishandled (pre-existing). This needs the mappers moved to `kOS.Safe` or given a stateful wrapper, plus tests.
+3. `INPUT-01` (focus/flight-control lock cleanup) is mostly Unity behavior. Design and test what's possible headlessly; real verification waits for Proton.
+Decided: the user chose to **leave the JSON format unchanged**. JSON from kOS 1.3+ wraps nested primitives as `{"value", "$type"}`; keep that for file compatibility.
 
 ## Workspace and constraints
 
 - Workspace: `/home/jvz/Projects/KOS-Improved`; branch `kosim/test-baseline`.
 - Base: `8f281a459b6ea0ba917c91bbbc117e68bb948199` (`fix element counting parts multiple times`), from upstream `develop`; origin remains <https://github.com/KSP-KOS/KOS>.
-- Local commits on `kosim/test-baseline` (not pushed; no fork): `Add local headless test tooling and baseline`, `Fix screen buffer overlay, dimension and cursor safety`, `Prevent editor data loss on open, focus and failed I/O`, `Make archive saves atomic and add raw byte file I/O`, `Add fork roadmap, handoff and agent instructions` (checkpoint of all earlier work), then the NET-01/02 commit. Use `git log`/`git status` rather than a stale inventory.
+- Local commits on `kosim/test-baseline` (not pushed; no fork): `Add local headless test tooling and baseline`, `Fix screen buffer overlay, dimension and cursor safety`, `Prevent editor data loss on open, focus and failed I/O`, `Make archive saves atomic and add raw byte file I/O`, `Add fork roadmap, handoff and agent instructions` (checkpoint of all earlier work), then the NET-01/02 commit (`a81609e1`) and the FMT-01 commit. Use `git log`/`git status` rather than a stale inventory.
 - Primary workflow: external editor + kerboscript LSP; terminal/telnet for execution/debugging. Order: tests → safety → incremental structure → QoL → UI.
 - Preserve character-grid semantics, KSM/save/craft compatibility, public mod APIs, safe network defaults and predictable flight-input ownership. Runtime stays `net48`; SDK 8 is tooling only. No incidental compiler/VM/steering changes or external-file autorun.
 - Local tests only. Upstream workflows are inactive under `.github/upstream-workflows/`; do not reactivate them.
@@ -37,6 +37,7 @@ Detailed evidence and deferred runtime checklists live in `docs/testing-and-buil
 | IO-03 | `ArchiveFileWriter` and Archive save integration (50 tests): exclusive same-directory `.kosim-save-<GUID>.tmp`, write/flush/close, then Replace existing / non-overwriting Move new; internal instance-local fault seam. | No delete/truncate fallback. Clean only owned temps; cleanup failure retains both errors/path. Interrupted saves can leave visible temps; no sweep. Native commit safety depends on runtime/filesystem; no power-loss durability, external-change detection or rollback after post-commit Open failure. Append/Clear/static archive root/link policy unchanged. |
 | IO-01/02 | User-approved **Preserve text APIs** policy: additive `ReadAllRaw`/`WriteRaw`/`SaveFileRaw`, script `READRAW`/`WRITERAW(FileContent)`; copy/move/helper/boot seeding route raw. 62 tests (`RawFileIoTest`, `LegacyNewlineTest`). | Built-in raw transfers preserve bytes; raw append is nontransactional. Legacy READALL/WRITE, UTF-8 replacement/BOM/type behavior retained; Windows CRLF conversion is idempotent. Legacy archive READALL still risks binary corruption: use raw APIs. Old/derived providers retain legacy hooks until opting into raw overrides; no universal byte-exact or precompiled-mod guarantee. Exact byte capacity can reject moves previously accepted via shortened text views. |
 | NET-01/02 | `kOS.Safe/UserIO`: `TelnetInputParser` (incremental RFC 854, persistent UTF-8 decoder, 1024-byte subnegotiation cap), `TelnetInputDispatcher` (text coalescing, break discard), `TelnetProtocol` (negotiation replies, NAWS clamping), `TelnetMenuText`, and `TelnetConnectionWorker` (background reader/writer, serialized writes, 5 s write timeout, cooperative idempotent shutdown with 1 s bounded join, no `Thread.Abort`). `TelnetSingletonServer` keeps its public API, and game-side stop/menu work runs in `MainThreadUpdate()`, called from `TelnetMainServer.Update()`. 83 tests (34 parser, 23 protocol, 5 dispatcher, 9 menu, 12 loopback-socket worker). | Intentional changes are listed in `docs/testing-and-build.md` (NET-01/02 section). Server, menu and mapper adapters are compiled but not tested. Mappers still work per read. A game-thread raw send to a stalled client can block for up to 5 s. Socket semantics have been checked only on Linux Mono; Unity/Proton telnet acceptance is deferred. |
+| FMT-01 | `SafeSerializationMgr.DumpValue()` returns nested primitives inline for type-less (display) dumps only. This fixes `PRINT`/`:DUMP` of lists and lexicons, which upstream has shown as `["value"] = …` since v1.3.0.0 (cause: commit `21dcea00`; seen in issue #2939). `PrimitiveDisplayTest` (7 tests). The 3 baseline failures are removed. | JSON/message/save formats are unchanged and pinned by a test. The in-game print has not been checked under Proton. |
 
 ## Latest verification and commands
 
@@ -50,21 +51,15 @@ bash .ci/test.sh
 dotnet build kOS.sln -c Release
 ```
 
-Latest implementation-session results (NET-01/02 session):
+Latest implementation-session results (FMT-01 session):
 
-- Baseline before changes: `bash .ci/test.sh` exit 0, 585 executed/582 passed/3 known failures.
-- Final: `bash .ci/test.sh` exit 0, **668 NUnit executed, 665 passed, 3 known failures, 0 skipped; 12 Python gate tests passed**. Gate minimum raised to 668. XML: `artifacts/tests/Release/nunit.xml` (ignored).
-- Flakiness: the `kOS.Safe.Test.UserIO` fixtures (83 tests) passed 25/25 repeated runs, and 8/8 with all 24 cores busy (`mono nunit-runner/nunit-console.exe kOS.Safe.Test.dll -run:kOS.Safe.Test.UserIO` from `src/kOS.Safe.Test/bin/Release/net48`).
-- Clean full build: `dotnet build kOS.sln -c Release --no-incremental` exit 0, **0 errors, 44 existing warnings** (none in telnet code). Outputs remain in repository `Resources/GameData/kOS`; not deployed.
-- Upstream scraper faults were confirmed by compiling the original `TelnetProtocolScrape` code into a temporary Mono harness (scratch only, not committed). No game, telnet client or Proton check was run.
+- Investigation: a temporary probe test (removed) showed the garbled display and the wrapped JSON at HEAD, and that pre-1.3 raw-primitive JSON still loads. Upstream history traced the behavior to `21dcea00` (#2824, a bare-scalar `WRITEJSON` fix). Issue #2939 shows the garbled output in a real game.
+- Final: `bash .ci/test.sh` exit 0, **675 NUnit executed, 675 passed, 0 known failures, 0 skipped; 12 Python gate tests passed**. Gate minimum 675; baseline `failures` is empty.
+- Mutation: with the fix disabled, 675 executed with 6 failures (the 3 original plus the 3 new display tests), gate exit 1. The JSON/compatibility tests passed both ways. Fix restored.
+- Clean full build: `dotnet build kOS.sln -c Release --no-incremental` exit 0, **0 errors, 44 existing warnings**. Not deployed.
+- NET-01/02 session (committed `a81609e1`): 668 executed/665 passed/3 known at the time. Telnet fixtures were stable over 25 repeated runs and 8 under full CPU load. Its details are in `docs/testing-and-build.md`.
 
-Three unchanged upstream lexicon-formatting failures (reproduced before edits; original baseline 302 executed/299 passed):
-
-1. `kOS.Safe.Test.Collections.LexiconTest.CanFormatNumericKeys`
-2. `kOS.Safe.Test.Collections.MixedCollectionPrintingTest.CanPrintListInLexicon`
-3. `kOS.Safe.Test.Serialization.TerminalFormatterTest.CanSerializeLexicons`
-
-They expect inline primitives, but dumps expand them; inspect `SafeSerializationMgr.DumpValue()` (`IDumper` before primitive handling) when investigating separately. No serialization fix made. Passing compilation or the known-failure gate is not a fully passing NUnit suite or Proton validation.
+Passing headless tests are not Proton validation.
 
 ## Runtime setup and deferred acceptance
 
@@ -77,6 +72,6 @@ They expect inline primitives, but dumps expand them; inspect `SafeSerialization
 
 ## Follow-on priorities
 
-See "Resume here" for the ordering: formatter failures, compatibility fixtures, the optional mapper follow-up, then `INPUT-01` and other small confirmed safety defects. Retain pending GUI/telnet equivalence, fixed communications overlay, multiple-viewer, focus/power/scene and native-resource checks; no systematic performance profile has run.
+See "Resume here" for the ordering: compatibility fixtures, the optional mapper follow-up, then `INPUT-01` and other small confirmed safety defects. Retain pending GUI/telnet equivalence, fixed communications overlay, multiple-viewer, focus/power/scene and native-resource checks; no systematic performance profile has run.
 
 Before major structural extraction, document screen/viewport coordinates, resize authority across viewers, input/thread ownership and explicit lifecycle/resource contracts. No wholesale rewrite or UI modernization yet.

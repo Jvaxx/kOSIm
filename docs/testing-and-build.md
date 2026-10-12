@@ -91,11 +91,17 @@ At upstream commit `8f281a459b6ea0ba917c91bbbc117e68bb948199`, the unchanged sui
 - `kOS.Safe.Test.Collections.MixedCollectionPrintingTest.CanPrintListInLexicon`
 - `kOS.Safe.Test.Serialization.TerminalFormatterTest.CanSerializeLexicons`
 
-They concern lexicon terminal formatting: primitive structures are expanded into nested value dumps instead of the inline representation expected by these assertions. `SafeSerializationMgr.DumpValue()` checks `IDumper` before primitive structure conversion. This is source-supported context, not a completed in-game diagnosis or a decision to change serialization.
+**All three are now fixed (FMT-01).** They exposed a real, user-visible upstream regression rather than stale expectations.
 
-The fork adds **13 character-grid compatibility tests**, **26 overlay regression tests**, **27 dimension regressions**, **23 cursor-read regressions**, **34 render-recovery regressions**, **48 editor document regressions**, **50 archive-save regressions**, **62 raw I/O/newline regressions**, and **83 telnet regressions**, so the current suite executes **668 tests: 665 passed, the same 3 failed, 0 skipped**. The local gate has **12 additional Python unit tests**.
+- **Cause.** Upstream commit `21dcea00` ("Fixes #2824", in every release since v1.3.0.0) made `PrimitiveStructure` an `IDumper` so `WRITEJSON` could accept a bare scalar. `SafeSerializationMgr.DumpValue()` checks `IDumper` before primitives, so nested numbers, strings and booleans became `{"value": …}` sub-dumps.
+- **Effect.** In terminal display (`PRINT` of a list or lexicon, and `:DUMP`, which use the type-less dump), every nested primitive printed as an empty `[i] = ` line followed by `["value"] = …`. KSP-KOS/KOS issue #2939 (May 2021) shows exactly this in real game output for a `GETMODULE` print.
+- **Fix.** Type-less dumps return nested primitives inline. Typed dumps are untouched: JSON files, inter-CPU/vessel messages and saved message queues keep the kOS 1.3+ wrapped format byte-for-byte. Every non-display caller already used `includeType = true`.
+- **Tests.** `PrimitiveDisplayTest` adds 7 regressions: inline list, module-field and nested-collection printing; a pinned JSON format; bare-scalar JSON (#2824); loading pre-1.3 raw-primitive JSON; and typed dumps keeping wrapped primitives. With the fix disabled as a temporary mutation, the 3 original tests and the 3 new display tests failed while the JSON and compatibility tests passed.
+- **Not checked.** The in-game terminal output has not been checked under Proton.
 
-`.ci/known-test-failures.json` records exact known failing names, expected assertion-message fragments, reasons, and the minimum current test count. **No test is ignored or filtered out.** The raw NUnit process still exits nonzero for these failures. The local regression gate tolerates only this recorded baseline and rejects:
+The fork adds **13 character-grid compatibility tests**, **26 overlay regression tests**, **27 dimension regressions**, **23 cursor-read regressions**, **34 render-recovery regressions**, **48 editor document regressions**, **50 archive-save regressions**, **62 raw I/O/newline regressions**, **83 telnet regressions**, and **7 display-formatting regressions**, so the current suite executes **675 tests: all 675 pass, 0 skipped**. The local gate has **12 additional Python unit tests**.
+
+`.ci/known-test-failures.json` records exact known failing names (currently none), expected assertion-message fragments, reasons, and the minimum current test count. **No test is ignored or filtered out.** The raw NUnit process exits nonzero for any failure. The local regression gate tolerates only the recorded baseline and rejects:
 
 - New failing tests or changed assertion messages for a known failure.
 - Errors, invalid/inconclusive/unexecuted tests, and inconsistent XML counters.
@@ -103,7 +109,7 @@ The fork adds **13 character-grid compatibility tests**, **26 overlay regression
 - A runner exit status inconsistent with the reported failures.
 - A formerly known failure that now passes, until investigated and removed from the baseline.
 
-A passing gate **does not mean the entire suite is green**. Known failures are printed locally and retained in `artifacts/tests/Release/nunit.xml` (ignored by Git). There are no report uploads or GitHub summaries. Resolve known failures in focused follow-ups; do not expand the baseline to silence regressions. Maintain the minimum count as tests are added; it detects count drops, not every substitution of one test for another.
+With an empty baseline, a passing gate now means every executed test passed. If known failures are ever recorded again, they are printed locally and retained in `artifacts/tests/Release/nunit.xml` (ignored by Git). There are no report uploads or GitHub summaries. Resolve known failures in focused follow-ups; do not expand the baseline to silence regressions. Maintain the minimum count as tests are added; it detects count drops, not every substitution of one test for another.
 
 The runner deletes the previous report before execution so a stale report cannot masquerade as a new run. Run the local suite after code/test-tooling changes and before considering work complete or publishing a build; record commands, counts, failures, and unperformed checks in `docs/HANDOFF.md`. Local-only testing relies on this discipline rather than a remote merge gate.
 

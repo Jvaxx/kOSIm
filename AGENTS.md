@@ -25,7 +25,7 @@
 ## Testing
 
 - Read `docs/testing-and-build.md` for setup and the baseline. Run `bash .ci/test.sh` for local headless checks; use `PYTHON=python` if needed.
-- The legacy NUnit suite has three recorded upstream lexicon-formatting failures. `.ci/known-test-failures.json` makes them visible without skipping tests. Do not expand it to hide regressions; remove entries only after investigating a fix, and maintain its minimum test count as coverage grows.
+- `.ci/known-test-failures.json` records known failing tests so they stay visible without being skipped. It is currently empty: the three upstream lexicon-formatting failures were fixed (see `docs/testing-and-build.md`). Do not expand it to hide regressions; remove entries only after investigating a fix, and maintain its minimum test count as coverage grows.
 - Compilation is not proof that tests ran. Report actual discovery/execution and outcomes.
 - Add regression coverage for fixes; use real terminal models where possible.
 - Local Linux/Mono headless tests are not Proton/Unity runtime validation. Run them before considering a change complete; record full-build and in-game Proton checks separately, including KSP and Proton versions and unperformed checks.

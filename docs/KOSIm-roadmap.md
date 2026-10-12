@@ -77,6 +77,8 @@ Ship small, independently reviewable changes with regression tests rather than b
 
 - `NET-01/02`: an incremental telnet parser with a persistent UTF-8 decoder, plus cooperative, bounded, idempotent session shutdown, are implemented in `kOS.Safe/UserIO` and wired into the existing server. Its public API is unchanged and game-side cleanup now runs on the game thread. Upstream option-byte leaks (Ctrl-X/Ctrl-C injected into input), IAC escape loss, split-read faults, the EOF spin and self-aborting shutdown were confirmed before the change (harness/code reading) and are covered by 83 headless regressions, including real loopback sockets. Full build passes. The server/menu adapters and Unity/Proton socket behavior are not runtime-tested; see [testing-and-build.md](testing-and-build.md) for the deferred checklist.
 
+- `FMT-01`: the 3 recorded "known" test failures were a real upstream display regression. Since v1.3.0.0, `PRINT`/`:DUMP` of lists and lexicons showed nested primitives as `["value"] = …` sub-dumps (upstream issue #2939 shows it in a game). Display dumps now keep primitives inline, and JSON/message/save formats are unchanged and pinned. The suite is fully green (675/675) and the known-failure baseline is empty. The user decided to keep the JSON format unchanged.
+
 ### Priorities
 
 - Continue focused local safety work. Archive byte/text policy, replacement, editor transactions, scoped render recovery and telnet parsing/shutdown are implemented/host-tested within documented limits; target-runtime acceptance remains deferred. Keep all pending GUI/editor/archive/raw I/O/boot/telnet checks until the user resumes Proton.
