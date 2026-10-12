@@ -17,6 +17,10 @@ namespace kOS.Safe.Screen
         bool VisualBeep {get; set;}
         Queue<char> CharInputQueue { get; }
         int TopRow {get;}
+        /// <summary>
+        /// Set the viewport size. ScreenBuffer keeps zero axes unchanged, clamps other
+        /// values to its model bounds, and notifies only when the effective size changes.
+        /// </summary>
         void SetSize(int rowCount, int columnCount);
         int ScrollVertical(int deltaRows);
         void MoveCursor(int row, int column);

@@ -118,6 +118,8 @@ namespace kOS.Screen
         public string TitleText {get; private set;}
 
         private IScreenSnapShot mostRecentScreen;
+        private readonly RenderFaultRecovery renderFaultRecovery = new RenderFaultRecovery();
+        private bool resizeFromFault;
         
         private DateTime lastBufferGet = DateTime.Now;
         private DateTime lastTelnetIncrementalRepaint = DateTime.Now;
@@ -325,7 +327,9 @@ namespace kOS.Screen
         {
             if (!IsOpen) return;
 
-            GetFontIfChanged(true);
+            // Keep font/geometry preparation before GUI.Window, but contain its failures
+            // so the callback can still offer fallback Close/Retry/Resize controls.
+            renderFaultRecovery.TryRender(RenderTimeSeconds(), PrepareTerminalRendering, CanRecoverRenderFault, ReportRenderFault);
 
             if (isLocked) ProcessKeyEvents();
             if (FlightResultsDialog.isDisplaying) return;
@@ -891,6 +895,84 @@ namespace kOS.Screen
 
         void TerminalGui(int windowId)
         {
+            Color previousColor = GUI.color;
+            GUISkin previousSkin = GUI.skin;
+            try
+            {
+                if (renderFaultRecovery.IsFaulted ||
+                    !renderFaultRecovery.TryRender(RenderTimeSeconds(), DrawTerminalGui, CanRecoverRenderFault, ReportRenderFault))
+                {
+                    GUI.color = color;
+                    GUI.skin = HighLogic.Skin;
+                    DrawRenderFaultFallback();
+                }
+            }
+            finally
+            {
+                GUI.color = previousColor;
+                GUI.skin = previousSkin;
+            }
+        }
+
+        private static double RenderTimeSeconds()
+        {
+            return (double)System.Diagnostics.Stopwatch.GetTimestamp() / System.Diagnostics.Stopwatch.Frequency;
+        }
+
+        private void PrepareTerminalRendering()
+        {
+            GetFontIfChanged(true);
+            if (shared.Screen.CharacterPixelWidth <= 0 || shared.Screen.CharacterPixelHeight <= 0)
+                throw new InvalidOperationException("Terminal character dimensions must be positive before rendering.");
+        }
+
+        private static bool CanRecoverRenderFault(Exception exception)
+        {
+            // ExitGUI is intentional Unity control flow, sometimes reflection-wrapped.
+            for (Exception current = exception; current != null; current = current.InnerException)
+            {
+                if (current is ExitGUIException) return false;
+                var aggregate = current as AggregateException;
+                if (aggregate != null)
+                    foreach (Exception inner in aggregate.InnerExceptions)
+                        if (!CanRecoverRenderFault(inner)) return false;
+            }
+            return true; // The safe gate additionally excludes fatal runtime exceptions.
+        }
+
+        private void ReportRenderFault(Exception exception, int suppressed)
+        {
+            // Do not print into the potentially faulty screen or append script-error history.
+            UnityEngine.Debug.LogError(string.Format("kOS: Terminal {0} display fault; {1} failed attempts suppressed. Retrying; CPU execution unchanged.", UniqueId, suppressed), this);
+            UnityEngine.Debug.LogException(exception, this);
+        }
+
+        private void DrawRenderFaultFallback()
+        {
+            GUI.Label(new Rect(15, 35, Math.Max(1, WindowRect.width - 30), Math.Max(1, WindowRect.height - 100)),
+                "Terminal display fault.\nSee KSP.log; retrying automatically.\nCPU execution is unchanged.");
+            if (GUI.Button(new Rect(15, WindowRect.height - 30, 65, 25), "Retry"))
+                renderFaultRecovery.RequestRetry();
+            closeButtonRect = new Rect(WindowRect.width - 75, WindowRect.height - 30, 50, 25);
+            if (GUI.Button(closeButtonRect, "Close"))
+            {
+                Close();
+                Event.current.Use();
+                return;
+            }
+            resizeButtonCoords = new Rect(WindowRect.width - 70, WindowRect.height - 65, 65, 25);
+            if (GUI.RepeatButton(resizeButtonCoords, "Resize") && !resizeMouseDown)
+            {
+                resizeMouseDown = true;
+                resizeOldSize = new Vector2(WindowRect.width, WindowRect.height);
+            }
+            fontGotResized = false;
+            CheckResizeDrag(false); // Pixel-only here; model resize belongs inside the guarded retry.
+            GUI.DragWindow();
+        }
+
+        private void DrawTerminalGui()
+        {
             if (!allTexturesFound)
             {
                 GUI.Label(new Rect(15, 15, 450, 300),
@@ -919,7 +1001,12 @@ namespace kOS.Screen
                 return;
             }
             IScreenBuffer screen = shared.Screen;
-            
+            if (resizeFromFault)
+            {
+                screen.SetSize(HowManyRowsFit(), HowManyColumnsFit());
+                resizeFromFault = false;
+            }
+
             GUI.Label(new Rect(15, 20, WindowRect.width-30, WindowRect.height-55), "", terminalImageStyle);
             GUI.color = color;
 
@@ -998,57 +1085,48 @@ namespace kOS.Screen
                 GUI.color = AdjustColor(textColor, screen.Brightness);
                 GUI.DrawTexture(new Rect(15, 20, WindowRect.width-30, WindowRect.height-55), Texture2D.whiteTexture, ScaleMode.ScaleAndCrop );
             }
-            terminalLetterSkin.label.normal.textColor = AdjustColor(reversingScreen ? bgColor : currentTextColor, screen.Brightness);            
+            Color previousTextColor = terminalLetterSkin.label.normal.textColor;
             GUI.BeginGroup(new Rect(28, 38, screen.ColumnCount * charWidth + 2, screen.RowCount * charHeight + 4)); // +4 so descenders and underscores visible on bottom row.
-
-            // When loading a quicksave, it is possible for the teminal window to update even though
-            // mostRecentScreen is null.  If that's the case, just skip the screen update.
-            if (mostRecentScreen != null)
+            try
             {
-                List<IScreenBufferLine> buffer = mostRecentScreen.Buffer; // just to keep the name shorter below:
+                terminalLetterSkin.label.normal.textColor = AdjustColor(reversingScreen ? bgColor : currentTextColor, screen.Brightness);
 
-                // Sometimes the buffer is shorter than the terminal height if the resize JUST happened in the last Update():
-                int rowsToPaint = Math.Min(screen.RowCount, buffer.Count);
-
-                for (int row = 0; row < rowsToPaint; ++row)
+                // A quicksave can leave the snapshot null. Capture one snapshot for both
+                // row content and cursor coordinates; live coordinates may already differ.
+                IScreenSnapShot snapshot = mostRecentScreen;
+                if (snapshot != null && snapshot.Buffer != null)
                 {
-                    // At first the screen is filled with null chars.  So if you do something like
-                    // PRINT "AAA" AT (4,0) you can get a row of the screen like so "\0\0\0\0AAA".
-                    // When the font renderer prints null chars, they don't advance the cursor
-                    // even in a monospoaced font (so "\0\0\0\0AAA" looks just like "AAA" instead
-                    // of looking like "    AAA" when printed).  The reason for the "cooking" of
-                    // the string below is to fix this problem:
-                    string lineString = buffer[row].ToString().Replace( '\0', ' ');
+                    List<IScreenBufferLine> buffer = snapshot.Buffer;
+                    int rowsToPaint = Math.Min(screen.RowCount, Math.Min(snapshot.RowCount, buffer.Count));
 
-                    GUI.Label(new Rect(0, (row * charHeight), WindowRect.width - 10, charHeight), lineString, terminalLetterSkin.label);
-                }
+                    for (int row = 0; row < rowsToPaint; ++row)
+                    {
+                        IScreenBufferLine line = buffer[row];
+                        if (line == null) continue; // Treat an unavailable row as blank.
+                        // Null cells must advance like spaces, matching PRINT AT semantics.
+                        string lineString = line.ToString().Replace('\0', ' ');
+                        GUI.Label(new Rect(0, (row * charHeight), WindowRect.width - 10, charHeight), lineString, terminalLetterSkin.label);
+                    }
 
-                int cursorRow = screen.CursorRowShow;
-                int cursorCol = screen.CursorColumnShow;
-
-                bool drawCursorThisTime =
-                    // Only if the cursor is in the "on" phase of its blink right now:
-                    cursorBlinkTime < 0.5f &&
-                    // Only if the cursor is within terminal bounds, to avoid throwing array bounds exceptions.
-                    // (Cursor can be temporarily out of bounds if the up-arrow recalled a long cmdline, or if
-                    // the terminal just got resized.)
-                    cursorRow < screen.RowCount && cursorRow < buffer.Count &&  cursorCol < buffer[cursorRow].Length &&
-                    // Only when the CPU has power
-                    IsPowered &&
-                    // Only when expecting input
-                    ShowCursor;
-
-                if (drawCursorThisTime)
-                {
-                    char ch = buffer[cursorRow][cursorCol];
-                    DrawCursorAt(ch, cursorCol, cursorRow, reversingScreen,
-                                         charWidth, charHeight, screen.Brightness);
+                    char ch;
+                    if (cursorBlinkTime < 0.5f && IsPowered && ShowCursor &&
+                        snapshot.TryGetCursorCharacter(screen.RowCount, screen.ColumnCount, out ch))
+                    {
+                        DrawCursorAt(ch, snapshot.CursorColumn, snapshot.CursorRow, reversingScreen,
+                                     charWidth, charHeight, screen.Brightness);
+                    }
                 }
             }
-            
-            GUI.EndGroup();
-            
-            GUI.color = color; // screen size label was never supposed to be in green like the terminal is:            
+            finally
+            {
+                // Always unwind the clipping stack, even if restoring style state fails.
+                try
+                {
+                    terminalLetterSkin.label.normal.textColor = previousTextColor;
+                    GUI.color = color;
+                }
+                finally { GUI.EndGroup(); }
+            }
 
             // Draw the rounded corner frame atop the chars field, so it covers the sqaure corners of the character zone
             // if they bleed over a bit.  Also, change which variant is used depending on focus:
@@ -1086,6 +1164,11 @@ namespace kOS.Screen
         
         protected void CheckResizeDrag()
         {
+            CheckResizeDrag(true);
+        }
+
+        private void CheckResizeDrag(bool updateScreenSize)
+        {
             if (Input.GetMouseButton(0) && !fontGotResized ) // mouse button is maybe dragging the frame
             {
                 if (resizeMouseDown) // and it's in the midst of a drag.
@@ -1109,26 +1192,41 @@ namespace kOS.Screen
                     // until the drag is done before trying to calculate this.
                     // The effect the user sees is that the text can float in space past the edge of the window (when
                     // shrinking the size) until the resize drag is done, and then it redraws itself.
-                    shared.Screen.SetSize(HowManyRowsFit(), HowManyColumnsFit());
+                    if (updateScreenSize)
+                        shared.Screen.SetSize(HowManyRowsFit(), HowManyColumnsFit());
+                    else
+                    {
+                        resizeFromFault = true;
+                        renderFaultRecovery.RequestRetry();
+                    }
                 }
             }
         }
         
         void DrawCursorAt(char ch, int x, int y, bool reversingScreen, int charWidth, int charHeight, double brightness)
         {
-            // To emulate inverting the screen character, draw a solid block, then the reversed character atop it:
-            // Solid Block:
+            // Draw the solid cursor block and inverted character inside one balanced group.
+            Color previousColor = GUI.color;
+            Color previousTextColor = terminalLetterSkin.label.normal.textColor;
             GUI.BeginGroup(new Rect((x * charWidth), (y * charHeight), charWidth, charHeight));
-            GUI.color = AdjustColor(reversingScreen ? bgColor : currentTextColor, brightness);
-            GUI.DrawTexture(new Rect(0, 0, charWidth, charHeight), Texture2D.whiteTexture, ScaleMode.StretchToFill, true);
-            GUI.EndGroup();
-            // Inverted Character atop it in the same position:
-            GUI.BeginGroup(new Rect((x * charWidth), (y * charHeight), charWidth, charHeight));
-            GUI.color = AdjustColor(reversingScreen ? currentTextColor : bgColor,
-                2*brightness /*it seems to need slightly higher alpha values to show up atop the solid block*/ );
-            terminalLetterSkin.label.normal.textColor = GUI.color;
-            GUI.Label(new Rect(0, 0, charWidth, charHeight), ch.ToString(), terminalLetterSkin.label);
-            GUI.EndGroup();
+            try
+            {
+                GUI.color = AdjustColor(reversingScreen ? bgColor : currentTextColor, brightness);
+                GUI.DrawTexture(new Rect(0, 0, charWidth, charHeight), Texture2D.whiteTexture, ScaleMode.StretchToFill, true);
+                GUI.color = AdjustColor(reversingScreen ? currentTextColor : bgColor,
+                    2*brightness /*it seems to need slightly higher alpha values to show up atop the solid block*/ );
+                terminalLetterSkin.label.normal.textColor = GUI.color;
+                GUI.Label(new Rect(0, 0, charWidth, charHeight), ch.ToString(), terminalLetterSkin.label);
+            }
+            finally
+            {
+                try
+                {
+                    terminalLetterSkin.label.normal.textColor = previousTextColor;
+                    GUI.color = previousColor;
+                }
+                finally { GUI.EndGroup(); }
+            }
         }
 
         public Rect GetRect()

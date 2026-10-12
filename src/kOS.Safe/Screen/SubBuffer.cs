@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -24,9 +25,15 @@ namespace kOS.Safe.Screen
         /// You can override this by setting this SubBuffer's WillTruncate property to true.
         /// </summary>
         /// <param name="rowCount">Requested new number of rows (only guaranteed to be obeyed if WillTruncate is true)</param>
-        /// <param name="columnCount">Desired new number of columns (this will be adhered to faithfully).</param>
+        /// <param name="columnCount">Desired positive number of columns (this will be adhered to faithfully).</param>
+        /// <exception cref="ArgumentOutOfRangeException">Negative row count or nonpositive column count. The overlay is left unchanged.</exception>
         public void SetSize(int rowCount, int columnCount)
         {
+            // Empty overlays are valid; zero-width rows cannot be wrapped safely.
+            // Reject before touching timestamps or replacing the current dimensions.
+            if (rowCount < 0) throw new ArgumentOutOfRangeException("rowCount");
+            if (columnCount < 1) throw new ArgumentOutOfRangeException("columnCount");
+
             foreach( IScreenBufferLine lineBuff in Buffer)
                 lineBuff.TouchTime();
             RowCount = rowCount;

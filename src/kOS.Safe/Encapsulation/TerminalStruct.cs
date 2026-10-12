@@ -15,9 +15,9 @@ namespace kOS.Safe.Encapsulation
         // They may have to change after experimentation.
         public static int MINROWS = 3;
 
-        public static int MAXROWS = 160;
+        public static int MAXROWS = ScreenBuffer.MAX_ROWS;
         public static int MINCOLUMNS = 15;
-        public static int MAXCOLUMNS = 255;
+        public static int MAXCOLUMNS = ScreenBuffer.MAX_COLUMNS;
 
         public static int MINCHARPIXELS = 4;
         public static int MAXCHARPIXELS = 48;

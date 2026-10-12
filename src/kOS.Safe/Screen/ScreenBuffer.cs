@@ -10,6 +10,11 @@ namespace kOS.Safe.Screen
     {
         private const int DEFAULT_ROWS = 36;
         private const int DEFAULT_COLUMNS = 50;
+
+        // Match the existing script-facing maxima, while allowing small model grids.
+        public const int MAX_ROWS = 160;
+        public const int MAX_COLUMNS = 255;
+
         private int topRow;
         private readonly List<IScreenBufferLine> buffer;
         private readonly List<SubBuffer> subBuffers;
@@ -90,11 +95,25 @@ namespace kOS.Safe.Screen
             Notifyees.Clear();
         }
 
+        /// <summary>
+        /// Zero leaves that axis unchanged (telnet's unspecified size). Other values
+        /// are clamped to [1, MAX_ROWS/MAX_COLUMNS] before allocation or notification.
+        /// An unchanged effective size does not rebuild rows or notify observers.
+        /// </summary>
         public void SetSize(int rows, int columns)
         {
+            rows = rows == 0 ? RowCount : Math.Max(1, Math.Min(rows, MAX_ROWS));
+            columns = columns == 0 ? ColumnCount : Math.Max(1, Math.Min(columns, MAX_COLUMNS));
+            if (rows == RowCount && columns == ColumnCount) return;
+
             RowCount = rows;
             ColumnCount = columns;
             ResizeBuffer();
+
+            // Output must remain writable after shrinking. Do not clamp negative row
+            // anchors: TextEditor uses them for input extending above the viewport.
+            CursorRow = Math.Min(CursorRow, RowCount - 1);
+            CursorColumn = Math.Max(0, Math.Min(CursorColumn, ColumnCount - 1));
             int scrollDiff = Notifyees
                 .Where(notifier => notifier != null)
                 .Sum(notifier => notifier(this));
@@ -260,26 +279,19 @@ namespace kOS.Safe.Screen
             UpdateSubBuffers();
             foreach (SubBuffer subBuffer in subBuffers)
             {
-                if (subBuffer.RowCount > 0 && subBuffer.Enabled)
-                {
-                    int mergeRow = subBuffer.Fixed ? subBuffer.PositionRow : (subBuffer.PositionRow - topRow);
+                if (!subBuffer.Enabled) continue;
 
-                    if ((mergeRow + subBuffer.RowCount) > 0 && mergeRow < RowCount)
-                    {
-                        int startRow = (mergeRow < 0) ? -mergeRow : 0;
-                        int rowsToMerge = subBuffer.RowCount - startRow;
-                        if ((mergeRow + rowsToMerge) > RowCount) rowsToMerge = (RowCount - mergeRow);
-                        List<IScreenBufferLine> bufferRange = subBuffer.Buffer.GetRange(startRow, rowsToMerge);
+                // Fixed overlays use viewport rows; others use absolute scrollback rows.
+                // Widen before subtracting/adding so extreme positions cannot wrap into view.
+                long mergeRow = subBuffer.Fixed ? subBuffer.PositionRow : (long)subBuffer.PositionRow - topRow;
+                int sourceRows = Math.Min(subBuffer.RowCount, subBuffer.Buffer.Count);
+                long firstRow = Math.Max(0L, mergeRow);
+                long endRow = Math.Min((long)mergedBuffer.Count, mergeRow + sourceRows);
 
-                        // Remove the replaced rows, but protect against the case where they didn't exist in
-                        // the first place because sizes just got changed in a window drag during the GUI pass:
-                        int mergeRowClamped = Math.Min(Math.Max(mergeRow, 0), mergedBuffer.Count - 1);
-                        int rowsToMergeClamped = Math.Min(Math.Max(rowsToMerge, 0), (mergedBuffer.Count - mergeRowClamped));
-                        mergedBuffer.RemoveRange(mergeRowClamped, rowsToMergeClamped);
-                        // Replace them:
-                        mergedBuffer.InsertRange(mergeRow, bufferRange);
-                    }
-                }
+                // Replace only the intersection. Keep the viewport height, row references,
+                // and registration-order layering unchanged; never mutate the base buffer.
+                for (long row = firstRow; row < endRow; ++row)
+                    mergedBuffer[(int)row] = subBuffer.Buffer[(int)(row - mergeRow)];
             }
 
             return mergedBuffer;
