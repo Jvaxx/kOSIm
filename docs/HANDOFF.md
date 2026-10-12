@@ -2,28 +2,20 @@
 
 ## Resume here
 
-**Phase 0 compatibility fixtures are done (the agreed task of the fixtures session).** BUFFER-01–04, EDIT-01/02, IO-01–03, NET-01/02 and FMT-01 were already committed. This session added headless fixtures:
+**NET-03 and EXEC-01 are fixed and committed** (the user asked for both, with regression tests). Phase 0's headless work was already complete; the suite is fully green (**735/735**) and the known-failure list is empty.
 
-- source/KSM output-equivalence scripts, including a CRLF boot file;
-- real-screen-model dashboard snapshots;
-- recorded telnet streams.
+- **NET-03** (fixture-found; not the review's queue-budget NET-03, which stays open): telnet terminal types shorter than 5 characters (`ANSI`, `VT52`, `VTNT`, `dumb`, empty) made `TerminalUnicodeMapper.GuessTypeId()` throw on the reader thread and end the session. Recognition moved to `src/kOS.Safe/UserIO/TerminalTypeNames.cs`; the game mapper delegates to it, so short types get the plain mapper.
+- **EXEC-01**: a `COMPILE` that failed at the prompt re-reported its error every update and blocked the prompt until reboot. `CPU.IsYielding()` now drops a yield whose check throws; `YiedFinishedThreadedDetector` reports once and keeps the original stack trace (`ExceptionDispatchInfo`).
 
-The suite is fully green (708/708) and the known-failure list is empty. Phase 0's headless work is complete. Saves, craft, real-KSP mod-API checks and in-game rendering/input stay as documented manual coverage.
+Details, tests and mutations are in `docs/testing-and-build.md` (sections "Short telnet terminal types" and "Failed COMPILE at the prompt").
 
 The user **deferred further Proton checks**. Continue local implementation/tests; do not deploy, terminate/restart the game, or request immediate game verification. No UI redesign, hosted testing/release automation, or push. Commit only when the user asks.
 
-**Waiting on the user:** the fixtures exposed two upstream defects, recorded but **not fixed** (the user asked to be consulted first):
-
-- **NET-03:** a telnet terminal type shorter than 5 characters (`ANSI`, `VT52`, `VTNT`, `dumb`, empty) makes `TerminalUnicodeMapper.GuessTypeId()` throw on the reader thread, which ends the session.
-- **EXEC-01:** a failing `COMPILE` typed at the prompt re-reports its error on every update, and the prompt stays blocked until reboot.
-
-Evidence and causes are in `docs/testing-and-build.md` ("Compatibility fixtures").
-
 Next tasks, in suggested order (confirm with the user):
 
-1. Decide on, then fix with regression tests, NET-03 (guard the mapper prefix checks; a `kOS.Safe` move would make it headlessly testable) and EXEC-01 (clear the failed threaded yield; keep the original stack trace).
-2. Optional telnet follow-up: terminal mappers (`src/kOS/UserIO/Terminal*Mapper.cs`) still convert each read separately, so `\r\n` or `ESC [` split across reads is mishandled (pre-existing). This needs the mappers moved to `kOS.Safe` or given a stateful wrapper, plus tests. Moving them would also let the recorded telnet streams run through the mappers.
-3. `INPUT-01` (focus/flight-control lock cleanup) is mostly Unity behavior. Design and test what's possible headlessly; real verification waits for Proton.
+1. Optional telnet follow-up: terminal mappers (`src/kOS/UserIO/Terminal*Mapper.cs`) still convert each read separately, so `\r\n` or `ESC [` split across reads is mishandled (pre-existing). This needs the mappers moved to `kOS.Safe` or given a stateful wrapper, plus tests. Moving them would also let the recorded telnet streams run through the mappers. Keep the public `kOS.UserIO` types (mods may reference them).
+2. `INPUT-01` (focus/flight-control lock cleanup) is mostly Unity behavior. Design and test what's possible headlessly; real verification waits for Proton.
+3. Review NET-03 (queue budgets/backpressure for large pastes and stalled clients) from `docs/improvements-overview.md`; NET-01/02 did not bound the queues.
 4. When convenient, replace the reconstructed PuTTY and Windows telnet recordings with live captures (`src/kOS.Safe.Test/UserIO/Recordings/`).
 
 Decided: the user chose to **leave the JSON format unchanged**. JSON from kOS 1.3+ wraps nested primitives as `{"value", "$type"}`; keep that for file compatibility.
@@ -32,7 +24,7 @@ Decided: the user chose to **leave the JSON format unchanged**. JSON from kOS 1.
 
 - Workspace: `/home/jvz/Projects/KOS-Improved`; branch `kosim/test-baseline`.
 - Base: `8f281a459b6ea0ba917c91bbbc117e68bb948199` (`fix element counting parts multiple times`), from upstream `develop`; origin remains <https://github.com/KSP-KOS/KOS>.
-- Local commits on `kosim/test-baseline` (not pushed; no fork): `Add local headless test tooling and baseline`, `Fix screen buffer overlay, dimension and cursor safety`, `Prevent editor data loss on open, focus and failed I/O`, `Make archive saves atomic and add raw byte file I/O`, `Add fork roadmap, handoff and agent instructions` (checkpoint of all earlier work), then the NET-01/02 commit (`a81609e1`), the FMT-01 commit (`1dc22449`) and the compatibility-fixtures commit. Use `git log`/`git status` rather than a stale inventory.
+- Local commits on `kosim/test-baseline` (not pushed; no fork): `Add local headless test tooling and baseline`, `Fix screen buffer overlay, dimension and cursor safety`, `Prevent editor data loss on open, focus and failed I/O`, `Make archive saves atomic and add raw byte file I/O`, `Add fork roadmap, handoff and agent instructions` (checkpoint of all earlier work), then the NET-01/02 commit (`a81609e1`), the FMT-01 commit (`1dc22449`), the compatibility-fixtures commit (`38effa23`) and the NET-03/EXEC-01 commit. Use `git log`/`git status` rather than a stale inventory.
 - Primary workflow: external editor + kerboscript LSP; terminal/telnet for execution/debugging. Order: tests → safety → incremental structure → QoL → UI.
 - Preserve character-grid semantics, KSM/save/craft compatibility, public mod APIs, safe network defaults and predictable flight-input ownership. Runtime stays `net48`; SDK 8 is tooling only. No incidental compiler/VM/steering changes or external-file autorun.
 - Local tests only. Upstream workflows are inactive under `.github/upstream-workflows/`; do not reactivate them.
@@ -54,6 +46,7 @@ Detailed evidence and deferred runtime checklists live in `docs/testing-and-buil
 | NET-01/02 | `kOS.Safe/UserIO`: `TelnetInputParser` (incremental RFC 854, persistent UTF-8 decoder, 1024-byte subnegotiation cap), `TelnetInputDispatcher` (text coalescing, break discard), `TelnetProtocol` (negotiation replies, NAWS clamping), `TelnetMenuText`, and `TelnetConnectionWorker` (background reader/writer, serialized writes, 5 s write timeout, cooperative idempotent shutdown with 1 s bounded join, no `Thread.Abort`). `TelnetSingletonServer` keeps its public API, and game-side stop/menu work runs in `MainThreadUpdate()`, called from `TelnetMainServer.Update()`. 83 tests (34 parser, 23 protocol, 5 dispatcher, 9 menu, 12 loopback-socket worker). | Intentional changes are listed in `docs/testing-and-build.md` (NET-01/02 section). Server, menu and mapper adapters are compiled but not tested. Mappers still work per read. A game-thread raw send to a stalled client can block for up to 5 s. Socket semantics have been checked only on Linux Mono; Unity/Proton telnet acceptance is deferred. |
 | FMT-01 | `SafeSerializationMgr.DumpValue()` returns nested primitives inline for type-less (display) dumps only. This fixes `PRINT`/`:DUMP` of lists and lexicons, which upstream has shown as `["value"] = …` since v1.3.0.0 (cause: commit `21dcea00`; seen in issue #2939). `PrimitiveDisplayTest` (7 tests). The 3 baseline failures are removed. | JSON/message/save formats are unchanged and pinned by a test. The in-game print has not been checked under Proton. |
 | Compatibility fixtures | `ScriptHost` (real `TextEditor` prompt, CPU, compiler and screen model; disposable archive) with test adapters `FixtureInterpreter` (copy of the game `Interpreter`, keep in step), `FixtureBindingManager` (`TERMINAL`), `FixtureFunctionClearScreen`, `RecordingLogger`. `ScriptFixtureTest` (19: printing, functions, triggers, fileio from source and KSM in both newline modes; CRLF boot; KSM category), `DashboardFixtureTest` (1 test, 15 snapshots), `TelnetRecordingTest` (13). Fixtures in `kerboscript_tests/fixtures/` (expected in `expected/`), recordings in `src/kOS.Safe.Test/UserIO/Recordings/`. Re-record with `KOSIM_RECORD_FIXTURES=1`. | Model of the terminal, not in-game rendering. Game key routing, mappers and telnet server are untested. PuTTY/Windows telnet streams are reconstructed, not captured. `boot_crlf.ks` is `-text` in `.gitattributes`. |
+| NET-03 / EXEC-01 | `TerminalTypeNames` (kOS.Safe) used by `TerminalUnicodeMapper.GuessTypeId()`; `TerminalTypeNamesTest` (23). `CPU.IsYielding()` drops a yield whose check throws; `YiedFinishedThreadedDetector` reports once with the original trace; `CompileErrorTest` (4, real prompt). | Results unchanged for every type string upstream handled; bare `vt10` now VT100; ordinal matching. ANSI mapping still unimplemented. Ctrl-C at the prompt still cannot cancel a running `COMPILE` (code reading). Neither fix checked with a real client or in game. |
 
 ## Latest verification and commands
 
@@ -67,7 +60,14 @@ bash .ci/test.sh
 dotnet build kOS.sln -c Release
 ```
 
-Latest session results (compatibility fixtures, 2026-10-12):
+Latest session results (NET-03/EXEC-01, 2026-10-12):
+
+- Baseline at session start: 708/708 (previous session).
+- Final: `bash .ci/test.sh` exit 0, **735 NUnit executed, 735 passed, 0 known failures, 0 skipped**; 5 further consecutive runs all 735/735. Gate minimum raised to 735; `failures` still empty.
+- Mutations, each reverted: both EXEC-01 production changes reverted → the 3 `COMPILE` tests timed out (about 20,000 repeated errors each), `RUNPATH` test passed; detector using `throw error` → only the stack-trace test failed; `Substring` checks restored in `TerminalTypeNames` → 11 tests errored.
+- Clean full build: `dotnet build kOS.sln -c Release --no-incremental` exit 0, **0 errors, 44 existing warnings**. Not deployed; no game launched.
+
+Previous session (compatibility fixtures, 2026-10-12):
 
 - Baseline at session start: `bash .ci/test.sh` exit 0, 675/675.
 - Final: `bash .ci/test.sh` exit 0, **708 NUnit executed, 708 passed, 0 known failures, 0 skipped; 12 Python gate tests passed**. Gate minimum raised to 708; `failures` still empty.
@@ -96,10 +96,10 @@ Passing headless tests are not Proton validation.
 - Protect `/home/jvz/.local/share/Steam/steamapps/common/Kerbal Space Program/`, Steam settings and original prefix. No deployment there or personal-save imports; proprietary assemblies/dev tree stay outside git.
 - Dev GameData has stock assets plus **the earlier overlay-only kOSIM build**. ModuleManager is absent; patches inactive. All subsequent builds are repository-only. Recheck live processes before any future deployment; previous game-running state/PIDs are not reliable across sessions.
 - First isolated launch succeeded and loaded kOS. User-guided long-input/resize smoke confirmed responsiveness, cursor/text alignment and command output; inspected log had no matching range/GUI-clip exceptions. Existing `kOS: ipu: -1` error logging and a DontDestroyOnLoad warning were observed, not investigated. This is limited overlay smoke evidence, not comprehensive runtime validation.
-- **All newer Unity/Proton acceptance remains deferred.** When the user resumes, safely close/verify exit before complete-assets deployment and restart with the unchanged isolated launcher. Use disposable files/save only and follow the checklists in `docs/testing-and-build.md`: dimensions/cursor/render-fault cleanup and retry controls; editor modal/save-discard-cancel/failure behavior; real archive Replace/Move/locks/permissions/metadata; raw suffixes/transfers, legacy text, new-disk boot and actual source/KSM execution/provider hooks. Also the NET-01/02 telnet checklist: real clients, non-ASCII, resize extremes, interrupt, detach/close/kill, disabling telnet, scene change/quit, stalled client. Headless managed Windows-flag tests and compile/pack/unpack do not verify those paths. No power-loss/full-disk experiment without explicit planning.
+- **All newer Unity/Proton acceptance remains deferred.** When the user resumes, safely close/verify exit before complete-assets deployment and restart with the unchanged isolated launcher. Use disposable files/save only and follow the checklists in `docs/testing-and-build.md`: dimensions/cursor/render-fault cleanup and retry controls; editor modal/save-discard-cancel/failure behavior; real archive Replace/Move/locks/permissions/metadata; raw suffixes/transfers, legacy text, new-disk boot and actual source/KSM execution/provider hooks. Also the NET-01/02 telnet checklist: real clients, non-ASCII, resize extremes, interrupt, detach/close/kill, disabling telnet, scene change/quit, stalled client; a client reporting `ANSI` stays connected (NET-03); a failing `COMPILE` at the prompt reports once and frees the prompt (EXEC-01). Headless managed Windows-flag tests and compile/pack/unpack do not verify those paths. No power-loss/full-disk experiment without explicit planning.
 
 ## Follow-on priorities
 
-See "Resume here" for the ordering: the NET-03/EXEC-01 decision, the optional mapper follow-up, then `INPUT-01` and other small confirmed safety defects. Retain pending GUI/telnet equivalence, fixed communications overlay, multiple-viewer, focus/power/scene and native-resource checks; no systematic performance profile has run.
+See "Resume here" for the ordering: the optional mapper follow-up, then `INPUT-01` and other small confirmed safety defects. Retain pending GUI/telnet equivalence, fixed communications overlay, multiple-viewer, focus/power/scene and native-resource checks; no systematic performance profile has run.
 
 Before major structural extraction, document screen/viewport coordinates, resize authority across viewers, input/thread ownership and explicit lifecycle/resource contracts. No wholesale rewrite or UI modernization yet.

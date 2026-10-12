@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 
 namespace kOS.Safe.Execution
@@ -32,6 +33,8 @@ namespace kOS.Safe.Execution
 
         public override bool IsFinished()
         {
+            if (childThread == null)
+                return true; // Already finished, or already reported its error.
             if (childThreadEvent.WaitOne(0))
             {
                 childThread.Join();
@@ -57,7 +60,12 @@ namespace kOS.Safe.Execution
                     // in normal code.  It's important to break execution to ensure the
                     // instruction pointer skips the current opcode that throws the exception.
                     shared.Cpu.BreakExecution(false);
-                    throw childException;
+                    Exception error = childException;
+                    childException = null;
+                    childThread = null;
+                    // Rethrow with the stack trace from where it was first thrown, on the child
+                    // thread or in ThreadFinish():
+                    ExceptionDispatchInfo.Capture(error).Throw();
                 }
                 childThread = null;
                 return true;

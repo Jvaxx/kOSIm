@@ -605,7 +605,19 @@ namespace kOS.Safe.Execution
                 if (yielder.priority >= CurrentPriority)
                 {
                     YieldFinishedDetector detector = yielder.detector;
-                    if (detector.creationTimeStamp != currentTime && detector.IsFinished())
+                    bool finished;
+                    try
+                    {
+                        finished = detector.creationTimeStamp != currentTime && detector.IsFinished();
+                    }
+                    catch (Exception)
+                    {
+                        // A yield whose check failed is over: drop it so its error is reported
+                        // once, instead of on every update with the CPU stuck behind it (EXEC-01).
+                        yields.RemoveAt(i);
+                        throw;
+                    }
+                    if (finished)
                         yields.RemoveAt(i);
                     else
                         ++numStillBlocking;

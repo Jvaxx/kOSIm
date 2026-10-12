@@ -99,7 +99,7 @@ At upstream commit `8f281a459b6ea0ba917c91bbbc117e68bb948199`, the unchanged sui
 - **Tests.** `PrimitiveDisplayTest` adds 7 regressions: inline list, module-field and nested-collection printing; a pinned JSON format; bare-scalar JSON (#2824); loading pre-1.3 raw-primitive JSON; and typed dumps keeping wrapped primitives. With the fix disabled as a temporary mutation, the 3 original tests and the 3 new display tests failed while the JSON and compatibility tests passed.
 - **Not checked.** The in-game terminal output has not been checked under Proton.
 
-The fork adds **13 character-grid compatibility tests**, **26 overlay regression tests**, **27 dimension regressions**, **23 cursor-read regressions**, **34 render-recovery regressions**, **48 editor document regressions**, **50 archive-save regressions**, **62 raw I/O/newline regressions**, **83 telnet regressions**, **7 display-formatting regressions**, and **33 compatibility-fixture tests**, so the current suite executes **708 tests: all 708 pass, 0 skipped**. The local gate has **12 additional Python unit tests**.
+The fork adds **13 character-grid compatibility tests**, **26 overlay regression tests**, **27 dimension regressions**, **23 cursor-read regressions**, **34 render-recovery regressions**, **48 editor document regressions**, **50 archive-save regressions**, **62 raw I/O/newline regressions**, **83 telnet regressions**, **7 display-formatting regressions**, **33 compatibility-fixture tests**, **23 terminal-type regressions** (NET-03) and **4 compile-error regressions** (EXEC-01), so the current suite executes **735 tests: all 735 pass, 0 skipped**. The local gate has **12 additional Python unit tests**.
 
 `.ci/known-test-failures.json` records exact known failing names (currently none), expected assertion-message fragments, reasons, and the minimum current test count. **No test is ignored or filtered out.** The raw NUnit process exits nonzero for any failure. The local regression gate tolerates only the recorded baseline and rejects:
 
@@ -209,7 +209,7 @@ Each recording is replayed as recorded, at every split point inside each read, b
 - Stability: the 33 fixture tests passed 15 consecutive runs, and 8 more with every core busy. Script fixtures wait for the background compile thread with 1 ms sleeps, bounded by the update limit.
 - Full gate: 708 executed, 708 passed.
 
-**Defects found (recorded, not fixed; awaiting a decision):**
+**Defects found** (both since fixed; see the next two sections):
 
 - **NET-03, short telnet terminal types.** `TerminalUnicodeMapper.GuessTypeId()` calls `Substring(0,5)` and `Substring(0,4)`, so any terminal type shorter than 5 characters throws `ArgumentOutOfRangeException`. That includes `ANSI` (Microsoft Telnet's first answer), `VT52`, `VTNT`, `dumb` and the empty string. The exception happens in `ClientTerminalType`'s setter on the reader thread, and with NET-01/02 a worker fault closes the session. The unchanged mapper files, compiled into a scratch Mono probe, threw for all five strings, while `XTERM`, `xterm-256color` and `VT100` mapped normally. This is upstream code, and the parser and dispatcher deliver `ANSI` correctly (see the Windows trace). It was not reproduced with a real Windows client or in the game.
 - **EXEC-01, repeating compile error at the prompt.** When `COMPILE` is typed at the prompt on a file with a syntax error (or any other compile-thread failure), the CPU reports the error **on every update**. Headless: 198 errors in 200 updates. Ctrl-C does not stop it, and the prompt never runs another command until reboot. Cause: `YiedFinishedThreadedDetector.IsFinished()` rethrows the stored exception without clearing it, and the yield stays in the CPU's list, because `BreakExecution(false)` only aborts yields when a program context exists. `COMPILE` yields from the interpreter context (`RUNPATH`/`RUN` push a program context and are not affected). `throw childException` also discards the original stack trace. This is upstream code unchanged since 2017. The in-game flood is inferred from the game logger printing each error, not observed.
@@ -224,6 +224,34 @@ Each recording is replayed as recorded, at every split point inside each read, b
 - Fonts and rendering of these dashboards in the Unity window.
 
 These stay on the Proton checklist. A fixture is a model of the terminal, not proof of in-game rendering.
+
+### Short telnet terminal types (NET-03, fixture-found)
+
+This NET-03 label comes from the fixtures. It is not the review's NET-03 (queue budgets and backpressure in `improvements-overview.md`), which is still open.
+
+**Fix.** The prefix checks moved into `kOS.Safe.UserIO.TerminalTypeNames` (`IsXterm`, `IsVT100`), which use `StartsWith(…, OrdinalIgnoreCase)` and accept `null`. `TerminalUnicodeMapper.GuessTypeId()` calls them, so its signature and results are unchanged for every string upstream handled. Short types such as `ANSI`, `VT52`, `VTNT`, `dumb` and the empty string now get the plain `TerminalUnicodeMapper`, as any other unknown type does. A bare `vt10` is now VT100 (upstream threw). Matching is ordinal rather than current-culture; the prefixes contain no culture-sensitive letters. `ANSI` mapping is still not implemented (`TerminalAnsiMapper` is unused, as upstream).
+
+**Tests.** `TerminalTypeNamesTest` (23): short, empty and null types; known types against the upstream algorithm, kept as an oracle; 2000 seeded strings (seed 3103) agreeing with upstream wherever upstream did not throw. Mutation: restoring the `Substring` checks failed 11 tests.
+
+**Limits.** The game mapper and `TelnetSingletonServer` are compiled, not tested. A Windows telnet client has not been run against kOS; on the Proton checklist, connect with a client that reports `ANSI` and confirm the session stays open.
+
+### Failed COMPILE at the prompt (EXEC-01, fixture-found)
+
+**Fix.**
+
+- `CPU.IsYielding()` removes a yield whose `IsFinished()` throws, then rethrows (`throw;`). Any detector that fails is reported once, rather than every update.
+- `YiedFinishedThreadedDetector.IsFinished()` clears its stored exception and thread before rethrowing, returns `true` afterwards, and rethrows with `ExceptionDispatchInfo`, so the logged trace still shows where the compile failed (`ThreadExecute`/`ThreadFinish`).
+
+Error text, exception types and the existing `BreakExecution(false)` call are unchanged. `RUNPATH`/`RUN` already removed the yield through the program context's abort and behave as before.
+
+**Tests.** `CompileErrorTest` (4, real prompt through `ScriptHost`): a failed `COMPILE` reports one error, 200 more updates add none, the next command runs and no KSM is written; a later `COMPILE` and run of a valid file work; the logged trace contains `ThreadExecute`; a failing `RUNPATH` still reports once.
+
+Mutations, each reverted:
+
+- With both production changes reverted, the three `COMPILE` tests timed out with about 20,000 errors each. The `RUNPATH` test passed.
+- With the CPU change kept and the detector using `throw error`, only the stack-trace test failed.
+
+**Limits.** Not checked in game. Ctrl-C at the prompt still does not cancel a `COMPILE` that is running (upstream behavior, from code reading: a manual break at the interpreter does not abort yields).
 
 ### Telnet input parsing and session lifecycle (NET-01/02)
 

@@ -55,7 +55,7 @@ This is an agreed direction, not a claim that builds, tests, reproductions, or i
 
 ### Status
 
-**Headless work complete.** The local build/test commands, gate and baseline are in place. The suite is fully green (708/708) with an empty known-failure list. The dev instance and its isolated Proton launcher are defined and smoke-tested.
+**Headless work complete.** The local build/test commands, gate and baseline are in place. The suite is fully green (735/735 after the NET-03/EXEC-01 fixes) with an empty known-failure list. The dev instance and its isolated Proton launcher are defined and smoke-tested.
 
 Compatibility fixtures now cover these headlessly (details in [testing-and-build.md](testing-and-build.md#compatibility-fixtures-phase-0)):
 
@@ -70,7 +70,7 @@ Still manual, on the Proton checklist:
 - In-game input routing, rendering and fonts.
 - Terminal mappers and the telnet server with real clients.
 
-The fixtures exposed two upstream defects, NET-03 and EXEC-01 (see Phase 1). They are recorded and await a decision.
+The fixtures exposed two upstream defects, NET-03 and EXEC-01 (see Phase 1). Both are now fixed with regression tests.
 
 ### Exit criterion
 
@@ -98,10 +98,13 @@ Ship small, independently reviewable changes with regression tests rather than b
 
 - `FMT-01`: the 3 recorded "known" test failures were a real upstream display regression. Since v1.3.0.0, `PRINT`/`:DUMP` of lists and lexicons showed nested primitives as `["value"] = …` sub-dumps (upstream issue #2939 shows it in a game). Display dumps now keep primitives inline, and JSON/message/save formats are unchanged and pinned. The suite is fully green (675/675) and the known-failure baseline is empty. The user decided to keep the JSON format unchanged.
 
+- `NET-03` (fixture-found): telnet terminal types shorter than 5 characters (Microsoft Telnet's `ANSI`, `VT52`, `dumb`, empty) made the mapper factory throw on the reader thread and end the session. Type recognition moved to `kOS.Safe.UserIO.TerminalTypeNames`, which the game mapper calls; such types now get the plain mapper. 23 headless tests. Not checked with a real Windows client. This label is separate from the review's NET-03 (queue budgets/backpressure), which remains open.
+
+- `EXEC-01` (fixture-found): a `COMPILE` that failed at the prompt re-reported its error on every update and blocked the prompt until reboot. The CPU now drops a yield whose check throws, and the threaded detector reports its error once, with the original stack trace. 4 headless tests on the real prompt. Not checked in game.
+
 ### Priorities
 
 - Continue focused local safety work. Archive byte/text policy, replacement, editor transactions, scoped render recovery and telnet parsing/shutdown are implemented/host-tested within documented limits; target-runtime acceptance remains deferred. Keep all pending GUI/editor/archive/raw I/O/boot/telnet checks until the user resumes Proton.
-- Fixture-found defects awaiting a decision: `NET-03` (telnet terminal types shorter than 5 characters, e.g. Microsoft Telnet's `ANSI`, make the mapper factory throw and end the session) and `EXEC-01` (a failing `COMPILE` typed at the prompt re-reports its error every update and blocks the prompt until reboot).
 - Focus and flight-control lock cleanup during hide, close, destruction, power loss, and scene changes (`INPUT-01`).
 - Other contained, confirmed defects such as port-field capacity and widget selection/callback behavior, when adequately testable.
 

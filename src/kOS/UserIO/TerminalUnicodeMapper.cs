@@ -58,10 +58,11 @@ namespace kOS.UserIO
 
         public static TerminalType GuessTypeId(string typeString)
         {
-            if (typeString.Substring(0,5).Equals("xterm", StringComparison.CurrentCultureIgnoreCase))
+            // Short names like "ANSI" or "dumb" must not throw (NET-03):
+            if (TerminalTypeNames.IsXterm(typeString))
                 return TerminalType.XTERM;
             // This should catch either vt100 or vt102:
-            if (typeString.Substring(0,4).Equals("vt10", StringComparison.CurrentCultureIgnoreCase))
+            if (TerminalTypeNames.IsVT100(typeString))
                 return TerminalType.VT100;
 
                 //
