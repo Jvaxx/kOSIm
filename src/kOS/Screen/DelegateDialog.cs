@@ -1,4 +1,7 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using kOS.Safe.Exceptions;
 using UnityEngine;
 
 namespace kOS.Screen
@@ -21,8 +24,41 @@ namespace kOS.Screen
         private List<string>       options;
         private List<DialogAction> actions;
         private bool               invoked;
+        private string             error = "";
+
+        public bool IsInvoked { get { return invoked; } }
+
+        public void Dismiss()
+        {
+            invoked = false;
+            error = "";
+        }
         
         
+        internal static bool CanDisplayFileError(Exception exception)
+        {
+            return (exception is KOSPersistenceException || exception is IOException || exception is UnauthorizedAccessException)
+                && !ContainsFatalOrGuiExit(exception);
+        }
+
+        private static bool ContainsFatalOrGuiExit(Exception exception)
+        {
+            // Volume implementations may wrap errors. Never turn fatal/GUI-exit branches
+            // into an apparently retryable file failure, including aggregate branches.
+            for (Exception current = exception; current != null; current = current.InnerException)
+            {
+                if (current is ExitGUIException || current is OutOfMemoryException || current is StackOverflowException ||
+                    current is AccessViolationException || current is System.Threading.ThreadAbortException ||
+                    current is AppDomainUnloadedException)
+                    return true;
+                var aggregate = current as AggregateException;
+                if (aggregate != null)
+                    foreach (Exception inner in aggregate.InnerExceptions)
+                        if (ContainsFatalOrGuiExit(inner)) return true;
+            }
+            return false;
+        }
+
         public void Invoke(KOSTextEditPopup parent, string message, List<string> options, List<DialogAction> actions )
         {
             this.parent = parent;
@@ -30,12 +66,13 @@ namespace kOS.Screen
             this.message = message;
             this.options = options;
             this.actions = actions;
+            error = "";
             invoked = true;
         }
         
         public void OnGUI()
         {
-            if (invoked)
+            if (invoked && parent.IsOpen)
             {
                 float guessWidth = GUI.skin.label.CalcSize( new GUIContent(message) ).x;
                 GUILayout.Window( parent.GetUniqueId()+1, new Rect( parent.GetRect().xMin+200,
@@ -50,14 +87,25 @@ namespace kOS.Screen
             if (invoked)
             {
                 GUILayout.Label( message );
+                if (error.Length > 0) GUILayout.Label(error);
                 for (int bNum = 0 ; bNum < options.Count ; bNum++)
                 {
                     if (GUILayout.Button( options[bNum]))
                     {
-                        actions[bNum](parent);
-                        invoked = false;
-                        parent.Freeze(false);
-                        GUI.FocusWindow(parent.GetUniqueId());
+                        try
+                        {
+                            actions[bNum](parent);
+                            Dismiss();
+                            parent.Freeze(false);
+                            if (parent.IsOpen) GUI.FocusWindow(parent.GetUniqueId());
+                        }
+                        catch (Exception ex) when (CanDisplayFileError(ex))
+                        {
+                            // Leave the transaction and choices intact for retry/discard/cancel.
+                            // Fatal errors and Unity GUI-exit control flow are not intercepted.
+                            error = ex.Message;
+                        }
+                        break;
                     }
                 }
             }

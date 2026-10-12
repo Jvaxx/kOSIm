@@ -1,9 +1,9 @@
 using kOS.Safe.Encapsulation;
 using kOS.Safe.Persistence;
+using EditorDocument = kOS.Safe.Screen.EditorDocument;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using kOS.Safe.Exceptions;
 using kOS.Safe.Utilities;
 using kOS.Module;
 
@@ -37,14 +37,17 @@ namespace kOS.Screen
         private Rect reloadCoords;
         private Rect resizeButtonCoords;
         private TermWindow term; // The terminal that this popup is attached to.
-        private GlobalPath loadingPath;
-        private Volume volume;
-        private Volume loadingVolume;
-        private string contents = "";
+        private readonly EditorDocument document = new EditorDocument();
+        private string contents
+        {
+            get { return document.Contents; }
+            set { document.Contents = value; }
+        }
         private Texture2D resizeImage;
         private bool resizeMouseDown;
         private Vector2 resizeOldSize; // width and height it had when the mouse button went down on the resize button.
-        private bool isDirty; // have any edits occurred since last load or save?
+        private bool isDirty { get { return document.IsDirty; } }
+        private bool InteractionFrozen { get { return frozen || (dialog != null && dialog.IsInvoked); } }
         private bool frozen;
         private DelegateDialog dialog;
         private Vector2 scrollPosition; // tracks where within the text box it's scrolled to.
@@ -107,9 +110,6 @@ namespace kOS.Screen
         {
             term = termWindow;
             WindowRect = new Rect(0, 0, 470, 280); // will be resized and moved in onGUI.
-            frozen = false;
-            loadingVolume = attachVolume;
-            loadingPath = path;
             LoadContents(attachVolume, path);
         }
 
@@ -130,14 +130,15 @@ namespace kOS.Screen
 
         public override void Open()
         {
-            isDirty = false;
+            // View operations never reset document state or resolve a modal transaction.
             base.Open();
             BringToFront();
         }
 
         public override void Close()
         {
-            isDirty = false;
+            document.CancelOpen();
+            if (dialog != null) dialog.Dismiss();
             base.Close();
         }
 
@@ -190,41 +191,52 @@ namespace kOS.Screen
 
         public void SaveContents()
         {
-            if (volume.SaveFile(loadingPath, new FileContent(contents)) == null)
+            try
             {
-                // For some reason the normal trap that prints exceptions on
-                // the terminal doesn't work here in this part of the code,
-                // thus the two messages:
-                term.Print("[File Save failed. Check space on device?]");
-                throw new Exception("File Save Failed from Text Editor.");
+                document.Save();
             }
-            isDirty = false;
-            term.Print("[Saved changes to " + loadingPath + "]");
+            catch (Exception ex) when (DelegateDialog.CanDisplayFileError(ex))
+            {
+                term.Print("[File Save failed: " + ex.Message + "]");
+                throw;
+            }
+            term.Print("[Saved changes to " + document.ActivePath + "]");
         }
 
         protected void ReloadContents()
         {
-            if (isDirty)
-                InvokeReloadConfirmDialog();
-            else
-                DelegateLoadContents(this);
+            RequestContents(document.ActiveVolume, document.ActivePath, true);
         }
 
         public void LoadContents(Volume vol, GlobalPath path)
         {
-            if (isDirty)
+            RequestContents(vol, path, false);
+        }
+
+        private void RequestContents(Volume vol, GlobalPath path, bool reload)
+        {
+            // Do not replace the target or callbacks of an unresolved confirmation.
+            if (dialog.IsInvoked) return;
+            try
             {
-                Freeze(true);
-                InvokeDirtySaveLoadDialog();
-                loadingVolume = vol;
-                loadingPath = path;
+                if (document.RequestOpen(vol, path))
+                    ReportLoaded();
+                else if (reload)
+                    InvokeReloadConfirmDialog();
+                else
+                    InvokeDirtySaveLoadDialog();
             }
-            else
+            catch (Exception ex) when (DelegateDialog.CanDisplayFileError(ex))
             {
-                loadingVolume = vol;
-                loadingPath = path;
-                DelegateLoadContents(this);
+                var choices = new List<string> { "Retry", "Cancel" };
+                var actions = new List<DialogAction> { DelegateLoadContents, DelegateCancel };
+                dialog.Invoke(this, "Cannot load \"" + document.PendingPath + "\": " + ex.Message, choices, actions);
             }
+        }
+
+        private void ReportLoaded()
+        {
+            if (document.IsNewFile) term.Print("[New File]");
         }
 
         protected void InvokeDirtySaveExitDialog()
@@ -238,7 +250,7 @@ namespace kOS.Screen
             choices.Add("Cancel");
             actions.Add(DelegateCancel);
 
-            dialog.Invoke(this, "\"" + loadingPath + "\" has been edited.  Save it before exiting?", choices, actions);
+            dialog.Invoke(this, "\"" + document.ActivePath + "\" has been edited.  Save it before exiting?", choices, actions);
         }
 
         protected void InvokeDirtySaveLoadDialog()
@@ -252,7 +264,7 @@ namespace kOS.Screen
             choices.Add("Cancel");
             actions.Add(DelegateCancel);
 
-            dialog.Invoke(this, "\"" + loadingPath + "\" has been edited.  Save before loading \"" + loadingPath.Name + "\"?", choices, actions);
+            dialog.Invoke(this, "\"" + document.ActivePath + "\" has been edited.  Save before loading \"" + document.PendingPath + "\"?", choices, actions);
         }
 
         protected void InvokeReloadConfirmDialog()
@@ -264,7 +276,7 @@ namespace kOS.Screen
             choices.Add("No");
             actions.Add(DelegateCancel);
 
-            dialog.Invoke(this, "\"" + loadingPath + "\" has been edited.  Throw away changes and reload?", choices, actions);
+            dialog.Invoke(this, "\"" + document.ActivePath + "\" has been edited.  Throw away changes and reload?", choices, actions);
         }
 
         protected static void DelegateSaveExit(KOSTextEditPopup me)
@@ -276,6 +288,7 @@ namespace kOS.Screen
 
         protected static void DelegateNoSaveExit(KOSTextEditPopup me)
         {
+            me.document.DiscardChanges();
             me.Freeze(false);
             me.Close();
         }
@@ -288,30 +301,14 @@ namespace kOS.Screen
 
         protected static void DelegateLoadContents(KOSTextEditPopup me)
         {
-            VolumeItem item = me.loadingVolume.Open(me.loadingPath);
-            if (item == null)
-            {
-                me.term.Print("[New File]");
-                me.contents = "";
-            }
-            else if (item is VolumeFile)
-            {
-                VolumeFile file = item as VolumeFile;
-                me.loadingPath = GlobalPath.FromVolumePath(item.Path, me.loadingPath.VolumeId);
-                me.contents = file.ReadAll().String;
-            }
-            else
-            {
-                throw new KOSPersistenceException("Path '" + me.loadingPath + "' points to a directory");
-            }
-
-            me.volume = me.loadingVolume;
-            me.isDirty = false;
+            me.document.LoadPending();
+            me.ReportLoaded();
         }
 
         protected static void DelegateCancel(KOSTextEditPopup me)
         {
-            // do nothing.
+            me.document.CancelOpen();
+            if (me.document.ActiveVolume == null) me.Close();
         }
 
         protected void CheckKeyboard()
@@ -433,48 +430,53 @@ namespace kOS.Screen
 
         private void ProcessWindow(int windowId)
         {
-            if (!frozen)
+            if (!InteractionFrozen)
                 CheckKeyboard();
 
             DrawWindow(windowId);
 
-            CheckResizeDrag();
+            if (!InteractionFrozen)
+                CheckResizeDrag();
 
             CalcOuterCoords();
         }
 
         protected void DrawWindow(int windowId)
         {
-            GUI.contentColor = Color.yellow;
-
-            GUILayout.BeginArea(innerCoords);
-            scrollPosition = GUILayout.BeginScrollView(scrollPosition);
-            int preLength = contents.Length;
-            contents = GUILayout.TextArea(contents, textWidgetStyle);
-            int postLength = contents.Length;
-            GUILayout.EndScrollView();
-            GUILayout.EndArea();
-
-            GUI.Label(labelCoords, BuildTitle());
-            if (GUI.Button(exitCoords, EXIT_BUTTON_TEXT))
+            bool wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && !InteractionFrozen;
+            try
             {
-                ExitEditor();
+                GUI.contentColor = Color.yellow;
+
+                GUILayout.BeginArea(innerCoords);
+                scrollPosition = GUILayout.BeginScrollView(scrollPosition);
+                string editedContents = GUILayout.TextArea(contents, textWidgetStyle);
+                // Update before action buttons, including same-length replacements.
+                if (!InteractionFrozen) contents = editedContents;
+                GUILayout.EndScrollView();
+                GUILayout.EndArea();
+
+                GUI.Label(labelCoords, BuildTitle());
+                if (GUI.Button(exitCoords, EXIT_BUTTON_TEXT))
+                {
+                    ExitEditor();
+                }
+                if (GUI.Button(saveCoords, SAVE_BUTTON_TEXT))
+                {
+                    SaveContents();
+                }
+                if (GUI.Button(reloadCoords, RELOAD_BUTTON_TEXT))
+                {
+                    ReloadContents();
+                }
+                if (!InteractionFrozen) KeepCursorScrolledInView();
+
+                GUI.Box(resizeButtonCoords, resizeImage);
             }
-            if (GUI.Button(saveCoords, SAVE_BUTTON_TEXT))
+            finally
             {
-                SaveContents();
-            }
-            if (GUI.Button(reloadCoords, RELOAD_BUTTON_TEXT))
-            {
-                ReloadContents();
-            }
-            KeepCursorScrolledInView();
-
-            GUI.Box(resizeButtonCoords, resizeImage);
-
-            if (preLength != postLength)
-            {
-                isDirty = true;
+                GUI.enabled = wasEnabled;
             }
         }
 
@@ -572,7 +574,7 @@ namespace kOS.Screen
 
         protected string BuildTitle()
         {
-            return loadingPath.ToString();
+            return document.ActivePath == null ? "Text Editor" : document.ActivePath.ToString();
         }
     }
 }
