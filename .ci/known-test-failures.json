@@ -1,0 +1,22 @@
+{
+  "upstream_commit": "8f281a459b6ea0ba917c91bbbc117e68bb948199",
+  "upstream_test_count": 302,
+  "minimum_tests": 585,
+  "failures": [
+    {
+      "name": "kOS.Safe.Test.Collections.LexiconTest.CanFormatNumericKeys",
+      "message_contains": ["Expected: True", "But was:  False"],
+      "reason": "Upstream lexicon dump formats primitive keys as nested value dumps, not the bracketed primitive representation asserted by the test."
+    },
+    {
+      "name": "kOS.Safe.Test.Collections.MixedCollectionPrintingTest.CanPrintListInLexicon",
+      "message_contains": ["Expected: True", "But was:  False"],
+      "reason": "Upstream lexicon dump expands the StringValue key instead of emitting the expected inline list key."
+    },
+    {
+      "name": "kOS.Safe.Test.Serialization.TerminalFormatterTest.CanSerializeLexicons",
+      "message_contains": ["Strings differ at index", "LEXICON of 4 items:"],
+      "reason": "Upstream serialization expands primitive structures into value dumps instead of the concise lexicon formatting expected by the test."
+    }
+  ]
+}

@@ -15,11 +15,18 @@
     <Compile Remove="$(PkgKSPBuildTools)/build/include/Log.cs" />
   </ItemGroup>
   <ItemGroup>
-    <Reference Include="$(KSPBT_ModRoot)\$(KSPBT_ModPluginFolder)\ICSharpCode.SharpZipLib.dll">
+    <Reference Include="$(KSPBT_ModRoot)\$(KSPBT_ModPluginFolder)\ICSharpCode.SharpZipLib.dll" Condition="'$(KOSHeadless)' != 'true'">
       <Private>false</Private>
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="KSPBuildTools" Version="1.1.1" GeneratePathProperty="True" />
+    <PackageReference Include="KSPBuildTools" Version="1.1.1" GeneratePathProperty="True" Condition="'$(KOSHeadless)' != 'true'" />
+  </ItemGroup>
+  <!-- Headless tests use standard net48 references, never game/Unity assemblies or packaging targets. -->
+  <ItemGroup Condition="'$(KOSHeadless)' == 'true'">
+    <Reference Include="ICSharpCode.SharpZipLib">
+      <HintPath>$(MSBuildThisFileDirectory)../../Resources/GameData/kOS/Plugins/ICSharpCode.SharpZipLib.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
   </ItemGroup>
 </Project>

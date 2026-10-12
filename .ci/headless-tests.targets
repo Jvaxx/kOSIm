@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <PropertyGroup>
+    <TestResultsPath Condition="'$(TestResultsPath)' == ''">$(MSBuildThisFileDirectory)../artifacts/tests/$(Configuration)</TestResultsPath>
+    <TestResultsPath>$([System.IO.Path]::GetFullPath('$(TestResultsPath)'))</TestResultsPath>
+    <PythonExecutable Condition="'$(PythonExecutable)' == ''">python3</PythonExecutable>
+    <NUnitHost Condition="!$([MSBuild]::IsOsPlatform('Windows'))">mono</NUnitHost>
+  </PropertyGroup>
+  <Target Name="RunHeadlessTests" DependsOnTargets="Build">
+    <PropertyGroup>
+      <NUnitConsole>$(TargetDir)nunit-runner/nunit-console.exe</NUnitConsole>
+      <NUnitResults>$(TestResultsPath)/nunit.xml</NUnitResults>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(PkgNUnit_Runners)/tools/nunit-console.exe')" Text="NUnit 2.7.1 runner not found. Restore with KOSHeadless=true before running tests." />
+    <!-- Use a local copy with explicit CLR 4 startup, leaving the NuGet cache untouched. -->
+    <ItemGroup>
+      <NUnitRunnerFiles Include="$(PkgNUnit_Runners)/tools/**/*" Exclude="$(PkgNUnit_Runners)/tools/nunit-console.exe.config" />
+    </ItemGroup>
+    <Copy SourceFiles="@(NUnitRunnerFiles)" DestinationFiles="@(NUnitRunnerFiles->'$(TargetDir)nunit-runner/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)nunit-console.exe.config" DestinationFiles="$(NUnitConsole).config" SkipUnchangedFiles="true" />
+    <MakeDir Directories="$(TestResultsPath)" />
+    <!-- Never accept a stale report if the runner fails before writing results. -->
+    <Delete Files="$(NUnitResults)" />
+    <Exec WorkingDirectory="$(MSBuildThisFileDirectory).."
+          Command="$(NUnitHost) &quot;$(NUnitConsole)&quot; &quot;$(TargetPath)&quot; -nologo -framework=4.0 -xml=&quot;$(NUnitResults)&quot;"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="NUnitExitCode" />
+    </Exec>
+    <!-- The gate permits only the explicitly recorded upstream failures; nothing is skipped. -->
+    <Exec Command="&quot;$(PythonExecutable)&quot; &quot;$(MSBuildThisFileDirectory)check-test-results.py&quot; &quot;$(NUnitResults)&quot; --baseline &quot;$(MSBuildThisFileDirectory)known-test-failures.json&quot; --runner-exit-code $(NUnitExitCode)" />
+  </Target>
+</Project>
