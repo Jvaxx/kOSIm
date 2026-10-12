@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Threading;
 using System.Net.Sockets;
 using System.Text;
 using kOS.Module;
+using kOS.Safe.Screen;
 using kOS.Safe.Utilities;
 using UnityEngine;
 using kOS.Safe.UserIO;
@@ -16,9 +16,17 @@ namespace kOS.UserIO
     /// single telnet client, leaving the main server free to go back to listening
     /// to other new connecting clients.
     /// </summary>
-    public class TelnetSingletonServer
+    /// <remarks>
+    /// Threading: the connection's reader and writer threads (see <see cref="TelnetConnectionWorker"/>)
+    /// only parse input, fill the queues and write to the socket. Anything touching KSP or Unity,
+    /// including ending the session, happens on the game thread: workers request a stop and
+    /// <see cref="TelnetMainServer"/> calls <see cref="MainThreadUpdate"/> every frame to act on it.
+    /// </remarks>
+    public class TelnetSingletonServer : ITelnetConnectionHandler, ITelnetInputSink
     {
         private const double HUNG_CHECK_INTERVAL = 10; // Seconds that a keep alive must have failed to give a response before assuming telnet client is dead.
+        private const int WORKER_JOIN_TIMEOUT_MS = 1000; // How long StopListening waits for the worker threads.
+        private const int GOODBYE_LOCK_TIMEOUT_MS = 250; // Skip the goodbye message rather than wait on a stalled client.
 
         // ReSharper disable SuggestUseVarKeywordEvident
         
@@ -32,51 +40,47 @@ namespace kOS.UserIO
         public bool ReverseScreen {get; set;}
         public bool VisualBeep {get; set;}
         
-        private volatile TcpClient client;
+        private readonly TcpClient client;
         
         private readonly TelnetMainServer whoLaunchedMe;
         
         /// <summary>
-        /// The raw socket stream used to talk directly to the client across the network.
-        /// It is bidirectional - handling both the input from and output to the client.
+        /// Owns the socket and the reader/writer threads.
         /// </summary>
-        private readonly NetworkStream rawStream;
+        private readonly TelnetConnectionWorker connection;
+
+        private readonly TelnetInputDispatcher inputDispatcher = new TelnetInputDispatcher();
         
         /// <summary>
         /// The queue that other parts of KOS can use to read characters from the telnet client.
         /// </summary>
-        private volatile Queue<char> inQueue;
+        private readonly Queue<char> inQueue;
         private readonly object inQueueAccess = new object(); // To make all access of the inQueue atomic between threads.
 
         /// <summary>
         /// The queue that other parts of kOS can use to write characters to the telnet client.
         /// </summary>
-        private volatile Queue<char> outQueue;
+        private readonly Queue<char> outQueue;
         private readonly object outQueueAccess = new object(); // To make all access of the outQueue atomic between threads.
         
         public kOSProcessor ConnectedProcessor { get; private set; }
         
-        private Thread inThread;
-        private Thread outThread;
+        private volatile TelnetWelcomeMenu welcomeMenu; // read by the reader thread to flag resizes
         
-        private TelnetWelcomeMenu welcomeMenu;
+        private volatile TerminalUnicodeMapper terminalMapper;
         
-        private TerminalUnicodeMapper terminalMapper;
-        
-        /// <summary>
-        /// If true, then all input should get consumed and ignored the next time inThread checks, until the input stream is empty again.
-        /// </summary>
-        private bool flushPendingInput;
-                        
         /// <summary>
         /// What order was I launched in?  Was I the 1st TelnetSingletonServer? The 2nd?  The 423rd?
         /// </summary>
         private int MySpawnOrder { get; set; }
         
-        private bool isLineAtATime;
+        private volatile bool isLineAtATime;
 
-        public int ClientWidth {get; private set;}
-        public int ClientHeight {get; private set;}
+        // Written by the reader thread, read by the game thread.
+        private volatile int clientWidth;
+        private volatile int clientHeight;
+        public int ClientWidth { get { return clientWidth; } private set { clientWidth = value; } }
+        public int ClientHeight { get { return clientHeight; } private set { clientHeight = value; } }
 
         private string termTypeBackingField; // This is deliberately NOT named as just a lower-case version of ClientTerminalType,
                                              // so as to prevent accidentally typing this name instead of the property.  It's essential
@@ -87,9 +91,10 @@ namespace kOS.UserIO
 
         private bool gotSomeRecentTraffic = true; // start off assuming it's alive.
         private DateTime keepAliveSendTimeStamp;
-        private bool deadSocket = false;
         
         private bool alreadyDisconnecting = false;
+
+        private bool stopped; // game thread only
 
         public string ClientTerminalType
         {
@@ -167,28 +172,19 @@ namespace kOS.UserIO
             whoLaunchedMe = mainServer;
             MySpawnOrder = spawnOrder;
             this.client = client;
-            rawStream = client.GetStream();
             lock (keepAliveAccess)
                 gotSomeRecentTraffic = true;
             outQueue = new Queue<char>();
             inQueue = new Queue<char>();
-            SpawnWelcomeMenu();
-            inThread = new Thread(DoInThread);
-            outThread = new Thread(DoOutThread);
             ClientWidth = 80; // common default for a lot of terminal progs.  Will allow resize via RFC1073.
             ClientHeight = 24; // common default for a lot of terminal progs.  Will allow resize via RFC1073.
             ClientTerminalType = "INITIAL_UNSET"; // will be set by telnet client as described by RFC 1091
+            connection = new TelnetConnectionWorker(client, this, "kOS telnet " + spawnOrder);
+            SpawnWelcomeMenu();
         }
 
-        ~TelnetSingletonServer()
-        {
-            if (welcomeMenu != null)
-            {
-                welcomeMenu.Detach();
-                Object.Destroy(welcomeMenu);
-                welcomeMenu = null;
-            }
-        }
+        // There is deliberately no finalizer: Unity objects (the welcome menu) can only be
+        // destroyed from the game thread, which StopListening() does.
 
         /// <summary>
         /// Connect this TelnetSingletonServer to a CPU to start acting as its terminal.
@@ -197,6 +193,8 @@ namespace kOS.UserIO
         public void ConnectToProcessor(kOSProcessor processor)
         {
             ConnectedProcessor = processor;
+            if (welcomeMenu != null)
+                welcomeMenu.Detach(); // so it stops consuming input meant for the CPU this frame
             ConnectedProcessor.GetScreen().SetSize(ClientHeight, ClientWidth); // Reset the GUI terminal to match the telnet window.
             ConnectedProcessor.GetWindow().AttachTelnet(this); // Tell the GUI window that I am one of its telnets now (even when closed, it still does the heavy lifting).
             ConnectedProcessor.GetWindow().SendTitleToTelnet(this);
@@ -334,23 +332,13 @@ namespace kOS.UserIO
 
         /// <summary>
         /// Bypasses the Queues and just sends text directly to the socket stream.
+        /// A dead or stalled client makes this give up (the write times out) and requests
+        /// a stop instead of throwing.
         /// </summary>
         private void SendTextRaw(byte[] buff)
         {
             const bool VERBOSE_DEBUG_SEND = false; // enable to print a verbose dump of every char going to the client.
-            try
-            {
-                rawStream.Write(buff, 0, buff.Length);
-            }
-            catch (Exception e)
-            {
-                // If the client closed its side just before we were about to write something out, the above write can fail and
-                // cause an exception that would have killed the DoOutThread() before it had a chance to do its cleanup.
-                if (e is System.IO.IOException || e is ObjectDisposedException)
-                    deadSocket = true;
-                else
-                    throw; // Not one of the expected thread-closed IO exceptions, so don't hide it - let it get reported.
-            }
+            connection.Send(buff);
 
 #pragma warning disable CS0162
             if (VERBOSE_DEBUG_SEND) // compiler warning - this code block is hardcoded to be unreachable.  But that's deliberate.
@@ -368,29 +356,34 @@ namespace kOS.UserIO
 #pragma warning restore CS0162
         }
 
+        /// <summary>
+        /// End this telnet session. Must be called on the game thread; safe to call more than once.
+        /// </summary>
         public void StopListening()
         {
+            if (stopped)
+                return;
+            stopped = true;
+
             DisconnectFromProcessor();
-            if (!deadSocket)
+            if (!connection.IsWriteDead && !connection.IsShutdown)
             {
-                SendTextRaw("\r\nDisconnecting from the kOS Terminal Server.\r\n");
-                // Must use SendTextRaw, not Write, because we're about to kill the outThread before it has time to process the queue that Write uses:
-                SendTextRaw(terminalMapper.OutputConvert( (char)UnicodeCommand.TITLEBEGIN + "Thank you for using kOS terminal server" + (char)UnicodeCommand.TITLEEND ));
+                // Bypass the output queue, whose thread is about to stop. Don't wait on a client
+                // that has stopped reading; the goodbye is a courtesy.
+                connection.TrySend(Encoding.UTF8.GetBytes("\r\nDisconnecting from the kOS Terminal Server.\r\n"), GOODBYE_LOCK_TIMEOUT_MS);
+                connection.TrySend(Encoding.UTF8.GetBytes(terminalMapper.OutputConvert( (char)UnicodeCommand.TITLEBEGIN + "Thank you for using kOS terminal server" + (char)UnicodeCommand.TITLEEND )), GOODBYE_LOCK_TIMEOUT_MS);
             }
             whoLaunchedMe.SingletonStopped(this);
-            
-            inThread.Abort();
-            outThread.Abort();
-            inThread = null; // dispose old thread.
-            outThread = null; // dispose old thread.
-            
-            rawStream.Close();
+
+            if (!connection.Shutdown(TimeSpan.FromMilliseconds(WORKER_JOIN_TIMEOUT_MS)))
+                SafeHouse.Logger.LogError(string.Format("kOS telnet server: connection {0} threads did not exit within {1} ms; leaving them as background threads.",
+                    MySpawnOrder, WORKER_JOIN_TIMEOUT_MS));
 
             // Get rid of the welcome menu too, which has a reference to this server and should prevent GC
             if (welcomeMenu != null)
             {
                 welcomeMenu.Detach();
-                Object.Destroy(welcomeMenu);
+                Object.Destroy(welcomeMenu.gameObject);
                 welcomeMenu = null;
             }
         }
@@ -399,13 +392,42 @@ namespace kOS.UserIO
         {
             lock (keepAliveAccess)
                 gotSomeRecentTraffic = true; // Just in case it's been a long time between construction and StartListening.
-            inThread.Start();
-            outThread.Start();
+            connection.Start();
             LineAtATime(false); 
             AllowTerminalResize(true);
             AllowTerminalTypeInfo(true);
 
             SendTextRaw("Connected to the kOS Terminal Server.\r\n");
+        }
+
+        /// <summary>
+        /// Game-thread housekeeping, called every frame by <see cref="TelnetMainServer"/>:
+        /// ends the session when a worker asked for it, and keeps the welcome menu attached
+        /// whenever no CPU is.
+        /// </summary>
+        internal void MainThreadUpdate()
+        {
+            if (stopped)
+                return;
+
+            if (connection.StopRequested)
+            {
+                SafeHouse.Logger.SuperVerbose(string.Format("kOS telnet server: ending connection {0} ({1}).", MySpawnOrder, connection.StopReason));
+                StopListening();
+                return;
+            }
+
+            if (welcomeMenu == null)
+                return;
+            if (! welcomeMenu.IsAttached)
+            {
+                if (ConnectedProcessor == null)
+                    welcomeMenu.Attach(this);
+            }
+            else if (ConnectedProcessor != null) // welcome menu is attached but we now have a processor picked, so detach it.
+            {
+                welcomeMenu.Detach();
+            }
         }
         
         /// <summary>
@@ -466,153 +488,157 @@ namespace kOS.UserIO
         /// </summary>
         private bool IsHung()
         {
-            bool returnValue = false;
+            bool returnValue;
             lock (keepAliveAccess)
             {
-                if (DateTime.Now > keepAliveSendTimeStamp)
-                {
-                    // By the time it's time to send a second keepalive, we had better have gotten the reply from the previous one:
-                    returnValue = ! gotSomeRecentTraffic;
+                if (DateTime.Now <= keepAliveSendTimeStamp)
+                    return false;
 
-                    // The telnet protocol has no keepalive from server to client message in the protocol, so
-                    // we'll use the terminal type request as a make-do version of a keepalive.  It should force the
-                    // telnet client to send some sort of bytes back to us as it answers the terminal type request:
-                    TelnetAskForTerminalType();
-                    keepAliveSendTimeStamp = DateTime.Now + System.TimeSpan.FromSeconds(HUNG_CHECK_INTERVAL);
+                // By the time it's time to send a second keepalive, we had better have gotten the reply from the previous one:
+                returnValue = ! gotSomeRecentTraffic;
+                keepAliveSendTimeStamp = DateTime.Now + System.TimeSpan.FromSeconds(HUNG_CHECK_INTERVAL);
 
-                    // This will get set to true when we receive any bytes at all from the client,
-                    // whether they're the answer to our query, or something else like user typing.
-                    gotSomeRecentTraffic = false;
-                }
+                // This will get set to true when we receive any bytes at all from the client,
+                // whether they're the answer to our query, or something else like user typing.
+                gotSomeRecentTraffic = false;
             }
+
+            // The telnet protocol has no keepalive from server to client message in the protocol, so
+            // we'll use the terminal type request as a make-do version of a keepalive.  It should force the
+            // telnet client to send some sort of bytes back to us as it answers the terminal type request.
+            // (Sent outside the lock so a slow client can't stall the reader thread's traffic bookkeeping.)
+            TelnetAskForTerminalType();
             return returnValue;
         }
 
         /// <summary>
-        /// Read the input from the telnet client forever, scraping the bytes for telnet protocol
-        /// information, and placing the cooked bytes into the queue for the rest of KOS to read from.
+        /// Reader thread: input parsed by the connection, in stream order.
+        /// All threads in a KSP mod must be careful NOT to access any KSP or Unity methods
+        /// from inside their execution, because KSP and Unity are not threadsafe.
         /// </summary>
-        private void DoInThread()
+        void ITelnetConnectionHandler.OnInput(List<TelnetInputEvent> events, bool moreDataAvailable)
         {
-            // All threads in a KSP mod must be careful NOT to access any KSP or Unity methods
-            // from inside their execution, because KSP and Unity are not threadsafe
-
-            byte[] rawReadBuffer = new byte[4096];
-
-            while (true)
+            // As long as some input came recently, no matter what it is, we don't need to bother sending the keepalive:
+            lock (keepAliveAccess)
             {
-                if (flushPendingInput) // When an async interrupt (like CTRL-C) is used, ignore whatever else was typed and throw it away:
-                {
-                    while (rawStream.DataAvailable)
-                    {
-                        // This is blocking, so the rawStream.DataAvailable check is vital to prevent hang:
-                        rawStream.Read(rawReadBuffer, 0, rawReadBuffer.Length);
-                        // But still remember the traffic counts as keepalive proof, even if we ignore it:
-                        keepAliveSendTimeStamp = DateTime.Now + System.TimeSpan.FromSeconds(HUNG_CHECK_INTERVAL);
-                    }
-                    flushPendingInput = false;
-                }
-
-                int numRead = rawStream.Read(rawReadBuffer, 0, rawReadBuffer.Length); // This is blocking, so this thread will be idle when client isn't typing.
-                if (numRead > 0 )
-                {
-                    // As long as some input came recently, no matter what it is, we don't need to bother sending the keepalive:
-                    lock (keepAliveAccess)
-                        gotSomeRecentTraffic = true;
-                    keepAliveSendTimeStamp = DateTime.Now + System.TimeSpan.FromSeconds(HUNG_CHECK_INTERVAL);
-                    
-                    // Process the input bytes that arrived:
-                    char[] scrapedBytes = Encoding.UTF8.GetChars(TelnetProtocolScrape(rawReadBuffer, numRead));
-                    string sendOut = (terminalMapper == null) ? (new string(scrapedBytes)) : terminalMapper.InputConvert(scrapedBytes);
-                    lock (inQueueAccess) // all access to inQueue and outQueue needs to be atomic
-                    {
-                        foreach (char ch in sendOut)
-                        {
-                            inQueue.Enqueue(ch);
-                            if (flushPendingInput)
-                                break; // stop processing the rest of this data chunk.
-                        }
-                    }
-                }
+                gotSomeRecentTraffic = true;
+                keepAliveSendTimeStamp = DateTime.Now + System.TimeSpan.FromSeconds(HUNG_CHECK_INTERVAL);
             }
+            inputDispatcher.Dispatch(events, moreDataAvailable, this);
         }
-        
+
         /// <summary>
-        /// Forever loop, taking whatever appears on the output queue (that some other part of kOS put there)
-        /// and sending it out to the client as soon as it appears on the queue.
+        /// Writer thread, called repeatedly: takes whatever appears on the output queue (that some
+        /// other part of kOS put there) and sends it to the client. Also watches for a dead client.
         /// </summary>
-        private void DoOutThread()
+        bool ITelnetConnectionHandler.OnWriterTick()
         {
-            // All threads in a KSP mod must be careful NOT to access any KSP or Unity methods
-            // from inside their execution, because KSP and Unity are not threadsafe
-            
+            // Detect if the client closed from its end, or stopped answering keepalives:
+            if (!client.Connected)
+                connection.RequestStop(TelnetStopReason.ClientClosed);
+            else if (IsHung())
+                connection.RequestStop(TelnetStopReason.ServerRequested);
+
             StringBuilder sb = new StringBuilder();
-            
-            // Unlike the DoInThread, this thread doesn't have a blocking stream read to operate on.  Instead
-            // it has to busy-poll the outQueue looking for new content.  Because of this, ContinuousChecks()
-            // has to be called from here, not the In thread:
-            //
-            // To prevent the busy polling from being too busy, the loop sleeps longer and longer while there's
-            // no activity, up to a slowest rate of sleepTimeMax.  Once there's queue activity, it goes back to
-            // running fast without sleep again.
-
-            // Tweakable settings:
-            const int SLEEP_TIME_INC = 20;
-            const int SLEEP_TIME_MAX = 200; // Don't let this get too slow, because ContinuousChecks() needs to run.
-            int sleepTime = SLEEP_TIME_MAX; // At first - will speed up once there's something in the queue.
-
-            while (true)
+            lock(outQueueAccess) // all access to inQueue and outQueue needs to be atomic.
             {
-                ContinuousChecks();
+                while (outQueue.Count > 0)
+                    sb.Append(outQueue.Dequeue());
+            }
+            if (sb.Length == 0)
+                return false;
 
-                sb.Remove(0,sb.Length); // clear the whole thing.
-                lock(outQueueAccess) // all access to inQueue and outQueue needs to be atomic.
-                {
-                    while (outQueue.Count > 0)
-                    {
-                        char ch = outQueue.Dequeue();
-                        sb.Append(ch);
-                    }
-                }
-                if (sb.Length > 0)
-                {
-                    sleepTime = 0; // Saw at least one char, so reset the sleep-slowdown.
-                    string content = sb.ToString(); // instead of calling ToString() over and over.
-                    if (terminalMapper == null)
-                        SendTextRaw(content);
-                    else
-                        SendTextRaw(terminalMapper.OutputConvert(content));
-                    
-                    if (content.IndexOf((char)UnicodeCommand.DIE) >= 0)
-                        StopListening();
-                }
-                else
-                {
-                    Thread.Sleep(sleepTime);
-                    if (sleepTime < SLEEP_TIME_MAX)
-                        sleepTime += SLEEP_TIME_INC;
-                }
+            string content = sb.ToString(); // instead of calling ToString() over and over.
+            TerminalUnicodeMapper mapper = terminalMapper;
+            if (mapper == null)
+                SendTextRaw(content);
+            else
+                SendTextRaw(mapper.OutputConvert(content));
+
+            if (content.IndexOf((char)UnicodeCommand.DIE) >= 0)
+                connection.RequestStop(TelnetStopReason.ServerRequested); // the game thread ends the session
+            return true;
+        }
+
+        void ITelnetConnectionHandler.OnWorkerFault(Exception exception)
+        {
+            SafeHouse.Logger.LogError(string.Format("kOS telnet server: connection {0} failed and will be closed: {1}", MySpawnOrder, exception));
+        }
+
+        void ITelnetInputSink.EnqueueText(string text)
+        {
+            TerminalUnicodeMapper mapper = terminalMapper;
+            string sendOut = (mapper == null) ? text : mapper.InputConvert(text.ToCharArray());
+            lock (inQueueAccess) // all access to inQueue and outQueue needs to be atomic
+            {
+                foreach (char ch in sendOut)
+                    inQueue.Enqueue(ch);
             }
         }
-        
-        private void ContinuousChecks()
+
+        void ITelnetInputSink.EnqueueBreak()
         {
-            // Detect if the client closed from its end:
-            if ( (!client.Connected) || IsHung() || deadSocket)
+            // The dispatcher discards the type-ahead that came with and right after the break.
+            lock (inQueueAccess) { inQueue.Enqueue((char)UnicodeCommand.BREAK); }
+        }
+
+        void ITelnetInputSink.Negotiate(byte verb, byte option)
+        {
+            string warning;
+            byte[] reply = TelnetProtocol.NegotiationReply(verb, option, isLineAtATime, out warning);
+            if (reply != null)
+                SendTextRaw(reply);
+            if (warning != null)
+                Write(warning + (char)UnicodeCommand.STARTNEXTLINE);
+            SafeHouse.Logger.SuperVerbose(string.Format("telnet protocol negotiation from client: {{{0}}}{{{1}}}", verb, option));
+        }
+
+        /// <summary>
+        /// The client sent its window size (RFC 1073), i.e. a 350x40 window arrives as
+        /// IAC SB NAWS 1 94 0 40 IAC SE. A zero field means "unchanged"; sizes are limited to
+        /// what the screen buffer supports.
+        /// </summary>
+        void ITelnetInputSink.ResizeRequested(int width, int height)
+        {
+            SafeHouse.Logger.SuperVerbose( "Telnet client just told me its window size is " + width + "x" + height+".");
+
+            int newWidth = TelnetProtocol.NormalizeDimension(width, ClientWidth, ScreenBuffer.MAX_COLUMNS);
+            int newHeight = TelnetProtocol.NormalizeDimension(height, ClientHeight, ScreenBuffer.MAX_ROWS);
+            if (newWidth == ClientWidth && newHeight == ClientHeight)
+                return;
+            ClientWidth = newWidth;
+            ClientHeight = newHeight;
+
+            lock (inQueueAccess) // all access to inQueue and outQueue needs to be atomic
             {
-                deadSocket = true;
-                StopListening();                    
+                inQueue.Enqueue((char)UnicodeCommand.RESIZESCREEN);
+                inQueue.Enqueue((char)newWidth);
+                inQueue.Enqueue((char)newHeight);
+                TelnetWelcomeMenu menu = welcomeMenu;
+                if (menu != null)
+                    menu.NotifyResize(); // only sets a flag; the menu reprints on the game thread
+                if (ConnectedProcessor != null)
+                    inQueue.Enqueue((char)UnicodeCommand.REQUESTREPAINT);
             }
-            
-            if (! welcomeMenu.IsAttached)
-            {
-                if (ConnectedProcessor == null)
-                    welcomeMenu.Attach(this);
-            }
-            else if (ConnectedProcessor != null) // welcome menu is attached but we now have a processor picked, so detach it.
-            {
-                welcomeMenu.Detach();
-            }
+        }
+
+        /// <summary>
+        /// The client told us its terminal model ident (RFC 1091), i.e. "VT100".
+        /// </summary>
+        void ITelnetInputSink.TerminalTypeReceived(string terminalType)
+        {
+            // Avoid reconstructing the terminal mapper every time there's a keepalive heartbeat response:
+            if (ClientTerminalType != terminalType)
+                ClientTerminalType = terminalType;
+            SafeHouse.Logger.SuperVerbose(string.Format("Telnet client just told us its terminal type is: \"{0}\".", terminalType));
+        }
+
+        void ITelnetInputSink.ProtocolNotice(TelnetInputEvent notice)
+        {
+            if (notice.Kind == TelnetInputEventKind.Malformed)
+                SafeHouse.Logger.Log("kOS telnet server: discarded malformed input from client: " + notice.Text);
+            else
+                SafeHouse.Logger.SuperVerbose("telnet protocol message from client ignored: " + notice.Text);
         }
         
         /// <summary>
@@ -629,456 +655,13 @@ namespace kOS.UserIO
             welcomeMenu.Attach(this);
         }
         
-        
+
         /// <summary>
         /// Tells the telnet client to send me back a terminal ident string.
         /// </summary>
         private void TelnetAskForTerminalType()
         {
-            SendTextRaw(new[] {RFC854_IAC, RFC854_SB, RFC1091_TERMTYPE, RFC1091_SEND, RFC854_IAC, RFC854_SE});
-        }
-
-        /// <summary>
-        /// Given a chunk of raw input bytes received from the telnet client, scrape it clean of
-        /// all telnet protocol stuff, returning just the cleaned-up string with none of that in it.
-        /// <br/>
-        /// As it scrapes off the protocol bytes, it will also interpret and understand the ones that
-        /// have been implemented in this server.
-        /// <br/>
-        /// Not every message in the telnet protocol is understood by kOS's telnet server, but even
-        /// the stuff that isn't will still get scraped away to clean the input.  The SuperVerbose log
-        /// will contain information about what has been scraped away and ignored.
-        /// </summary>
-        /// <param name="inRawBuff">buffer pre-scraping</param>
-        /// <param name="rawLength">how much of the buffer to scrape (which might not be the whole byte array).</param>
-        /// <returns>The scraped input.</returns>
-        private byte[] TelnetProtocolScrape(byte[] inRawBuff, int rawLength)
-        {
-            // At max the cooked version will be the same size as the raw.  It might be a little less:
-            byte[] inCookedBuff = new byte[rawLength];
-            int cookedIndex = 0;
-            int rawIndex = 0;
-            
-            while (rawIndex < rawLength)
-            {
-                switch (inRawBuff[rawIndex])
-                {
-                    case RFC854_IAC:
-                        byte commandByte = inRawBuff[++rawIndex];
-                        switch (commandByte)
-                        {
-                            case RFC854_DO:
-                                rawIndex += TelnetConsumeDo(inRawBuff, rawIndex);
-                                break;
-                            case RFC854_DONT:
-                                rawIndex += TelnetConsumeDont(inRawBuff, rawIndex);
-                                break;
-                            case RFC854_WILL:
-                                rawIndex += TelnetConsumeWill(inRawBuff, rawIndex);
-                                break;
-                            case RFC854_WONT:
-                                rawIndex += TelnetConsumeWont(inRawBuff, rawIndex);
-                                break;
-                            case RFC854_IAC:
-                                break; // pass through to normal behavior when two IAC's are back to back - that's how a real IAC char is encoded.
-                            case RFC854_BREAK:
-                            case RFC854_IP:
-                                lock (inQueueAccess) { inQueue.Enqueue((char)UnicodeCommand.BREAK); } // async send it out of order, right now
-                                flushPendingInput = true; // and ignore anything in the type-ahead buffer that was entered prior to the break.
-                                ++rawIndex;
-                                break;
-                            default:
-                                rawIndex += TelnetConsumeOther(commandByte, inRawBuff, rawIndex); 
-                                break;
-                        }
-                        break;
-                    default:
-                        // The normal case is to just copy the bytes over as-is when no special chars were seen.
-                        inCookedBuff[cookedIndex] = inRawBuff[rawIndex];
-                        ++rawIndex;
-                        ++cookedIndex;
-                        break;
-                }
-            }
-            
-            // Convert the cooked buffer into a shorter buff to pass back:
-            byte[] returnValue = new byte[cookedIndex];
-            Array.Copy(inCookedBuff, returnValue, cookedIndex);
-            return returnValue;
-        }
-        
-        /// <summary>
-        /// Whenever an IAC DO command is seen (see RFC 854), this reads through it and understands some parts of it.
-        /// </summary>
-        /// <param name="remainingBuff"> the buffer of raw stuff</param>
-        /// <param name="index">the offset into the buffer where the RFC654_DO byte started</param>
-        /// <returns>how many bytes of the buffer should get skipped over because I dealt with them.</returns>
-        private int TelnetConsumeDo( byte[] remainingBuff, int index)
-        {
-            int offset = 0;
-            byte option = remainingBuff[index + (++offset)];
-            switch (option)
-            {
-                // Note, for some infuriating reason, in my testing I often found that telnet clients ignored
-                // the fact that I am the server and I'm supposed to send the DO's while they are supposed to reply
-                // with the WILL or WONT codes.  Some clients (I'm looking at YOU, Putty) sometimes take on the 
-                // active side of the negotiation (the DO/DONT) and sometimes take on the passive side of it (the
-                // WILL/WONT responses to the DO's), mixed up all willy-nilly and not in adherence with the RFC's
-                // rules about which side does which part.  Therefore even though I JUST got done telling the client
-                // I'll do these things, it sometimes won't listen and demands that I respond to it's DO's instead.
-                // That's what this section of code is for:
-                
-                // If other side orders me to go char-at-a-time, agree or disagree depending on setting:
-                // TODO: maybe some day alter this to obey the other side's wishes.
-                case RFC857_ECHO:
-                    SendTextRaw(isLineAtATime
-                        ? new[] {RFC854_IAC, RFC854_WONT, RFC857_ECHO}
-                        : new[] {RFC854_IAC, RFC854_WILL, RFC857_ECHO});
-                    break;
-                // If other side orders me to go char-at-a-time, agree or disagree depending on setting:
-                // TODO: maybe some day alter this to obey the other side's wishes.
-                case RFC858_SUPPRESS_GOAHEAD:
-                    SendTextRaw(isLineAtATime
-                        ? new[] {RFC854_IAC, RFC854_WONT, RFC858_SUPPRESS_GOAHEAD}
-                        : new[] {RFC854_IAC, RFC854_WILL, RFC858_SUPPRESS_GOAHEAD});
-                    break;
-                // if other side orders me to allow resizes, agree:
-                case RFC1073_NAWS:
-                    SendTextRaw(new[] {RFC854_IAC, RFC854_WILL, RFC1073_NAWS});                    
-                    break;
-                // if other side orders me to accept terminal ident strings, agree, and send it back the signal that it
-                // should tell me its ident right away.
-                case RFC1091_TERMTYPE:
-                    TelnetAskForTerminalType();
-                    break;
-                default:
-                    offset += TelnetConsumeOther(RFC854_DO, remainingBuff, offset);
-                    break;
-            }
-
-            // Everything below here is to help debug:
-            StringBuilder sb = new StringBuilder();
-            sb.Append("{"+RFC854_DO+"}");
-            sb.Append("{"+option+"}");
-            SafeHouse.Logger.SuperVerbose( "telnet protocol DO message from client: " + sb);
-
-            return offset;
-        }
-        /// <summary>
-        /// Whenever an IAC DONT command is seen (see RFC 854), this reads through it and understands some parts of it.
-        /// </summary>
-        /// <param name="remainingBuff"> the buffer of raw stuff</param>
-        /// <param name="index">the offset into the buffer where the RFC654_DONT byte started</param>
-        /// <returns>how many bytes of the buffer should get skipped over because I dealt with them.</returns>
-        private int TelnetConsumeDont( byte[] remainingBuff, int index)
-        {
-            int offset = 0;
-            byte option = remainingBuff[index + (++offset)];
-            switch (option)
-            {
-                // Note, for some infuriating reason, in my testing I often found that telnet clients ignored
-                // the fact that I am the server and I'm supposed to send the DO's while they are supposed to reply
-                // with the WILL or WONT codes.  Some clients (I'm looking at YOU, Putty) sometimes take on the 
-                // active side of the negotiation (the DO/DONT) and sometimes take on the passive side of it (the
-                // WILL/WONT responses to the DO's), mixed up all willy-nilly and not in adherence with the RFC's
-                // rules about which side does which part.  Therefore even though I JUST got done telling the client
-                // I'll do these things, it sometimes won't listen and demands that I respond to it's DO's instead.
-                // That's what this section of code is for:
-                
-                // If other side orders me to go char-at-a-time, agree or disagree depending on my setting:
-                // TODO: maybe some day alter this to obey the other side's wishes.
-                case RFC857_ECHO:
-                    SendTextRaw(isLineAtATime
-                        ? new[] {RFC854_IAC, RFC854_WONT, RFC857_ECHO}
-                        : new[] {RFC854_IAC, RFC854_WILL, RFC857_ECHO});
-                    break;
-                // If other side orders me to go char-at-a-time, agree or disagree depending on my setting:
-                // TODO: maybe some day alter this to obey the other side's wishes.
-                case RFC858_SUPPRESS_GOAHEAD:
-                    SendTextRaw(isLineAtATime
-                        ? new[] {RFC854_IAC, RFC854_WONT, RFC858_SUPPRESS_GOAHEAD}
-                        : new[] {RFC854_IAC, RFC854_WILL, RFC858_SUPPRESS_GOAHEAD});
-                    break;
-                default:
-                    offset += TelnetConsumeOther(RFC854_DONT, remainingBuff, offset);
-                    break;
-            }
-
-            // Everything below here is to help debug:
-            StringBuilder sb = new StringBuilder();
-            sb.Append("{"+RFC854_DO+"}");
-            sb.Append("{"+option+"}");
-            SafeHouse.Logger.SuperVerbose( "telnet protocol DO message from client: " + sb);
-
-            return offset;
-        }
-
-        
-        /// <summary>
-        /// Whenever an IAC WONT command is seen (see RFC 854), this reads through it and understands some parts of it.
-        /// </summary>
-        /// <param name="remainingBuff"> the buffer of raw stuff</param>
-        /// <param name="index">the offset into the buffer where the RFC654_WILL byte started</param>
-        /// <returns>how many bytes of the buffer should get skipped over because I dealt with them.</returns>
-        private int TelnetConsumeWont( byte[] remainingBuff, int index)
-        {
-            int offset = 0;
-            byte option = remainingBuff[index + (++offset)];
-            switch (option)
-            {
-                case RFC1091_TERMTYPE:
-                    // Bad- other side responded negative to terminal type negotiations.
-                    // Issue complaint and quit - this depends on this working right:
-                    Write("{YOUR TELNET CLIENT WONT IMPLEMENT RFC1091 (Terminal type).  kOS CANNOT WORK WITH IT.}" +
-                          UnicodeCommand.DIE);
-                    break;
-                // if other side cannot to allow resizes, give up:
-                case RFC1073_NAWS:
-                    Write("{YOUR TELNET CLIENT WONT IMPLEMENT RFC1073 (Terminal dimensions).  kOS CANNOT WORK WITH IT.}" +
-                          UnicodeCommand.DIE);
-                    break;
-                default:
-                    offset += TelnetConsumeOther(RFC854_WONT, remainingBuff, offset);
-                    break;
-            }
-            
-            // Everything below here is to help debug:
-            StringBuilder sb = new StringBuilder();
-            sb.Append("{"+RFC854_DO+"}");
-            sb.Append("{"+option+"}");
-            SafeHouse.Logger.SuperVerbose( "telnet protocol WILL message from client: " + sb);
-
-            return offset;
-        }
-
-                /// <summary>
-        /// Whenever an IAC WILL command is seen (see RFC 854), this reads through it and understands some parts of it.
-        /// </summary>
-        /// <param name="remainingBuff"> the buffer of raw stuff</param>
-        /// <param name="index">the offset into the buffer where the RFC654_WILL byte started</param>
-        /// <returns>how many bytes of the buffer should get skipped over because I dealt with them.</returns>
-        private int TelnetConsumeWill( byte[] remainingBuff, int index)
-        {
-            int offset = 0;
-            byte option = remainingBuff[index + (++offset)];
-            switch (option)
-            {
-                case RFC1091_TERMTYPE:
-                    // Good- other side responded positively to terminal type negotiations.  So send it the request now.
-                    TelnetAskForTerminalType();
-                    break;
-                default:
-                    offset += TelnetConsumeOther(RFC854_WILL, remainingBuff, offset);
-                    break;
-            }
-            
-            // Everything below here is to help debug:
-            StringBuilder sb = new StringBuilder();
-            sb.Append("{"+RFC854_DO+"}");
-            sb.Append("{"+option+"}");
-            SafeHouse.Logger.SuperVerbose( "telnet protocol WILL message from client: " + sb);
-
-            return offset;
-        }
-        /// <summary>
-        /// Consume any other RFC854_IAC - initiated protocol message that isn't caught by something
-        /// more specific.
-        /// </summary>
-        /// <param name="commandByte"> the byte immediately after the IAC byte</param>
-        /// <param name="remainingBuff"> the buffer to be parsed</param>
-        /// <param name="index">how far into the buffer to start from (where the commandByte was)</param>
-        /// <returns>how many bytes of the buffer should get skipped over because I dealt with them.</returns>
-        private int TelnetConsumeOther( byte commandByte, byte[] remainingBuff, int index)
-        {
-            bool handled = false;
-            int offset = 0;
-            StringBuilder sb = new StringBuilder();
-            switch (commandByte)
-            {
-                case RFC854_SB:
-                    if (index+offset >= remainingBuff.Length)
-                        break;
-                    ++offset;
-                    byte subCommandByte = remainingBuff[index+offset];
-                    switch (subCommandByte)
-                    {
-                        case RFC1073_NAWS:
-                            offset += TelnetConsumeNAWS(remainingBuff, index+offset, out handled);
-                            break;
-                        case RFC1091_TERMTYPE:
-                            offset += TelnetConsumeTermtype(remainingBuff, index+offset, out handled);
-                            break;
-                        default:
-                            break;
-                    }
-                    // Consume the rest of the subnegotiation command:
-                    while ((index + offset) <= remainingBuff.Length && remainingBuff[index+offset-1] != RFC854_SE)
-                        ++offset;
-
-                    // Everything below here is to help debug:
-                    if (!handled)
-                    {
-                        sb.Append("{"+commandByte+"}");
-                        for( int i = index; i < index+offset ; ++i )
-                            sb.Append("{"+remainingBuff[i]+"}");
-                        SafeHouse.Logger.SuperVerbose( "telnet protocol submessage from client: " + sb);
-                    }
-
-                    break;
-                default:
-                    ++offset;
-
-                    // Everything below here is to help debug:
-                    sb.Append("{"+commandByte+"}");
-                    sb.Append("{"+remainingBuff[index+offset]+"}");
-                    SafeHouse.Logger.SuperVerbose( "telnet protocol command from client: " + sb);
-
-                    break;
-            }
-            return offset;
-        }
-        
-        /// <summary>
-        /// Consume the Negotiate About Window Size (RFC 1073) sub-message, i.e if the client wants to 
-        /// tell us the window size is now 350 cells wide by 40 tall, it will send us this
-        /// sequence of bytes:
-        /// <br/>IAC NAWS 1 94 0 40 IAC SE <br/>
-        /// (1 94 is the encoding of 350 in two bytes, as in 256 + 94.  The protocol sends
-        /// 16-bit numbers, allowing a very large max terminal size.
-        /// </summary>
-        /// <param name="remainingBuff"> the buffer to be parsed</param>
-        /// <param name="index">how far into the buffer to start from (where the commandByte was)</param>
-        /// <param name="handled">is true if it was handled properly (else it should get logged as a problem)</param>
-        /// <returns>how many bytes of the buffer should get skipped over because I dealt with them.</returns>
-        private int TelnetConsumeNAWS(byte[] remainingBuff, int index, out bool handled)
-        {
-            int offset = 0;
-                        
-            byte code = remainingBuff[index + (offset++)];
-            if (code != RFC1073_NAWS)
-            {
-                SafeHouse.Logger.Log(string.Format("Bug in telnet server - expected NAWS byte {{{0}}} (RFC1073) but instead got {{{1}}}.", RFC1073_NAWS, (int)code));
-                handled = false;
-                return offset;
-            }
-
-            if (remainingBuff.Length < (index + offset + 3))
-            {
-                SafeHouse.Logger.Log("Telnet client is trying to send me a window resize (RFC1073) command without actual width/height fields.  WTF?");
-                handled = false;
-                return offset;
-            }
-
-            byte widthHighByte = remainingBuff[index + (offset++)];
-            if (widthHighByte == RFC854_IAC) ++offset; // special case - to send this byte value, telnet clients have to encode it by sending it twice consecutively.
-            byte widthLowByte = remainingBuff[index + (offset++)];
-            if (widthLowByte == RFC854_IAC) ++offset; // special case - to send this byte value, telnet clients have to encode it by sending it twice consecutively.
-            byte heightHighByte = remainingBuff[index + (offset++)];
-            if (heightHighByte == RFC854_IAC) ++offset; // special case - to send this byte value, telnet clients have to encode it by sending it twice consecutively.
-            byte heightLowByte = remainingBuff[index + (offset++)];
-            if (heightLowByte == RFC854_IAC) ++offset; // special case - to send this byte value, telnet clients have to encode it by sending it twice consecutively.
-            
-            int width = (widthHighByte<<8) + widthLowByte;
-            int height = (heightHighByte<<8) + heightLowByte;
-
-            SafeHouse.Logger.SuperVerbose( "Telnet client just told me its window size is " + width + "x" + height+".");
-            
-            // Only *actually* set the width and height if the values are nonzero.  The telnet protocol allows the
-            // client to send one or the other as zero, which does not really mean zero but rather "ignore this field".
-            // It's doubtful any terminal program uses this feature, but just in case it does, this protects us from
-            // trying to set a zero height or zero width screen, which would likely cause a crash somewhere in ScreenBuffer:
-            bool widthChange = false;
-            bool heightChange = false;
-            if (width > 0 && ClientWidth != width)
-            {
-                widthChange = true;
-                ClientWidth = width;
-            }
-            if (height > 0 && ClientHeight != height)
-            {
-                heightChange = true;
-                ClientHeight = height;
-            }
-
-            if (widthChange || heightChange)                
-                lock (inQueueAccess) // all access to inQueue and outQueue needs to be atomic
-                {
-                    inQueue.Enqueue((char)UnicodeCommand.RESIZESCREEN);
-                    inQueue.Enqueue((char)ClientWidth);
-                    inQueue.Enqueue((char)ClientHeight);
-                    if (welcomeMenu != null)
-                         welcomeMenu.NotifyResize();
-                   if (ConnectedProcessor != null)
-                        inQueue.Enqueue((char)UnicodeCommand.REQUESTREPAINT);
-                }
-            
-            handled = true;
-            return offset;
-        }
-        
-        /// <summary>
-        /// Consume the Terminal Type submessage (RFC1091) where the telnet client is telling us the model ident
-        /// of its terminal type (i.e. "VT100" for example)
-        /// </summary>
-        /// <param name="remainingBuff"> the buffer to be parsed</param>
-        /// <param name="index">how far into the buffer to start from (where the commandByte was)</param>
-        /// <param name="handled">is true if it was handled properly (else it should get logged as a problem)</param>
-        /// <returns>how many bytes of the buffer should get skipped over because I dealt with them.</returns>
-        private int TelnetConsumeTermtype(byte[] remainingBuff, int index, out bool handled)
-        {
-            int offset = 0;
-            
-            // expect TERMTYPE code char:
-            byte code = remainingBuff[index + (offset++)];
-            if (code != RFC1091_TERMTYPE)
-            {
-                SafeHouse.Logger.Log("Bug in telnet server - expected TERMTYPE byte {" + RFC1091_TERMTYPE + "} (RFC10791) but instead got {" + (int)code + "}.");
-                handled = false;
-                return offset;
-            }
-            
-            // expect IS code char:
-            code = remainingBuff[index + (offset++)];
-            if (code != RFC1091_IS)
-            {
-                SafeHouse.Logger.Log("Bug in telnet server - expected [IS] byte {" + RFC1091_IS + "} (RFC10791) but instead got {" + (int)code + "}.");
-                handled = false;
-                return offset;
-            }
-            
-            // Consume everything until the pattern IAC SE is found, which marks the end of the ident string:
-            StringBuilder sb = new StringBuilder();
-            byte last = 0;
-            byte penultimate = 0;
-            while ( (index + offset) <= remainingBuff.Length && !(penultimate == RFC854_IAC && last == RFC854_SE) )
-            {
-                sb.Append(Encoding.UTF8.GetString(remainingBuff, index + offset, 1));
-                penultimate = last;
-                ++offset;
-                last = remainingBuff[index+offset];
-            }
-            // If it ended properly with the delimiter, then we have the string:
-            if (penultimate == RFC854_IAC && last == RFC854_SE)
-            {
-                string newTermType = sb.ToString().Substring(0, sb.Length - 1); // -1 because it will have the RFC854_IAC byte still stuck on the end.
-
-                if (ClientTerminalType != newTermType)
-                {
-                    // The above check may seem like a redundant check but it's not.
-                    // It's to avoid reconstructing the terminal mapper every time there's a keepalive heartbeat response.
-                    ClientTerminalType = newTermType;
-                }
-
-                SafeHouse.Logger.SuperVerbose(string.Format("Telnet client just told us its terminal type is: \"{0}\".", ClientTerminalType));
-                handled = true;
-            }
-            else
-            {
-                SafeHouse.Logger.Log("Telnet client sent us a garbled attempt at a terminal type ident string.");                
-                handled = false;
-            }
-            // remove the final two delimiter bytes:
-            return offset;
+            SendTextRaw(TelnetProtocol.TerminalTypeRequest());
         }
     }
 }

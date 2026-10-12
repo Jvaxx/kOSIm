@@ -75,10 +75,11 @@ Ship small, independently reviewable changes with regression tests rather than b
 
 - `IO-01/02`: user approved the additive **Preserve text APIs** policy. New `ReadAllRaw`/`WriteRaw`/`SaveFileRaw` and script `READRAW`/`WRITERAW` preserve built-in bytes; copy/move/file-copy-helper/boot seeding use raw paths. Legacy READALL/WRITE/UTF-8 replacement/BOM/type behavior remains, with idempotent Windows CRLF conversion. 62 new host cases pass, including both managed Windows-flag branches, all byte values, suffixes, transfer/failure/provider hooks and headless CRLF compile/KSM pack-unpack. Old/derived providers retain legacy hooks until explicitly opting into raw overrides; no universal provider guarantee. Compatibility and residual legacy-read risks are documented in [file-io-compatibility.md](file-io-compatibility.md). Full build passes; actual Proton boot/suffix/transfer/text/mod-provider acceptance remains deferred.
 
+- `NET-01/02`: an incremental telnet parser with a persistent UTF-8 decoder, plus cooperative, bounded, idempotent session shutdown, are implemented in `kOS.Safe/UserIO` and wired into the existing server. Its public API is unchanged and game-side cleanup now runs on the game thread. Upstream option-byte leaks (Ctrl-X/Ctrl-C injected into input), IAC escape loss, split-read faults, the EOF spin and self-aborting shutdown were confirmed before the change (harness/code reading) and are covered by 83 headless regressions, including real loopback sockets. Full build passes. The server/menu adapters and Unity/Proton socket behavior are not runtime-tested; see [testing-and-build.md](testing-and-build.md) for the deferred checklist.
+
 ### Priorities
 
-- Continue focused local safety work with incremental telnet parsing/decoding/EOF/shutdown (`NET-01/02`). Archive byte/text policy, replacement, editor transactions and scoped render recovery are implemented/host-tested within documented limits; target-runtime acceptance remains deferred. Keep all pending GUI/editor/archive/raw I/O/boot/telnet checks until the user resumes Proton.
-- Incremental telnet parsing, persistent decoding, EOF handling, and cooperative shutdown (`NET-01/02`).
+- Continue focused local safety work. Archive byte/text policy, replacement, editor transactions, scoped render recovery and telnet parsing/shutdown are implemented/host-tested within documented limits; target-runtime acceptance remains deferred. Keep all pending GUI/editor/archive/raw I/O/boot/telnet checks until the user resumes Proton.
 - Focus and flight-control lock cleanup during hide, close, destruction, power loss, and scene changes (`INPUT-01`).
 - Other contained, confirmed defects such as port-field capacity and widget selection/callback behavior, when adequately testable.
 

@@ -326,6 +326,12 @@ namespace kOS.UserIO
                 return;
             }
 
+            // Sessions can't end themselves from their worker threads (KSP and Unity aren't
+            // threadsafe), so give each one its game-thread housekeeping here. Use a copy,
+            // because a session that stops removes itself from the list:
+            foreach (TelnetSingletonServer singleServer in telnets.ToArray())
+                singleServer.MainThreadUpdate();
+
             // .NET's TCP handler only gives you blocking socket accepting, but for the Unity
             // Update(), we need to always finish quickly and never block, so check if anything
             // is pending first to simulate the effect of a nonblocking socket accept check:

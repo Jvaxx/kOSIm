@@ -93,7 +93,7 @@ At upstream commit `8f281a459b6ea0ba917c91bbbc117e68bb948199`, the unchanged sui
 
 They concern lexicon terminal formatting: primitive structures are expanded into nested value dumps instead of the inline representation expected by these assertions. `SafeSerializationMgr.DumpValue()` checks `IDumper` before primitive structure conversion. This is source-supported context, not a completed in-game diagnosis or a decision to change serialization.
 
-The fork adds **13 character-grid compatibility tests**, **26 overlay regression tests**, **27 dimension regressions**, **23 cursor-read regressions**, **34 render-recovery regressions**, **48 editor document regressions**, **50 archive-save regressions**, and **62 raw I/O/newline regressions**, so the current suite executes **585 tests: 582 passed, the same 3 failed, 0 skipped**. The local gate has **12 additional Python unit tests**.
+The fork adds **13 character-grid compatibility tests**, **26 overlay regression tests**, **27 dimension regressions**, **23 cursor-read regressions**, **34 render-recovery regressions**, **48 editor document regressions**, **50 archive-save regressions**, **62 raw I/O/newline regressions**, and **83 telnet regressions**, so the current suite executes **668 tests: 665 passed, the same 3 failed, 0 skipped**. The local gate has **12 additional Python unit tests**.
 
 `.ci/known-test-failures.json` records exact known failing names, expected assertion-message fragments, reasons, and the minimum current test count. **No test is ignored or filtered out.** The raw NUnit process still exits nonzero for these failures. The local regression gate tolerates only this recorded baseline and rejects:
 
@@ -153,10 +153,70 @@ Earlier full builds succeeded against stripped KSP 1.12.5 references stored outs
 | Stripped KSP 1.12.5 references | Full Release solution build succeeds locally; historical reference-only check |
 | Dev instance copied from Steam Windows KSP | Copy checksum-verified; full Release build against its assemblies succeeds |
 | Isolated UMU/GE-Proton11-7 launcher | First launch initialized dev prefix; visible KSP window, process isolation verified |
-| KSP under Proton | 1.12.5.3190; kOS loads; user-guided GUI long-input/resize responsiveness, alignment, and command output pass; no matching logged faults; telnet/wider gameplay coverage incomplete |
+| KSP under Proton | 1.12.5.3190; kOS loads; user-guided GUI long-input/resize responsiveness, alignment, and command output pass; no matching logged faults; telnet (including the NET-01/02 changes) and wider gameplay coverage incomplete |
 | Other game platforms/versions | Outside current validation scope |
 
 Initial terminal fixtures cover default dimensions, addressed writes, cell overwrites, newline/wrap behavior, scrollback/clamping after a clear, clear/reset, grid growth, notifier registration/removal, fixed overlays, deep-copy snapshots, and empty snapshots. They use real models, not the integration-test screen stub. Overlay regressions now cover partial/full clipping above and below, overlays spanning both boundaries, extreme integer positions, fixed versus scrollback-relative placement, disabled/empty/wiped/shortened overlays, layer order, row-reference preservation, and long command input across width changes. A seed-3100 reference test exercises 200 compositions with resize and scroll. Dimension regressions now cover zero/negative/excessive requests, effective no-op identity/timestamps/notifications, normalized callbacks, safe writing after shrinking, negative long-input anchors, overlay width propagation, script suffix bounds, and 100 seeded resize requests (seed 3104). Cursor reads now have 23 headless regressions; actual Unity GUI group/color cleanup, fault recovery, and lifecycle checks still require runtime validation.
+
+### Telnet input parsing and session lifecycle (NET-01/02)
+
+**Upstream behavior confirmed before the change.** The original `TelnetProtocolScrape` code was compiled unchanged into a temporary Mono harness, with logging and socket calls stubbed out. It showed four faults:
+
+- Replies to known options leaked the option byte into typed input. `IAC WILL TERMTYPE` injected 0x18 (Ctrl-X) and `IAC DO SGA` injected 0x03 (Ctrl-C).
+- An escaped `IAC IAC` swallowed the following data byte.
+- A command or subnegotiation cut off at the end of a read threw `IndexOutOfRangeException` when the buffer ended exactly there. With the production 4096-byte buffer it read stale bytes left over from earlier reads instead.
+- Each read was UTF-8-decoded on its own, so a character split across reads was corrupted.
+
+Reading the code also showed four more problems:
+
+- A zero-byte read (the client closing) made the reader loop spin forever.
+- `StopListening()` ran on the writer thread and aborted that same thread before closing the stream or destroying the welcome menu.
+- Unity objects were destroyed from worker threads and from a finalizer.
+- Two threads could write to the socket at the same time.
+
+**Changes.** The protocol logic now lives in `kOS.Safe/UserIO`:
+
+- `TelnetInputParser` is an incremental RFC 854 parser. It keeps its state and a persistent UTF-8 decoder between reads. Subnegotiations are capped at 1024 bytes. Malformed or truncated input is discarded and reported, and end of stream turns an unfinished character into U+FFFD.
+- `TelnetInputDispatcher` decides ordering and break handling (details below).
+- `TelnetProtocol` holds the negotiation replies and the NAWS size rules.
+- `TelnetMenuText` holds the welcome-menu layout helpers.
+- `TelnetConnectionWorker` owns the socket and the reader/writer threads. The threads are background threads. Writes are serialized and time out after 5 s. Shutdown is cooperative, idempotent and bounded: it shuts down and closes the socket to unblock a pending read, then joins each thread for up to 1 s. There is no `Thread.Abort`.
+
+`TelnetSingletonServer` keeps its public members and adapts these classes. Worker threads now only request a stop. `TelnetMainServer.Update()` calls `MainThreadUpdate()` for each session on the game thread, which ends a session (detach from the CPU, welcome-menu cleanup) and keeps the welcome menu attached when no CPU is.
+
+**Intentional behavior changes:**
+
+- Break handling: `IAC BRK`/`IAC IP` still queues BREAK and discards the type-ahead from that read and any input already buffered. Window-size, terminal-type and negotiation messages inside the discarded input are now still processed instead of being dropped as raw bytes.
+- NAWS sizes: a zero field still means unchanged. Other values are clamped to the screen buffer limits (255 columns, 160 rows).
+- Clients refusing terminal type or NAWS: the warning no longer ends in a literal `DIE` and no longer claims kOS cannot work. These clients were never actually disconnected, because the enum was concatenated as text.
+- The welcome menu is detached as soon as a CPU is chosen.
+- `StopListening()` destroys the menu's GameObject rather than only the component.
+- A width narrower than a word or message no longer crashes `WordBreak`/`CenterPadded`.
+
+**Tests.** There are 83 headless regressions:
+
+- **Parser (34):** every single and paired split point of a mixed stream, byte-at-a-time feeding, 800 seeded random streams (seeds 1, 7, 1234, 98765), option leaks, escaped IAC, NAWS edge values, wrong lengths, oversized and interrupted subnegotiations, invalid commands, pending state, and end of stream.
+- **Protocol rules (23)** and **dispatcher (5)**.
+- **Menu layout (9):** checked against an oracle copy of the original algorithm.
+- **Worker (12):** real loopback sockets. They cover reassembly of split writes, client EOF ending the reader, shutdown unblocking a pending read, concurrent and worker-initiated shutdown, a stalled callback with a bounded join, shutdown before start, RST write failure, a stalled client timing out a send, TrySend giving up while another sender is blocked (and shutdown releasing it), and handler-fault reporting.
+
+The `.UserIO` tests passed 25 consecutive runs, and 8 more with every core busy.
+
+**Not covered.** No test runs `TelnetSingletonServer`, `TelnetMainServer`, `TelnetWelcomeMenu` or the terminal mappers. Mappers still convert each read's text separately, so a `\r\n` or an `ESC [` sequence split across reads is unchanged pre-existing behavior. A raw send from the game thread to a client that has stopped reading can block for up to the 5 s write timeout; the goodbye message waits at most 250 ms. Malformed-input log lines are not rate-limited.
+
+**When Proton resumes**, test with the default loopback-only setting:
+
+- PuTTY and/or `telnet` against the welcome menu and an attached CPU.
+- Typing non-ASCII text.
+- Resizing, including very small and very large windows.
+- Ctrl-C and the telnet interrupt, with type-ahead.
+- Detaching with Ctrl-D/X.
+- Closing the client window, and killing the client process.
+- `SET CONFIG:TELNET TO FALSE` with sessions attached.
+- Scene changes and quitting the game with a session attached.
+- A stalled client, e.g. a suspended `telnet` with sustained output.
+
+Afterwards, check KSP.log for thread, Unity main-thread and socket exceptions. Socket timeout and close-unblocks-read semantics have only been checked on Linux Mono, not under Unity Mono on Proton.
 
 ### Raw I/O and legacy newline compatibility (IO-01/02)
 

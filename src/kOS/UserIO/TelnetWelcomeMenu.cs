@@ -237,47 +237,14 @@ namespace kOS.UserIO
         }
         
         
-        /// <summary>
-        /// For writing out a message to the screen, trying to center it according to
-        /// what the telnet client claimed its current width is:
-        /// </summary>
-        /// <param name="msg">message to center</param>
-        /// <param name="padChar">character to pad with. ' ' for space, '=' or '-' to draw a line across.</param>
-        /// <returns>the padded version of the string</returns>
         private string CenterPadded(string msg, char padChar)
         {
-            int width = telnetServer.ClientWidth;
-            int halfPadWidth = (width - msg.Length)/2;
-            string padString = new String(padChar, halfPadWidth);
-            
-            return padString + msg + (padChar == ' ' ? "" : padString);
+            return TelnetMenuText.CenterPadded(msg, padChar, telnetServer.ClientWidth);
         }
         
-        /// <summary>
-        /// Break up a potentially long line so it only breaks on spaces and not
-        /// in the middle of a word.  Looks at the telnet client's width to decide
-        /// how to break.
-        /// </summary>
-        /// <param name="msg">string to attempt to print.</param>
-        /// <returns>new string that has the linebreaks added as \r\n</returns>
         private string WordBreak(string msg)
         {
-            char[] msgAsArray = msg.ToCharArray();
-
-            int width = telnetServer.ClientWidth;            
-            int lineStartPos = 0;
-            int lastSpacePos = -1;
-            for (int i = 0 ; i < msgAsArray.Length ; ++i)
-            {
-                if (msgAsArray[i] == ' ')
-                    lastSpacePos = i;
-                if ( (i - lineStartPos) >= width)
-                {
-                    msgAsArray[lastSpacePos] = (char)UnicodeCommand.STARTNEXTLINE;
-                    lineStartPos = lastSpacePos+1;
-                }
-            }
-            return new string(msgAsArray);
+            return TelnetMenuText.WordBreak(msg, telnetServer.ClientWidth);
         }
         
     }
