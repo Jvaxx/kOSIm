@@ -4,7 +4,7 @@
 
 **Committed: review NET-03 (telnet key decoding across reads + bounded telnet queues/budgets) and the fixture-found PROMPT-01 fix**, as three commits: `Move telnet key decoding into a stateful TerminalInputDecoder`, `Keep a wrapped input line from overwriting output (PROMPT-01)`, `Bound telnet queues and per-update input work (review NET-03)`. The first two were checked on their own in temporary worktrees (757/757 and 762/762 headless; commit 1 full build 0 errors). Doc updates for all three are in the third. All five "Remaining" items from the previous handoff are done (tests, recordings through the pipeline, end-to-end prompt tests, cost measurement, mutations/gate/docs). The suite is green (832/832) and the full Release build passes.
 
-**Next action:** ask the user which follow-up to start. Suggested (not yet chosen): (1) the prompt-level Ctrl-C fix (decision 4 below), small and headless-testable; (2) then a Proton checkpoint before `INPUT-01`, because much game-side code is compiled but unrun (this telnet wiring, NET-01/02, editor popup, render recovery, archive saves, raw I/O) and `INPUT-01` is mostly Unity; (3) `INPUT-01`. The user had deferred Proton checks; do not start them without approval.
+**Next action (user decision, 2026-10-12): a guided Proton checkpoint** in the dev instance, covering everything compiled since the last in-game check (only the overlay build was checked in game). The user approved deploying the current build to `/home/jvz/Games/KSP-kOSIM-dev/` and running it with `launch-dev.sh` for this. Steps: confirm the game is closed (never kill it without asking), back up the dev GameData kOS folder, deploy the full Release build, launch, then walk the user through the checklists in `docs/testing-and-build.md`, highest-risk first: telnet (review NET-03 + NET-01/02 + fixture NET-03), PROMPT-01/BUFFER, EXEC-01, editor (EDIT-01/02), render recovery (BUFFER-03), archive saves and raw I/O (IO-01/02/03). Record KSP/Proton versions, each check's result, KSP.log findings and checks not done. After that: the prompt-level Ctrl-C fix (decision 4), then `INPUT-01`.
 
 ### Decisions (user, 2026-10-12)
 
@@ -43,7 +43,7 @@ Docs updated: `docs/testing-and-build.md` (two new sections, review NET-03 accep
 
 ### Constraints for the next steps
 
-The user **deferred further Proton checks**. Do not deploy, terminate/restart the game, or request immediate game verification. No UI redesign, hosted testing/release automation, or push.
+Proton checks were deferred until 2026-10-12; the user has now approved the checkpoint above (dev instance only). Never touch the vanilla install or the original prefix, and never terminate the game without asking. No UI redesign, hosted testing/release automation, or push.
 
 Later tasks (confirm with the user): `INPUT-01` (focus/flight-control lock cleanup, mostly Unity; design + what's testable headlessly); replace reconstructed PuTTY/Windows telnet recordings with live captures; the prompt-level Ctrl-C fix (decision 4 above).
 
