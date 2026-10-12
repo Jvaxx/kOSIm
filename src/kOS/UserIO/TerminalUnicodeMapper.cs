@@ -176,8 +176,10 @@ namespace kOS.UserIO
         /// Map the chars containing the terminal's own control codes into our
         /// Unicode system with its fake control codes.
         /// <br/>
-        /// Each call converts a complete piece of input on its own, as before. The mappings
-        /// are documented on <see cref="TerminalInputDecoder"/>.
+        /// Each call converts a complete piece of input on its own, as before. The telnet
+        /// server does not use this: it decodes with <see cref="TelnetInputPipeline"/>, which
+        /// keeps state so a key split across socket reads is still one key. Both use
+        /// <see cref="TerminalInputDecoder"/>, where the mappings are documented.
         /// </summary>
         /// <param name="inChars">chars in the terminal's way of thinking</param>
         /// <returns>chars in our Unicode way of thinking</returns>

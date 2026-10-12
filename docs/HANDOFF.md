@@ -2,21 +2,52 @@
 
 ## Resume here
 
-**NET-03 and EXEC-01 are fixed and committed** (the user asked for both, with regression tests). Phase 0's headless work was already complete; the suite is fully green (**735/735**) and the known-failure list is empty.
+**Committed: review NET-03 (telnet key decoding across reads + bounded telnet queues/budgets) and the fixture-found PROMPT-01 fix**, as three commits: `Move telnet key decoding into a stateful TerminalInputDecoder`, `Keep a wrapped input line from overwriting output (PROMPT-01)`, `Bound telnet queues and per-update input work (review NET-03)`. The first two were checked on their own in temporary worktrees (757/757 and 762/762 headless; commit 1 full build 0 errors). Doc updates for all three are in the third. All five "Remaining" items from the previous handoff are done (tests, recordings through the pipeline, end-to-end prompt tests, cost measurement, mutations/gate/docs). The suite is green (832/832) and the full Release build passes.
 
-- **NET-03** (fixture-found; not the review's queue-budget NET-03, which stays open): telnet terminal types shorter than 5 characters (`ANSI`, `VT52`, `VTNT`, `dumb`, empty) made `TerminalUnicodeMapper.GuessTypeId()` throw on the reader thread and end the session. Recognition moved to `src/kOS.Safe/UserIO/TerminalTypeNames.cs`; the game mapper delegates to it, so short types get the plain mapper.
-- **EXEC-01**: a `COMPILE` that failed at the prompt re-reported its error every update and blocked the prompt until reboot. `CPU.IsYielding()` now drops a yield whose check throws; `YiedFinishedThreadedDetector` reports once and keeps the original stack trace (`ExceptionDispatchInfo`).
+**Next action:** ask the user which follow-up to start. Suggested (not yet chosen): (1) the prompt-level Ctrl-C fix (decision 4 below), small and headless-testable; (2) then a Proton checkpoint before `INPUT-01`, because much game-side code is compiled but unrun (this telnet wiring, NET-01/02, editor popup, render recovery, archive saves, raw I/O) and `INPUT-01` is mostly Unity; (3) `INPUT-01`. The user had deferred Proton checks; do not start them without approval.
 
-Details, tests and mutations are in `docs/testing-and-build.md` (sections "Short telnet terminal types" and "Failed COMPILE at the prompt").
+### Decisions (user, 2026-10-12)
 
-The user **deferred further Proton checks**. Continue local implementation/tests; do not deploy, terminate/restart the game, or request immediate game verification. No UI redesign, hosted testing/release automation, or push. Commit only when the user asks.
+1. **Limits stay code constants**, not `CONFIG` settings (a deliberate deviation from the review's "configurable limits"): input/output backlog 262,144 each; 4,096 telnet keys and 4 ms per client per update; type-ahead limit 4,096; 2,048 prompt keys per update; 100 ms sequence timeout.
+2. **Unrecognized key sequences stay typed as text** (F-keys, Ctrl+arrows, other `ESC [` sequences), as upstream.
+3. **No SS3 decoding** (`ESC O A` etc.); kOS never enables application-cursor mode.
+4. **Prompt-level Ctrl-C: fix later, in its own task.** Ctrl-C does not end a `WAIT` or `COMPILE` typed directly at the prompt (telnet or GUI): `CPU.BreakExecution(true)` aborts yields only when a program context exists. Confirmed headlessly; inside a program Ctrl-C works in one update. Upstream behavior. The fix must decide what a still-running `COMPILE` thread may do (it keeps running and may still write its output).
 
-Next tasks, in suggested order (confirm with the user):
+### What the three commits contain
 
-1. Optional telnet follow-up: terminal mappers (`src/kOS/UserIO/Terminal*Mapper.cs`) still convert each read separately, so `\r\n` or `ESC [` split across reads is mishandled (pre-existing). This needs the mappers moved to `kOS.Safe` or given a stateful wrapper, plus tests. Moving them would also let the recorded telnet streams run through the mappers. Keep the public `kOS.UserIO` types (mods may reference them).
-2. `INPUT-01` (focus/flight-control lock cleanup) is mostly Unity behavior. Design and test what's possible headlessly; real verification waits for Proton.
-3. Review NET-03 (queue budgets/backpressure for large pastes and stalled clients) from `docs/improvements-overview.md`; NET-01/02 did not bound the queues.
-4. When convenient, replace the reconstructed PuTTY and Windows telnet recordings with live captures (`src/kOS.Safe.Test/UserIO/Recordings/`).
+Production (`src/kOS.Safe`):
+
+- `UserIO/TerminalInputDecoder.cs` + `TerminalInputDialect`, `TerminalTypeNames.InputDialectFor()`: stateful key decoding (split keys joined; each CR/LF one Enter, its partner absorbed).
+- `UserIO/TelnetInputQueue.cs`, `TelnetOutputQueue.cs`, `TelnetInputPipeline.cs`, `TerminalInputPump.cs`: bounded queues, control priority, overflow with hysteresis and notices, per-update budgets, round robin. Details, limits and intentional changes: `docs/testing-and-build.md`, section "Telnet key decoding and bounded telnet queues (review NET-03)".
+- Fixed this session: `TelnetInputQueue.TakeOverflowEnded` lost the first episode's drop count when two episodes ended before the game thread reported (now accumulated).
+- `Screen/TextEditor.cs` (PROMPT-01): `KeepCursorInBounds` adds rows before moving/scrolling. Upstream left the input line one row too high: a command wrapped at the bottom overwrote the last output row, and a line taller than the screen threw on Enter. Section "Long input line at the prompt (PROMPT-01, fixture-found)".
+
+Game-side wiring (`src/kOS`, compiled only, not runtime-tested): `TelnetSingletonServer` (queues/pipeline, `TryReadChar`, backlog/overflow properties, client + log notices, `MainThreadUpdate` flush), `TermWindow` (`DrainTelnets`, `FeedPrompt`, title resend and mode restatement on repaint), `TelnetWelcomeMenu` (per-update budget, repaint/resize handling, no echo of kOS key codes), mappers (`InputConvert` via a fresh decoder per call; overrides kept for binary compatibility).
+
+Tests (`src/kOS.Safe.Test`), 97 new since the last commit (22 decoder + 70 + 5):
+
+- `UserIO/TelnetInputQueueTest` (17, incl. a threaded stress test), `TelnetOutputQueueTest` (8, incl. concurrent writers), `TelnetInputPipelineTest` (16), `TerminalInputPumpTest` (14).
+- `UserIO/TelnetRecordingTest` (+7): recordings through `TelnetServerInputModel` (copy of the server's input side; **keep in step with `TelnetSingletonServer`'s `ITelnetInputSink` methods**) to recorded `Recordings/*.keys`; all chunkings give the same keys.
+- `Execution/FixtureTermWindow.cs`: copy of `TermWindow`'s input routing (**keep in step**). `Execution/TelnetPromptTest` (6): split multi-line paste, upstream Enter count, interrupt during a backlog (program in `WAIT 1000`), resize before backlog, long line within limits. `Execution/TelnetPasteCostTest` (2): frame-cost proxy. `Execution/LongInputLineTest` (5): PROMPT-01.
+- `ScriptHost`: `BeforeUpdate` hook; `SilentSoundMaker` (a manual break inside a program called `SoundMaker.StopAllVoices()` on null).
+- `.ci/known-test-failures.json`: `minimum_tests` 735 → 832; `failures` still empty.
+
+Docs updated: `docs/testing-and-build.md` (two new sections, review NET-03 acceptance cross-reference table, Proton checklist additions, counts), `docs/KOSIm-roadmap.md` (Phase 1 progress).
+
+### Known limits
+
+- Typed text beyond the input backlog is discarded with a notice (not back-pressured), so interrupts are never stuck; output overflow relies on a full repaint (title resent, modes restated, menu reprints).
+- Several clients share one type-ahead; simultaneous pastes from two clients can interleave within a line (upstream: at read boundaries).
+- Many-line pastes: worst update is dominated by compiling/running one line, which the per-key budget cannot pre-empt. Worst update grows with scrollback (not investigated).
+- A control key read while text is allowed uses one unit of budget (negligible).
+
+### Constraints for the next steps
+
+The user **deferred further Proton checks**. Do not deploy, terminate/restart the game, or request immediate game verification. No UI redesign, hosted testing/release automation, or push.
+
+Later tasks (confirm with the user): `INPUT-01` (focus/flight-control lock cleanup, mostly Unity; design + what's testable headlessly); replace reconstructed PuTTY/Windows telnet recordings with live captures; the prompt-level Ctrl-C fix (decision 4 above).
+
+Fixture-found NET-03 (short terminal types) and EXEC-01 (repeating COMPILE error) are fixed and committed; see `docs/testing-and-build.md`.
 
 Decided: the user chose to **leave the JSON format unchanged**. JSON from kOS 1.3+ wraps nested primitives as `{"value", "$type"}`; keep that for file compatibility.
 
@@ -43,10 +74,12 @@ Detailed evidence and deferred runtime checklists live in `docs/testing-and-buil
 | EDIT-01/02 | `EditorDocument` (48 tests), wired through `KOSTextEditPopup`/`DelegateDialog`. Actual-text dirty detection; separate active destination and pending open; load commits only after successful read; modal state survives focus/reopen. | Save targets active document. Failures preserve draft/request; successful save before failed load advances baseline. Incidental Close preserves draft; explicit discard-exit restores baseline. Text API semantics retained; no conflict detection/input-lock redesign. Popup/dialog adapter is compiled, not Unity-tested. |
 | IO-03 | `ArchiveFileWriter` and Archive save integration (50 tests): exclusive same-directory `.kosim-save-<GUID>.tmp`, write/flush/close, then Replace existing / non-overwriting Move new; internal instance-local fault seam. | No delete/truncate fallback. Clean only owned temps; cleanup failure retains both errors/path. Interrupted saves can leave visible temps; no sweep. Native commit safety depends on runtime/filesystem; no power-loss durability, external-change detection or rollback after post-commit Open failure. Append/Clear/static archive root/link policy unchanged. |
 | IO-01/02 | User-approved **Preserve text APIs** policy: additive `ReadAllRaw`/`WriteRaw`/`SaveFileRaw`, script `READRAW`/`WRITERAW(FileContent)`; copy/move/helper/boot seeding route raw. 62 tests (`RawFileIoTest`, `LegacyNewlineTest`). | Built-in raw transfers preserve bytes; raw append is nontransactional. Legacy READALL/WRITE, UTF-8 replacement/BOM/type behavior retained; Windows CRLF conversion is idempotent. Legacy archive READALL still risks binary corruption: use raw APIs. Old/derived providers retain legacy hooks until opting into raw overrides; no universal byte-exact or precompiled-mod guarantee. Exact byte capacity can reject moves previously accepted via shortened text views. |
-| NET-01/02 | `kOS.Safe/UserIO`: `TelnetInputParser` (incremental RFC 854, persistent UTF-8 decoder, 1024-byte subnegotiation cap), `TelnetInputDispatcher` (text coalescing, break discard), `TelnetProtocol` (negotiation replies, NAWS clamping), `TelnetMenuText`, and `TelnetConnectionWorker` (background reader/writer, serialized writes, 5 s write timeout, cooperative idempotent shutdown with 1 s bounded join, no `Thread.Abort`). `TelnetSingletonServer` keeps its public API, and game-side stop/menu work runs in `MainThreadUpdate()`, called from `TelnetMainServer.Update()`. 83 tests (34 parser, 23 protocol, 5 dispatcher, 9 menu, 12 loopback-socket worker). | Intentional changes are listed in `docs/testing-and-build.md` (NET-01/02 section). Server, menu and mapper adapters are compiled but not tested. Mappers still work per read. A game-thread raw send to a stalled client can block for up to 5 s. Socket semantics have been checked only on Linux Mono; Unity/Proton telnet acceptance is deferred. |
+| NET-01/02 | `kOS.Safe/UserIO`: `TelnetInputParser` (incremental RFC 854, persistent UTF-8 decoder, 1024-byte subnegotiation cap), `TelnetInputDispatcher` (text coalescing, break discard), `TelnetProtocol` (negotiation replies, NAWS clamping), `TelnetMenuText`, and `TelnetConnectionWorker` (background reader/writer, serialized writes, 5 s write timeout, cooperative idempotent shutdown with 1 s bounded join, no `Thread.Abort`). `TelnetSingletonServer` keeps its public API, and game-side stop/menu work runs in `MainThreadUpdate()`, called from `TelnetMainServer.Update()`. 83 tests (34 parser, 23 protocol, 5 dispatcher, 9 menu, 12 loopback-socket worker). | Intentional changes are listed in `docs/testing-and-build.md` (NET-01/02 section). Server, menu and mapper adapters are compiled but not tested. (Per-read mapping replaced by review NET-03.) A game-thread raw send to a stalled client can block for up to 5 s. Socket semantics have been checked only on Linux Mono; Unity/Proton telnet acceptance is deferred. |
 | FMT-01 | `SafeSerializationMgr.DumpValue()` returns nested primitives inline for type-less (display) dumps only. This fixes `PRINT`/`:DUMP` of lists and lexicons, which upstream has shown as `["value"] = …` since v1.3.0.0 (cause: commit `21dcea00`; seen in issue #2939). `PrimitiveDisplayTest` (7 tests). The 3 baseline failures are removed. | JSON/message/save formats are unchanged and pinned by a test. The in-game print has not been checked under Proton. |
 | Compatibility fixtures | `ScriptHost` (real `TextEditor` prompt, CPU, compiler and screen model; disposable archive) with test adapters `FixtureInterpreter` (copy of the game `Interpreter`, keep in step), `FixtureBindingManager` (`TERMINAL`), `FixtureFunctionClearScreen`, `RecordingLogger`. `ScriptFixtureTest` (19: printing, functions, triggers, fileio from source and KSM in both newline modes; CRLF boot; KSM category), `DashboardFixtureTest` (1 test, 15 snapshots), `TelnetRecordingTest` (13). Fixtures in `kerboscript_tests/fixtures/` (expected in `expected/`), recordings in `src/kOS.Safe.Test/UserIO/Recordings/`. Re-record with `KOSIM_RECORD_FIXTURES=1`. | Model of the terminal, not in-game rendering. Game key routing, mappers and telnet server are untested. PuTTY/Windows telnet streams are reconstructed, not captured. `boot_crlf.ks` is `-text` in `.gitattributes`. |
 | NET-03 / EXEC-01 | `TerminalTypeNames` (kOS.Safe) used by `TerminalUnicodeMapper.GuessTypeId()`; `TerminalTypeNamesTest` (23). `CPU.IsYielding()` drops a yield whose check throws; `YiedFinishedThreadedDetector` reports once with the original trace; `CompileErrorTest` (4, real prompt). | Results unchanged for every type string upstream handled; bare `vt10` now VT100; ordinal matching. ANSI mapping still unimplemented. Ctrl-C at the prompt still cannot cancel a running `COMPILE` (code reading). Neither fix checked with a real client or in game. |
+| Review NET-03 | `TerminalInputDecoder`, `TelnetInputQueue`, `TelnetOutputQueue`, `TelnetInputPipeline`, `TerminalInputPump` (kOS.Safe/UserIO), wired into `TelnetSingletonServer`, `TermWindow`, `TelnetWelcomeMenu`, mappers. 92 tests incl. recordings→keys, real-prompt paste/interrupt, cost proxy; 13 mutations. | Limits are constants (user decision). Text overflow discards with notice; output overflow → full repaint. Shared type-ahead across clients. Game adapters compiled only; no real client, frame time or stalled-client check. |
+| PROMPT-01 | `TextEditor.KeepCursorInBounds` adds rows before scrolling; `LongInputLineTest` (5, real prompt). | Upstream defect (GUI and telnet). Not checked in game. |
 
 ## Latest verification and commands
 
@@ -60,7 +93,19 @@ bash .ci/test.sh
 dotnet build kOS.sln -c Release
 ```
 
-Latest session results (NET-03/EXEC-01, 2026-10-12):
+Latest session (review NET-03 completion + PROMPT-01, committed, 2026-10-12):
+
+- Start: `bash .ci/test.sh` exit 0, 757/757.
+- Final: `bash .ci/test.sh` exit 0, **832 NUnit executed, 832 passed, 0 known failures, 0 skipped; 12 Python gate tests passed** (after the full build). Gate minimum raised to 832; `failures` empty.
+- Full build: `dotnet build kOS.sln -c Release --no-incremental` exit 0, **0 errors, 44 existing warnings** (none new); all three assemblies rewritten. Not deployed; no game launched.
+- Stability: the 214 UserIO/telnet-prompt/long-input tests passed 10 consecutive runs and 5 more with all 24 cores busy.
+- Mutations (13, each reverted, files checked by SHA-1): all failed tests; table in `docs/testing-and-build.md`.
+- Measurement (headless proxy, Mono 6.12, Ryzen 9 5900X): worst update for a 6,018-character pasted line 368–404 ms without limits vs 5.1–5.3 ms with them (same total); 3,000-line paste worst update 9.3–10.6 vs 7.2–7.8 ms. Reproduce the 3,000-line figures with `KOSIM_PASTE_LINES=3000 bash .ci/test.sh` (MEASURE lines in the output).
+- Defect evidence: overflow-count bug shown by `EpisodesNotYetReportedAreReportedTogether` (3 reported instead of 5); PROMPT-01 shown by temporary probes (2,000+ characters typed directly crashed on Enter; `line 39` overwritten), removed after the regression tests were added; the prompt-level Ctrl-C limit shown by a temporary probe (`wait 1000.` still running 200 updates after BREAK; the same wait in a `RUNPATH` program aborted in 1 update), removed.
+
+Earlier work-tree check (before this session's tests): 757/757; full build 0 errors, 44 warnings.
+
+Previous session results (NET-03/EXEC-01, committed, 2026-10-12):
 
 - Baseline at session start: 708/708 (previous session).
 - Final: `bash .ci/test.sh` exit 0, **735 NUnit executed, 735 passed, 0 known failures, 0 skipped**; 5 further consecutive runs all 735/735. Gate minimum raised to 735; `failures` still empty.
@@ -100,6 +145,6 @@ Passing headless tests are not Proton validation.
 
 ## Follow-on priorities
 
-See "Resume here" for the ordering: the optional mapper follow-up, then `INPUT-01` and other small confirmed safety defects. Retain pending GUI/telnet equivalence, fixed communications overlay, multiple-viewer, focus/power/scene and native-resource checks; no systematic performance profile has run.
+See "Resume here" for the ordering: the review NET-03 + PROMPT-01 work is committed; next the prompt-level Ctrl-C fix and a Proton checkpoint (user to choose), then `INPUT-01` and other small confirmed safety defects. Retain pending GUI/telnet equivalence, fixed communications overlay, multiple-viewer, focus/power/scene and native-resource checks; no systematic performance profile has run.
 
 Before major structural extraction, document screen/viewport coordinates, resize authority across viewers, input/thread ownership and explicit lifecycle/resource contracts. No wholesale rewrite or UI modernization yet.

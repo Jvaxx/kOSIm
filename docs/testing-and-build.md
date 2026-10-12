@@ -99,7 +99,7 @@ At upstream commit `8f281a459b6ea0ba917c91bbbc117e68bb948199`, the unchanged sui
 - **Tests.** `PrimitiveDisplayTest` adds 7 regressions: inline list, module-field and nested-collection printing; a pinned JSON format; bare-scalar JSON (#2824); loading pre-1.3 raw-primitive JSON; and typed dumps keeping wrapped primitives. With the fix disabled as a temporary mutation, the 3 original tests and the 3 new display tests failed while the JSON and compatibility tests passed.
 - **Not checked.** The in-game terminal output has not been checked under Proton.
 
-The fork adds **13 character-grid compatibility tests**, **26 overlay regression tests**, **27 dimension regressions**, **23 cursor-read regressions**, **34 render-recovery regressions**, **48 editor document regressions**, **50 archive-save regressions**, **62 raw I/O/newline regressions**, **83 telnet regressions**, **7 display-formatting regressions**, **33 compatibility-fixture tests**, **23 terminal-type regressions** (NET-03) and **4 compile-error regressions** (EXEC-01), so the current suite executes **735 tests: all 735 pass, 0 skipped**. The local gate has **12 additional Python unit tests**.
+The fork adds **13 character-grid compatibility tests**, **26 overlay regression tests**, **27 dimension regressions**, **23 cursor-read regressions**, **34 render-recovery regressions**, **48 editor document regressions**, **50 archive-save regressions**, **62 raw I/O/newline regressions**, **83 telnet regressions**, **7 display-formatting regressions**, **33 compatibility-fixture tests**, **23 terminal-type regressions** (NET-03), **4 compile-error regressions** (EXEC-01), **92 telnet decoding/queue/budget tests** (review NET-03: 22 decoder tests plus 70 queue, pipeline, pump, recording, prompt and cost tests) and **5 long-input-line regressions** (PROMPT-01), so the current suite executes **832 tests: all 832 pass, 0 skipped**. The local gate has **12 additional Python unit tests**.
 
 `.ci/known-test-failures.json` records exact known failing names (currently none), expected assertion-message fragments, reasons, and the minimum current test count. **No test is ignored or filtered out.** The raw NUnit process exits nonzero for any failure. The local regression gate tolerates only the recorded baseline and rejects:
 
@@ -199,7 +199,7 @@ Game-assembly pieces are replaced by small test adapters, all in `ScriptHost.cs`
 - `inetutils-xterm`: **captured live** from GNU inetutils telnet 2.8, `TERM=xterm`, 80x24, against a loopback listener sending kOS's connect sequence and replies. Enter arrives as `CR NUL` and the terminal type as `XTERM`.
 - `putty-xterm` and `windows-telnet-ansi`: **reconstructed, not captured**, because neither client is installed here. They follow PuTTY's telnet backend defaults (active negotiation, `XTERM`, CR LF, DEL, keepalive NOP, UTF-8) and Microsoft Telnet's (passive, `ANSI` then `VT100`, 120x30, CR LF, BS). They include a split UTF-8 character, a 300-column NAWS clamped to 255, `IAC IP` with type-ahead, and a terminal-type change mid-input. Replace them with live captures when those clients are available.
 
-Each recording is replayed as recorded, at every split point inside each read, byte at a time, and in 150 seeded random chunkings (seeds 3, 17, 2026). Fragmented replays report more data available until the end of each original read, so the break-discard policy sees the same reads. After adjacent text is joined, all replays must match the trace. The terminal mappers, `TelnetSingletonServer` and the welcome menu remain untested.
+Each recording is replayed as recorded, at every split point inside each read, byte at a time, and in 150 seeded random chunkings (seeds 3, 17, 2026). Fragmented replays report more data available until the end of each original read, so the break-discard policy sees the same reads. After adjacent text is joined, all replays must match the trace. Since the review NET-03 work, the same reads also go through the server's input side to the keys kOS reads (`.keys` files), which every chunking must reproduce. The game's `TelnetSingletonServer`, terminal mappers and welcome menu remain untested; the tests use copies of their input logic.
 
 **Evidence.**
 
@@ -225,9 +225,141 @@ Each recording is replayed as recorded, at every split point inside each read, b
 
 These stay on the Proton checklist. A fixture is a model of the terminal, not proof of in-game rendering.
 
+### Telnet key decoding and bounded telnet queues (review NET-03)
+
+This is the review's NET-03 ("bound queues and update work"), together with a fix for keys split across socket reads. It is separate from the fixture-found NET-03 below.
+
+**Upstream behavior.**
+
+- The terminal mappers converted each socket read on its own. A key sequence split between reads (`ESC [` | `A`) arrived as typed text, and a `CR` | `LF` split gave two Enters. Within one read, `CR LF CR LF` gave one Enter, so a blank line was lost.
+- Both telnet queues were unbounded. `TermWindow.ProcessTelnetInput()` drained every client completely each update, and `ProcessUnconsumedInput()` fed the prompt with no limit, so a large paste or a noisy client could take a whole frame. Output kept growing behind a client that stopped reading.
+
+**Changes** (new classes in `kOS.Safe/UserIO`; the game classes adapt them):
+
+- `TerminalInputDecoder` (`TerminalInputDialect` Plain/VT100/Xterm): the mappers' input mappings, with state kept between reads. An unfinished sequence is held until no input has arrived for 100 ms, then passed on as typed, so a lone Escape still arrives. `TerminalTypeNames.InputDialectFor()` picks the dialect the same way the mapper factory picks a mapper.
+- `TelnetInputQueue`: thread-safe and bounded (262,144 characters). An interrupt discards the text typed before it and is read first. A resize keeps only the latest size, is read first and its three characters are never split. A repaint request is read first. When full, typed text is discarded until the backlog drains to half. The start and end of each overflow are reported once, with the number of characters lost.
+- `TelnetOutputQueue`: bounded (262,144 characters). When a write would exceed it, the unsent backlog is dropped and the caller requests a full repaint. A single write is never split, and a `DIE` in dropped output still ends the session.
+- `TelnetInputPipeline`: decoder plus queue for one client. A terminal-type change flushes the old decoder; an interrupt resets it.
+- `TerminalInputPump`: `InputBudget` (characters and time per update) and the two per-update loops. `DrainTelnets` takes clients in turn (round robin), each with its own budget, and moves text only while the type-ahead is below its limit; control events are always processed. `FeedPrompt` is the `ProcessUnconsumedInput` loop with a budget.
+- `TelnetSingletonServer` uses the queues and pipeline. Its public members keep their signatures, plus `TryReadChar(includeText, out ch)`, `InputBacklog`, `DiscardedInputCount`, `OutputBacklog` and `OutputOverflowCount`. Overflow is reported to the client (a bell and a `[kOS telnet: ...]` line) and to the log; output-overflow logging is limited to once per 10 s. `MainThreadUpdate()` runs the sequence timeout.
+- `TermWindow` uses `DrainTelnets` and `FeedPrompt`. A repaint request also resends the title, and a full repaint restates the reverse-screen and visual-beep modes, because both may have been in dropped output.
+- `TelnetWelcomeMenu` reads a limited number of keys per update, reprints on a repaint request, skips a resize's size characters, and no longer echoes other kOS key codes into the selection (upstream added them to it as garbage).
+- The mappers' `InputConvert` uses a fresh decoder per call, so callers of that public method keep per-call results. The VT100/xterm overrides remain as thin delegations for binary compatibility; `ConvertVT100InputCSI` is kept but unused. The server no longer calls `InputConvert`.
+
+**Limits** (code constants by user decision, not `CONFIG` settings):
+
+| Limit | Value |
+| --- | --- |
+| Input backlog per client | 262,144 characters; after overflow, input resumes at half |
+| Output backlog per client | 262,144 characters, plus at most one write |
+| Telnet keys moved per client per update | 4,096 and 4 ms (the first key always) |
+| Type-ahead below which telnet text is moved | 4,096 keys |
+| Type-ahead keys fed to the prompt per update | 2,048 and 4 ms |
+| Unfinished key sequence timeout | 100 ms |
+| Welcome menu keys per update | 4,096 |
+
+**Intentional behavior changes:**
+
+- Keys split across reads decode as one key. Each CR or LF is one Enter; only its partner directly after it (or NUL after CR) is absorbed, so blank lines in pastes are kept.
+- Interrupts, resizes and repaint requests overtake typed text that is still waiting. An interrupt discards everything typed before it (the terminal's type-ahead was already wiped by an interrupt).
+- Only the latest of several unread resizes is applied.
+- A large paste is typed over several updates. Typed text beyond the 262,144-character backlog is discarded, with a notice to the client and the log, rather than queued without limit.
+- Output a stalled client could not take is replaced by a full repaint. Non-screen output in the dropped part is lost: the title is resent, modes are restated, and the welcome menu reprints itself.
+- Artifacts that are not real keys decode differently: `ESC [ A ~`, and an ESC directly before U+009B.
+
+Unchanged: the key mappings themselves, including keeping a lone ESC and dropping the ESC/U+009B of an unrecognized `ESC [` sequence. Unrecognized sequences such as function keys and Ctrl+arrows are still typed as text, and SS3 (`ESC O A`) is not decoded, as upstream; the user decided to keep both.
+
+**Tests** (75 new, plus the 22 decoder tests from the previous session):
+
+- `TelnetInputQueueTest` (17): order; controls with text held back; repaint and break priority and coalescing; break discarding only earlier text (protocol and typed Ctrl-C); resize coalescing, priority and an unsplit triple; overflow start, hysteresis, notices once, episodes reported together, break ending an overflow; statistics; argument checks; a threaded producer/consumer stress test that checks order, unsplit resizes and that every character is read, dropped or discarded.
+- `TelnetOutputQueueTest` (8): no drop within capacity; drop and repaint request; oversized single write; DIE in dropped and sent output; statistics; three concurrent writers with no split or unaccounted write.
+- `TelnetInputPipelineTest` (16): dialect per terminal type; split key; flush only after the timeout, counted from the latest text; a late LF after a timed-out CR; type switch flushing (or not, for the same dialect); break resetting the decoder.
+- `TerminalInputPumpTest` (14): character and time budgets (injected clock); per-client budgets; turns; a noisy client not starving a quiet one; full type-ahead holding text but not controls; controls after the budget; `FeedPrompt` stopping when a command starts, on a refused key, at its budget and after a wipe.
+- `TelnetRecordingTest` (+7): the three recordings through the parser, dispatcher, pipeline and queue (`TelnetServerInputModel`, a copy of the server's input side) to the keys kOS reads, checked against recorded `.keys` files; every split, byte-at-a-time and 150 seeded chunkings give the same keys.
+- `TelnetPromptTest` (6, real prompt through `ScriptHost` and `FixtureTermWindow`, a copy of `TermWindow`'s input routing): a multi-line paste with every CR LF split across reads runs each line once, whether all reads arrive before the first update or one per update; the same reads through the upstream conversion give 7 Enters instead of 4; an interrupt during a 33,000-key paste (a program in `WAIT 1000`, 4,096 keys in the type-ahead, the rest in the telnet queue) aborts the program in one update and discards both, after which the prompt works; a resize is applied before a waiting backlog; a 10,000-character pasted line runs within the per-update limits.
+- `TelnetPasteCostTest` (2): the measurement below, asserting only the deterministic bounds.
+
+Keep `TelnetServerInputModel` in step with `TelnetSingletonServer`'s `ITelnetInputSink` methods, and `FixtureTermWindow` with `TermWindow`'s `ProcessTelnetInput`, `ProcessUnconsumedInput`, `ProcessOneInputChar`, `Type`, `SpecialKey` and `WipeAllTypeAhead`.
+
+**Defect fixed while testing.** If two overflow episodes ended before the game thread reported them, the second episode's count replaced the first's, so the client was told too few characters were lost. The counts now add up.
+
+**Headless frame-cost proxy** (`TelnetPasteCostTest`): wall time per update of the window's input work plus the CPU update, the paste sent in 1,460-byte reads. "No limits" removes all four limits, which approximates upstream's loops. Linux Mono 6.12, Ryzen 9 5900X; four runs of the long line and three of the 3,000 lines (those with `KOSIM_PASTE_LINES=3000`; the suite uses 500 lines):
+
+| Paste | Limits | Updates | Worst update | Total |
+| --- | --- | --- | --- | --- |
+| one 6,018-character line | none | 1 | 368–404 ms | 368–404 ms |
+| one 6,018-character line | game | 90–98 | 5.1–5.3 ms | 368–400 ms |
+| 3,000 lines (37,890 characters) | none | 3,000 | 9.3–10.6 ms | 4.2–4.7 s |
+| 3,000 lines (37,890 characters) | game | 3,000 | 7.2–7.8 ms | 4.0–4.7 s |
+
+- Typing at the prompt costs about O(n²) in the line length (the input line is re-wrapped per key), so a long pasted line used to stall one frame. It is now spread over updates at no extra total cost.
+- A many-line paste already ran one line per update, because the prompt stops at each Enter while the command runs. The worst update there is mostly compiling and running one line, which a per-key budget cannot pre-empt; the limits mainly keep the type-ahead short.
+- The worst update in the 3,000-line case grows with the scrollback (2.5 ms at 500 lines). Not investigated.
+- This is not frame time in the game. Real frame time needs KSP.
+
+**Mutations**, each reverted (files checked byte-identical afterwards); every one failed tests:
+
+| Mutation | Failing tests |
+| --- | --- |
+| Break keeps earlier text | 9, including the end-to-end interrupt test |
+| Text read before controls | 10 |
+| No overflow hysteresis | 1 |
+| Overflow counts overwritten | 1 |
+| Output never dropped | 3 |
+| Dropped DIE forgotten | 1 |
+| Flush ignores the timeout | 2 |
+| Per-read decoding (flush after every read) | 8, including the recording chunk test |
+| Type-ahead limit ignored | 2, including the end-to-end interrupt test |
+| Telnet budget ignored | 4 |
+| Prompt budget ignored | 3, including both end-to-end long-line tests |
+| No round robin | 2 |
+| PROMPT-01 reverted | 7 (5 errors, 2 failures) |
+
+**Known limits:**
+
+- Text beyond the input backlog is discarded with a notice rather than back-pressured, so an interrupt is never stuck behind a full queue. A Ctrl-C typed after more than about 262K unread characters still arrives promptly, because the reader keeps reading.
+- Several clients share one terminal type-ahead. Two clients pasting at once can now interleave within a line (upstream interleaved at read boundaries). Fairness between clients is tested only with the pump's unit tests.
+- A control key read while text is allowed uses one unit of that update's budget.
+- Ctrl-C does not end a `WAIT` (or `COMPILE`) typed directly at the prompt, telnet or GUI: `CPU.BreakExecution` aborts yields only when a program context exists. Upstream behavior, confirmed headlessly; the user decided to fix it later in its own task. Inside a program, Ctrl-C works (tested above).
+- Typed characters in the kOS private-use range still act as kOS key codes (pre-existing).
+- `TelnetSingletonServer`, `TermWindow`, the welcome menu and the mappers are compiled, not run; the tests use copies of their input logic.
+
+#### Review NET-03 acceptance tests
+
+| Review acceptance test | Status |
+| --- | --- |
+| Sustained input | Headless: threaded queue stress test; 3,000-line paste |
+| Large paste | Headless: long line and many lines on the real prompt, with measured per-update cost |
+| Slow receiver | Headless: output queue drop and repaint request, DIE kept. Deferred: a stalled real client under Proton |
+| Multiple clients | Headless: per-client budgets and turns (unit). Deferred: several real clients on one CPU |
+| Interrupt during backlog | Headless: real prompt, one update, backlog discarded |
+| Fairness across clients | Headless: noisy client cannot starve a quiet one (unit) |
+| Queue-full behavior | Headless: overflow, hysteresis, notices, break during overflow |
+| Measure frame-time impact | Headless proxy above. Deferred: in-game frame time |
+| Configurable limits | Not done by user decision: code constants |
+
+**When Proton resumes**, in addition to the NET-01/02 checklist below: paste a few thousand lines and one very long line into an attached telnet session and watch frame rate; Ctrl-C during that paste; hold an arrow key and press Escape alone (the 100 ms timeout); suspend a client (Ctrl-Z in `telnet`) during sustained output, resume it and check it repaints; two clients on one CPU; check the overflow notices and KSP.log lines.
+
+### Long input line at the prompt (PROMPT-01, fixture-found)
+
+Found by the long-paste test above. It affects the GUI terminal as well as telnet.
+
+**Upstream behavior.** When typing wrapped the input line past the bottom row, `TextEditor.KeepCursorInBounds()` moved the line up by the rows to scroll, then scrolled, then added the new rows. Scrolling stops at the end of the buffer, so it came up one row short and the line sat one row too high:
+
+- A command that wrapped at the bottom of the screen overwrote the last row of output. Headless: after printing `line 0` … `line 39`, a 76-character command replaced `line 39`.
+- A line taller than the screen, typed from the top row, was anchored above the buffer, so Enter threw `ArgumentOutOfRangeException` in `ScreenBuffer.PrintLine` and the command never ran. Headless: 2,000 characters on the default 50x36 screen.
+
+`TextEditor` and these `ScreenBuffer` paths are unchanged from upstream.
+
+**Fix.** Add the rows before moving and scrolling. Nothing else changes.
+
+**Tests.** `LongInputLineTest` (5, real prompt): the last output row survives a wrapped command; lines of 1,800, 2,000 and 5,000 characters run and the prompt works afterwards; six wrapped commands on a 5-row screen keep all their output. All existing overlay and dimension tests pass unchanged. Reverting the fix fails 7 tests.
+
+**Not checked in game.** On the Proton checklist: type a command longer than one row at the bottom of a full screen and check the row above; paste a line longer than the screen.
+
 ### Short telnet terminal types (NET-03, fixture-found)
 
-This NET-03 label comes from the fixtures. It is not the review's NET-03 (queue budgets and backpressure in `improvements-overview.md`), which is still open.
+This NET-03 label comes from the fixtures. It is not the review's NET-03 (queue budgets and backpressure in `improvements-overview.md`), which is described in its own section above.
 
 **Fix.** The prefix checks moved into `kOS.Safe.UserIO.TerminalTypeNames` (`IsXterm`, `IsVT100`), which use `StartsWith(…, OrdinalIgnoreCase)` and accept `null`. `TerminalUnicodeMapper.GuessTypeId()` calls them, so its signature and results are unchanged for every string upstream handled. Short types such as `ANSI`, `VT52`, `VTNT`, `dumb` and the empty string now get the plain `TerminalUnicodeMapper`, as any other unknown type does. A bare `vt10` is now VT100 (upstream threw). Matching is ordinal rather than current-culture; the prefixes contain no culture-sensitive letters. `ANSI` mapping is still not implemented (`TerminalAnsiMapper` is unused, as upstream).
 
@@ -297,7 +429,7 @@ Reading the code also showed four more problems:
 
 The `.UserIO` tests passed 25 consecutive runs, and 8 more with every core busy.
 
-**Not covered.** No test runs `TelnetSingletonServer`, `TelnetMainServer`, `TelnetWelcomeMenu` or the terminal mappers. Mappers still convert each read's text separately, so a `\r\n` or an `ESC [` sequence split across reads is unchanged pre-existing behavior. A raw send from the game thread to a client that has stopped reading can block for up to the 5 s write timeout; the goodbye message waits at most 250 ms. Malformed-input log lines are not rate-limited.
+**Not covered.** No test runs `TelnetSingletonServer`, `TelnetMainServer`, `TelnetWelcomeMenu` or the terminal mappers. (Keys split across reads were later fixed by the review NET-03 work above.) A raw send from the game thread to a client that has stopped reading can block for up to the 5 s write timeout; the goodbye message waits at most 250 ms. Malformed-input log lines are not rate-limited.
 
 **When Proton resumes**, test with the default loopback-only setting:
 

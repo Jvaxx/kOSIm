@@ -26,6 +26,7 @@ namespace kOS.UserIO
         private readonly StringBuilder localMenuBuffer;
         private bool firstTime;
         private volatile bool forceMenuReprint;
+        private int resizeCharsToSkip;
 
         public bool IsAttached { get { return telnetServer != null; } }
 
@@ -93,14 +94,28 @@ namespace kOS.UserIO
                     PrintCPUMenu();
             }
             
-            while (telnetServer != null && // telnetServer can become null in the midst of this loop if you detach/attach.
+            // Bounded per update, so a big paste into the menu can't stall a frame:
+            int budget = TerminalInputPump.TELNET_CHARS_PER_UPDATE;
+            while (budget-- > 0 &&
+                telnetServer != null && // telnetServer can become null in the midst of this loop if you detach/attach.
                 telnetServer.InputWaiting())
             {
                 char ch = telnetServer.ReadChar();
+                if (resizeCharsToSkip > 0)
+                {
+                    --resizeCharsToSkip; // width and height; NotifyResize() already flagged the reprint
+                    continue;
+                }
                 switch (ch)
                 {
                     case (char)UnicodeCommand.STARTNEXTLINE:
                         LineEntered();
+                        break;
+                    case (char)UnicodeCommand.RESIZESCREEN:
+                        resizeCharsToSkip = 2;
+                        break;
+                    case (char)UnicodeCommand.REQUESTREPAINT:
+                        forceMenuReprint = true;
                         break;
                     // Implement crude input editing (backspace only - map delete to the same as backspace) in this menu prompt:
                     case (char)UnicodeCommand.DELETELEFT:
@@ -110,6 +125,10 @@ namespace kOS.UserIO
                         telnetServer.Write((char)0x08+" "+(char)0x08); // backspace space backspace.
                         break;
                     default:
+                        // Other keys (cursor keys, interrupts) mean nothing to this prompt;
+                        // echoing them would only put garbage in the selection.
+                        if (IsUnicodeCommand(ch))
+                            break;
                         localMenuBuffer.Append(ch);
                         telnetServer.Write(ch);
                         break;
@@ -117,6 +136,11 @@ namespace kOS.UserIO
             }
         }
         
+        private static bool IsUnicodeCommand(char ch)
+        {
+            return ch >= (char)0xE000 && ch <= (char)0xF8FF; // the Private Use range UnicodeCommand lives in
+        }
+
         public void LineEntered()
         {
             if (localMenuBuffer.Length == 0)
@@ -168,6 +192,7 @@ namespace kOS.UserIO
         {
             localMenuBuffer.Remove(0,localMenuBuffer.Length); // Any time the menu is reprinted, clear out any previous buffer text.
             telnetServer.ReadAll(); // Consume and throw away any readahead typing that preceeded the printing of this menu.
+            resizeCharsToSkip = 0; // a resize's remaining chars went with it
 
             kOSProcessor.SortAllInstances();
             CPUListChanged();

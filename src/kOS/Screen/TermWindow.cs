@@ -123,6 +123,7 @@ namespace kOS.Screen
         
         private DateTime lastBufferGet = DateTime.Now;
         private DateTime lastTelnetIncrementalRepaint = DateTime.Now;
+        private int nextTelnetToDrain; // telnets take turns at going first in ProcessTelnetInput()
         private GUISkin customSkin;
         
         private bool uiGloballyHidden = false;
@@ -582,14 +583,11 @@ namespace kOS.Screen
         }
         
         /// <summary>
-        /// Read all pending input from all telnet clients attached and process it all.
-        /// Hopefully this won't bog down anything, as we don't expect to get lots
-        /// of chars at once from keyboard input in a single update.  The amount of
-        /// characters pending in the queues should be very small since this is flushing it out
-        /// every update.  It could potentially be large if someone does a big cut-n-paste
-        /// into their terminal window and their telnet client therefore sends a wall of
-        /// text within the span of one Update().  Premature optimization is bad, so we'll
-        /// wait to see if that is a problem later.
+        /// Read pending input from the telnet clients attached and process it, within a
+        /// per-client budget each update (<see cref="TerminalInputPump"/>). Clients take
+        /// turns at going first. Typed text is only moved into the type-ahead queue while
+        /// that queue is short; the rest waits, in order, in the client's bounded telnet
+        /// queue. Interrupts, resizes and repaint requests are always processed at once.
         /// </summary>
         private void ProcessTelnetInput()
         {
@@ -597,18 +595,26 @@ namespace kOS.Screen
             // of input (if the detach signal Ctrl-D is sent).  Therefore we have to
             // make this temp copy to prorect against the C# error "Collection was Modified"
             // during the foreach loop:
-            TelnetSingletonServer[] tempTelnetList = new TelnetSingletonServer[telnets.Count()];
-            telnets.CopyTo(tempTelnetList);
-            foreach (TelnetSingletonServer telnet in tempTelnetList)
+            TelnetSingletonServer[] tempTelnetList = telnets.Where(telnet => telnet.ConnectedProcessor != null).ToArray();
+            var sources = new TerminalInputPump.KeySource[tempTelnetList.Length];
+            for (int i = 0; i < tempTelnetList.Length; ++i)
             {
-                if (telnet.ConnectedProcessor != null)
+                TelnetSingletonServer telnet = tempTelnetList[i];
+                sources[i] = (bool includeText, out char ch) =>
                 {
-                    while (telnet.InputWaiting())
+                    // Stop reading from a telnet that got detached part way through:
+                    if (telnet.ConnectedProcessor == null || !telnets.Contains(telnet))
                     {
-                        ProcessOneInputChar(telnet.ReadChar(), telnet, true, true);
+                        ch = '\0';
+                        return false;
                     }
-                }
+                    return telnet.TryReadChar(includeText, out ch);
+                };
             }
+            TerminalInputPump.DrainTelnets(sources, ref nextTelnetToDrain,
+                () => shared.Screen.CharInputQueue.Count, TerminalInputPump.TYPE_AHEAD_LIMIT,
+                () => new InputBudget(TerminalInputPump.TELNET_CHARS_PER_UPDATE, TerminalInputPump.TimePerUpdate),
+                (index, ch) => ProcessOneInputChar(ch, tempTelnetList[index], true, true));
         }
 
         /// <summary>
@@ -699,6 +705,7 @@ namespace kOS.Screen
                         if (whichTelnet != null)
                         {
                             ResizeAndRepaintTelnet(whichTelnet, shared.Screen.ColumnCount, shared.Screen.RowCount, true);
+                            SendTitleToTelnet(whichTelnet); // the title may have been in output a slow client never got
                         }
                         break;
                         
@@ -840,25 +847,19 @@ namespace kOS.Screen
             }
             if (shared != null && shared.Interpreter != null && shared.Interpreter.IsWaitingForCommand())
             {
-                Queue<char> q = shared.Screen.CharInputQueue;
-                
-                while (q.Count > 0 && shared.Interpreter.IsWaitingForCommand())
-                {
-                    // Setting doQueuing to false here just as an
-                    // additional safety measure.  Hypothetically it
-                    // should never re-queue this input because we're
-                    // in the condition where it will consume it right
-                    // away.  But just in case there's some error in
-                    // that logic, we want to avoid an infinite loop here
-                    // (which could happen if we kept re-queuing the
-                    // chars every time we processed one in this loop.)
-                    char key = q.Peek();
-                    bool wasAccepted = ProcessOneInputChar(key, null, false, false);
-                    if (wasAccepted)
-                        q.Dequeue();
-                    else
-                        break; // do NOT consume any more of the queue until it's accepting input again in a future pass.
-                }
+                // Setting doQueuing to false here just as an
+                // additional safety measure.  Hypothetically it
+                // should never re-queue this input because we're
+                // in the condition where it will consume it right
+                // away.  But just in case there's some error in
+                // that logic, we want to avoid an infinite loop here
+                // (which could happen if we kept re-queuing the
+                // chars every time we processed one in this loop.)
+                // The budget keeps a long pasted line from stalling one frame; the rest
+                // is typed in the following frames.
+                TerminalInputPump.FeedPrompt(shared.Screen.CharInputQueue, () => shared.Interpreter.IsWaitingForCommand(),
+                    key => ProcessOneInputChar(key, null, false, false),
+                    new InputBudget(TerminalInputPump.PROMPT_CHARS_PER_UPDATE, TerminalInputPump.TimePerUpdate));
             }
         }
 
@@ -1388,6 +1389,12 @@ namespace kOS.Screen
             int rowsToPaint = Math.Min(shared.Screen.RowCount, buffer.Count);
             
             telnet.Write((char)UnicodeCommand.CLEARSCREEN);
+            // Restate the screen modes too: a full repaint also replaces output that a slow
+            // client never received (see TelnetOutputQueue).
+            telnet.Write(shared.Screen.ReverseScreen ? (char)UnicodeCommand.REVERSESCREENMODE : (char)UnicodeCommand.NORMALSCREENMODE);
+            telnet.ReverseScreen = shared.Screen.ReverseScreen;
+            telnet.Write(shared.Screen.VisualBeep ? (char)UnicodeCommand.VISUALBEEPMODE : (char)UnicodeCommand.AUDIOBEEPMODE);
+            telnet.VisualBeep = shared.Screen.VisualBeep;
             for (int row = 0 ; row < rowsToPaint ; ++row)
             {
                 IScreenBufferLine lineBuffer = buffer[row];

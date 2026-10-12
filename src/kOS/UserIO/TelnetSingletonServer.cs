@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Text;
 using kOS.Module;
@@ -21,6 +22,11 @@ namespace kOS.UserIO
     /// only parse input, fill the queues and write to the socket. Anything touching KSP or Unity,
     /// including ending the session, happens on the game thread: workers request a stop and
     /// <see cref="TelnetMainServer"/> calls <see cref="MainThreadUpdate"/> every frame to act on it.
+    /// <br/>
+    /// Both queues are bounded (see <see cref="TelnetInputQueue"/> and <see cref="TelnetOutputQueue"/>):
+    /// typed text beyond the input backlog is discarded with a notice to the client, interrupts
+    /// and resizes are never held behind typed text, and output a stalled client could not take
+    /// is replaced by a full repaint.
     /// </remarks>
     public class TelnetSingletonServer : ITelnetConnectionHandler, ITelnetInputSink
     {
@@ -52,16 +58,23 @@ namespace kOS.UserIO
         private readonly TelnetInputDispatcher inputDispatcher = new TelnetInputDispatcher();
         
         /// <summary>
-        /// The queue that other parts of KOS can use to read characters from the telnet client.
+        /// The keys typed by the telnet client that other parts of kOS read. Thread-safe.
         /// </summary>
-        private readonly Queue<char> inQueue;
-        private readonly object inQueueAccess = new object(); // To make all access of the inQueue atomic between threads.
+        private readonly TelnetInputQueue inQueue = new TelnetInputQueue();
 
         /// <summary>
-        /// The queue that other parts of kOS can use to write characters to the telnet client.
+        /// Decodes the client's typed text into inQueue, keeping key sequences split across reads whole.
         /// </summary>
-        private readonly Queue<char> outQueue;
-        private readonly object outQueueAccess = new object(); // To make all access of the outQueue atomic between threads.
+        private readonly TelnetInputPipeline inputPipeline;
+
+        /// <summary>
+        /// The output that other parts of kOS write to the telnet client. Thread-safe.
+        /// </summary>
+        private readonly TelnetOutputQueue outQueue = new TelnetOutputQueue();
+
+        private readonly Stopwatch clock = Stopwatch.StartNew(); // monotonic time for the input sequence timeout
+        private readonly object overflowLogAccess = new object(); // output can be written from the game and reader threads
+        private DateTime nextOutputOverflowLog = DateTime.MinValue;
         
         public kOSProcessor ConnectedProcessor { get; private set; }
         
@@ -174,8 +187,7 @@ namespace kOS.UserIO
             this.client = client;
             lock (keepAliveAccess)
                 gotSomeRecentTraffic = true;
-            outQueue = new Queue<char>();
-            inQueue = new Queue<char>();
+            inputPipeline = new TelnetInputPipeline(inQueue, "INITIAL_UNSET", TelnetInputPipeline.DefaultSequenceTimeout);
             ClientWidth = 80; // common default for a lot of terminal progs.  Will allow resize via RFC1073.
             ClientHeight = 24; // common default for a lot of terminal progs.  Will allow resize via RFC1073.
             ClientTerminalType = "INITIAL_UNSET"; // will be set by telnet client as described by RFC 1091
@@ -233,11 +245,19 @@ namespace kOS.UserIO
         public char ReadChar()
         {
             char ch;
-            lock (inQueueAccess) // all access to inQueue and outQueue needs to be atomic.
-            {
-                ch = inQueue.Dequeue();
-            }
+            if (!inQueue.TryDequeue(true, out ch))
+                throw new InvalidOperationException("No telnet input is waiting.");
             return ch;
+        }
+
+        /// <summary>
+        /// Get the next key, if there is one. Interrupts, resizes and repaint requests come
+        /// before typed text; typed text only if <paramref name="includeText"/> is true, so
+        /// a reader that cannot take more text still gets the control keys.
+        /// </summary>
+        public bool TryReadChar(bool includeText, out char ch)
+        {
+            return inQueue.TryDequeue(includeText, out ch);
         }
         
         /// <summary>
@@ -247,13 +267,7 @@ namespace kOS.UserIO
         /// <returns>All currently available input characters returned in one string.</returns>
         public string ReadAll()
         {
-            StringBuilder sb = new StringBuilder();
-            lock (inQueueAccess) // all access to inQueue and outQueue needs to be atomic.
-            {
-                while (inQueue.Count > 0)
-                    sb.Append(inQueue.Dequeue());
-            }
-            return sb.ToString();
+            return inQueue.DequeueAll();
         }
         
         /// <summary>
@@ -264,13 +278,20 @@ namespace kOS.UserIO
         /// </returns>
         public bool InputWaiting()
         {
-            bool returnVal;
-            lock (inQueueAccess)
-            {
-                returnVal = inQueue.Count > 0;
-            }
-            return returnVal;
+            return inQueue.HasInput(true);
         }
+
+        /// <summary>Typed characters waiting to be read.</summary>
+        public int InputBacklog { get { return inQueue.TextCount; } }
+
+        /// <summary>Typed characters discarded because the input backlog was full.</summary>
+        public long DiscardedInputCount { get { return inQueue.DroppedCount; } }
+
+        /// <summary>Characters waiting to be sent to the client.</summary>
+        public int OutputBacklog { get { return outQueue.Count; } }
+
+        /// <summary>How often unsent output was replaced by a full repaint because the client fell behind.</summary>
+        public int OutputOverflowCount { get { return outQueue.OverflowCount; } }
         
         /// <summary>
         /// Write a character out to the telnet client.  You can pretend the telnet client is a
@@ -286,10 +307,8 @@ namespace kOS.UserIO
         /// <param name="ch">character to write</param>
         public void Write(char ch)
         {
-            lock(outQueueAccess) // all access to inQueue and outQueue needs to be atomic.
-            {
-                outQueue.Enqueue(ch);
-            }
+            if (outQueue.Write(ch))
+                OutputOverflowed();
         }
 
         /// <summary>
@@ -306,11 +325,31 @@ namespace kOS.UserIO
         /// <param name="str">string to write</param>
         public void Write(string str)
         {
-            lock(outQueueAccess) // all access to inQueue and outQueue needs to be atomic.
+            if (outQueue.Write(str))
+                OutputOverflowed();
+        }
+
+        /// <summary>
+        /// The client fell so far behind that unsent output was dropped: have whoever is
+        /// drawing to it (the terminal window or the welcome menu) repaint everything.
+        /// </summary>
+        private void OutputOverflowed()
+        {
+            inQueue.RequestRepaint();
+            TelnetWelcomeMenu menu = welcomeMenu;
+            if (menu != null)
+                menu.NotifyResize(); // only sets a flag; makes the menu reprint itself
+
+            // Logging is rate-limited: a stalled client overflows repeatedly until it times out.
+            DateTime now = DateTime.Now;
+            lock (overflowLogAccess)
             {
-                foreach (char ch in str)
-                    outQueue.Enqueue(ch);
+                if (now < nextOutputOverflowLog)
+                    return;
+                nextOutputOverflowLog = now + TimeSpan.FromSeconds(10);
             }
+            SafeHouse.Logger.Log(string.Format("kOS telnet server: connection {0} is not keeping up; dropped unsent output " +
+                "and repainting ({1} times, {2} characters so far).", MySpawnOrder, outQueue.OverflowCount, outQueue.DroppedCount));
         }
         
         /// <summary>
@@ -416,6 +455,10 @@ namespace kOS.UserIO
                 StopListening();
                 return;
             }
+
+            // A key sequence left unfinished for a while was really separate keys (e.g. Escape):
+            inputPipeline.FlushIfIdle(clock.Elapsed);
+            ReportInputOverflow();
 
             if (welcomeMenu == null)
                 return;
@@ -539,25 +582,20 @@ namespace kOS.UserIO
             else if (IsHung())
                 connection.RequestStop(TelnetStopReason.ServerRequested);
 
-            StringBuilder sb = new StringBuilder();
-            lock(outQueueAccess) // all access to inQueue and outQueue needs to be atomic.
+            bool containsDie;
+            string content = outQueue.TakeAll(out containsDie);
+            if (content.Length > 0)
             {
-                while (outQueue.Count > 0)
-                    sb.Append(outQueue.Dequeue());
+                TerminalUnicodeMapper mapper = terminalMapper;
+                if (mapper == null)
+                    SendTextRaw(content);
+                else
+                    SendTextRaw(mapper.OutputConvert(content));
             }
-            if (sb.Length == 0)
-                return false;
 
-            string content = sb.ToString(); // instead of calling ToString() over and over.
-            TerminalUnicodeMapper mapper = terminalMapper;
-            if (mapper == null)
-                SendTextRaw(content);
-            else
-                SendTextRaw(mapper.OutputConvert(content));
-
-            if (content.IndexOf((char)UnicodeCommand.DIE) >= 0)
+            if (containsDie)
                 connection.RequestStop(TelnetStopReason.ServerRequested); // the game thread ends the session
-            return true;
+            return content.Length > 0;
         }
 
         void ITelnetConnectionHandler.OnWorkerFault(Exception exception)
@@ -567,19 +605,35 @@ namespace kOS.UserIO
 
         void ITelnetInputSink.EnqueueText(string text)
         {
-            TerminalUnicodeMapper mapper = terminalMapper;
-            string sendOut = (mapper == null) ? text : mapper.InputConvert(text.ToCharArray());
-            lock (inQueueAccess) // all access to inQueue and outQueue needs to be atomic
-            {
-                foreach (char ch in sendOut)
-                    inQueue.Enqueue(ch);
-            }
+            inputPipeline.AddText(text, clock.Elapsed);
+            ReportInputOverflow();
         }
 
         void ITelnetInputSink.EnqueueBreak()
         {
-            // The dispatcher discards the type-ahead that came with and right after the break.
-            lock (inQueueAccess) { inQueue.Enqueue((char)UnicodeCommand.BREAK); }
+            // The dispatcher discards the type-ahead that came with and right after the break,
+            // and the queue discards what was still waiting before it.
+            inputPipeline.Break();
+        }
+
+        /// <summary>
+        /// Tell the client when its typing starts being discarded because kOS is not reading
+        /// it (the backlog is full), and how much was lost once it resumes. Either thread.
+        /// </summary>
+        private void ReportInputOverflow()
+        {
+            if (inQueue.TakeOverflowStarted())
+            {
+                SafeHouse.Logger.Log(string.Format("kOS telnet server: connection {0} input backlog is full ({1} characters); discarding typed input until it drains.",
+                    MySpawnOrder, inQueue.Capacity));
+                Write((char)UnicodeCommand.BEEP + "[kOS telnet: input backlog full; discarding typed input until kOS catches up]" + (char)UnicodeCommand.STARTNEXTLINE);
+            }
+            long dropped;
+            if (inQueue.TakeOverflowEnded(out dropped))
+            {
+                SafeHouse.Logger.Log(string.Format("kOS telnet server: connection {0} input resumed; {1} typed characters were discarded.", MySpawnOrder, dropped));
+                Write("[kOS telnet: input resumed; " + dropped + " typed characters were discarded]" + (char)UnicodeCommand.STARTNEXTLINE);
+            }
         }
 
         void ITelnetInputSink.Negotiate(byte verb, byte option)
@@ -609,17 +663,13 @@ namespace kOS.UserIO
             ClientWidth = newWidth;
             ClientHeight = newHeight;
 
-            lock (inQueueAccess) // all access to inQueue and outQueue needs to be atomic
-            {
-                inQueue.Enqueue((char)UnicodeCommand.RESIZESCREEN);
-                inQueue.Enqueue((char)newWidth);
-                inQueue.Enqueue((char)newHeight);
-                TelnetWelcomeMenu menu = welcomeMenu;
-                if (menu != null)
-                    menu.NotifyResize(); // only sets a flag; the menu reprints on the game thread
-                if (ConnectedProcessor != null)
-                    inQueue.Enqueue((char)UnicodeCommand.REQUESTREPAINT);
-            }
+            // Read before any typed text that is still waiting; only the latest size is kept.
+            inQueue.EnqueueResize(newWidth, newHeight);
+            TelnetWelcomeMenu menu = welcomeMenu;
+            if (menu != null)
+                menu.NotifyResize(); // only sets a flag; the menu reprints on the game thread
+            if (ConnectedProcessor != null)
+                inQueue.RequestRepaint();
         }
 
         /// <summary>
@@ -629,7 +679,10 @@ namespace kOS.UserIO
         {
             // Avoid reconstructing the terminal mapper every time there's a keepalive heartbeat response:
             if (ClientTerminalType != terminalType)
+            {
+                inputPipeline.SetTerminalType(terminalType);
                 ClientTerminalType = terminalType;
+            }
             SafeHouse.Logger.SuperVerbose(string.Format("Telnet client just told us its terminal type is: \"{0}\".", terminalType));
         }
 

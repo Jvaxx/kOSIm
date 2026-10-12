@@ -24,7 +24,12 @@ namespace kOS.Safe.Test.UserIO
     /// the read and anything already buffered) applies as it did to the original read.
     /// They must produce the same trace once adjacent text is joined.
     /// <br/>
-    /// Re-record traces with <c>KOSIM_RECORD_FIXTURES=1</c> and review the diff.
+    /// The same reads also go through the server's input side
+    /// (<see cref="TelnetServerInputModel"/>: decoder, pipeline and bounded queue) to the
+    /// keys kOS reads (<c>.keys</c>), which every chunking must reproduce exactly. The
+    /// game thread is modeled as reading all waiting keys after each recorded read.
+    /// <br/>
+    /// Re-record traces and keys with <c>KOSIM_RECORD_FIXTURES=1</c> and review the diff.
     /// </summary>
     [TestFixture]
     public class TelnetRecordingTest
@@ -85,6 +90,57 @@ namespace kOS.Safe.Test.UserIO
             }
         }
 
+        [TestCaseSource("Recordings")]
+        public void RecordedReadsGiveRecordedKeys(string name)
+        {
+            List<string> keys = ReplayKeys(LoadReads(name));
+            string file = Path.Combine(RecordingsDir(), name + ".keys");
+            string actual = string.Join("\n", keys.ToArray()) + "\n";
+            if (Environment.GetEnvironmentVariable("KOSIM_RECORD_FIXTURES") == "1")
+            {
+                File.WriteAllText(file, actual);
+                Assert.Fail("Recorded " + name + " keys; rerun without KOSIM_RECORD_FIXTURES to check.");
+            }
+            Assert.AreEqual(File.ReadAllText(file), actual);
+        }
+
+        [TestCaseSource("Recordings")]
+        public void EveryChunkingGivesTheSameKeys(string name)
+        {
+            List<byte[]> reads = LoadReads(name);
+            List<string> expected = ReplayKeys(reads);
+            for (int r = 0; r < reads.Count; ++r)
+            {
+                for (int split = 1; split < reads[r].Length; ++split)
+                {
+                    var chunks = reads.Select(read => new List<byte[]> { read }).ToList();
+                    chunks[r] = new List<byte[]> { reads[r].Take(split).ToArray(), reads[r].Skip(split).ToArray() };
+                    Assert.AreEqual(expected, ReplayKeys(chunks), "read " + r + " split at " + split);
+                }
+            }
+            Assert.AreEqual(expected, ReplayKeys(reads.Select(read => read.Select(b => new[] { b }).ToList()).ToList()), "byte at a time");
+            foreach (int seed in new[] { 3, 17, 2026 })
+            {
+                var random = new Random(seed);
+                for (int iteration = 0; iteration < 50; ++iteration)
+                {
+                    var chunks = reads.Select(read => RandomChunks(read, random)).ToList();
+                    Assert.AreEqual(expected, ReplayKeys(chunks), "seed " + seed + ", iteration " + iteration);
+                }
+            }
+        }
+
+        [Test]
+        public void InetutilsCaptureDecodesItsKeys()
+        {
+            List<string> keys = ReplayKeys(LoadReads("inetutils-xterm"));
+            CollectionAssert.Contains(keys, "UPCURSORONE");
+            CollectionAssert.Contains(keys, "DELETELEFT");
+            CollectionAssert.Contains(keys, "BREAK");
+            CollectionAssert.Contains(keys, "RESIZESCREEN 100x30");
+            CollectionAssert.DoesNotContain(keys, "RESIZESCREEN 80x24", "the default size is not a change");
+        }
+
         [Test]
         public void InetutilsCaptureNegotiatesCharacterModeAndReportsItsTerminal()
         {
@@ -130,6 +186,32 @@ namespace kOS.Safe.Test.UserIO
             }
             dispatcher.Dispatch(parser.Finish(), false, sink);
             return sink.Trace;
+        }
+
+        /// <summary>
+        /// The keys kOS reads from the server's input queue, read after each recorded read.
+        /// A sequence still unfinished at the end is released by the timeout.
+        /// </summary>
+        private static List<string> ReplayKeys(List<byte[]> reads)
+        {
+            return ReplayKeys(reads.Select(read => new List<byte[]> { read }).ToList());
+        }
+
+        private static List<string> ReplayKeys(List<List<byte[]>> reads)
+        {
+            var server = new TelnetServerInputModel();
+            var keys = new StringBuilder();
+            foreach (List<byte[]> pieces in reads)
+            {
+                for (int i = 0; i < pieces.Count; ++i)
+                    server.Receive(pieces[i], i < pieces.Count - 1);
+                keys.Append(server.Queue.DequeueAll());
+            }
+            server.Finish();
+            server.Now = TimeSpan.FromSeconds(1);
+            server.MainThreadUpdate();
+            keys.Append(server.Queue.DequeueAll());
+            return TelnetServerInputModel.DescribeKeys(keys.ToString());
         }
 
         /// <summary>Join adjacent text lines; escaping is per character, so escaped text concatenates.</summary>

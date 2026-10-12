@@ -7,6 +7,7 @@ using kOS.Safe.Function;
 using kOS.Safe.Module;
 using kOS.Safe.Persistence;
 using kOS.Safe.Screen;
+using kOS.Safe.Sound;
 using kOS.Safe.UserIO;
 using kOS.Safe.Utilities;
 using System;
@@ -69,6 +70,7 @@ namespace kOS.Safe.Test.Execution
             shared.UpdateHandler = new UpdateHandler();
             shared.VolumeMgr = new VolumeManager();
             shared.Logger = logger;
+            shared.SoundMaker = new SilentSoundMaker(); // a manual break stops all voices
             shared.BindingMgr = new FixtureBindingManager(shared);
 
             shared.FunctionManager.Load();
@@ -124,8 +126,13 @@ namespace kOS.Safe.Test.Execution
             return string.Join("\n", rows.Skip(echoRows).ToArray());
         }
 
+        /// <summary>Run at the start of every update, e.g. a <see cref="FixtureTermWindow"/>'s input work.</summary>
+        public Action BeforeUpdate { get; set; }
+
         public void Update()
         {
+            if (BeforeUpdate != null)
+                BeforeUpdate();
             shared.UpdateHandler.UpdateFixedObservers(UpdateSeconds);
         }
 
@@ -453,6 +460,16 @@ namespace kOS.Safe.Test.Execution
         public void LogWarning(string s) { }
         public void LogWarningAndScreen(string s) { }
         public void SuperVerbose(string s) { }
+    }
+
+    /// <summary>The game's sound maker, without sound.</summary>
+    internal sealed class SilentSoundMaker : ISoundMaker
+    {
+        public bool BeginFileSound(string soundName, float volume = 1f) { return true; }
+        public IVoice GetVoice(int num) { return null; }
+        public void StopAllVoices() { }
+        public string GetWaveName(int voiceNum) { return string.Empty; }
+        public bool SetWave(int num, string waveName) { return false; }
     }
 
     internal sealed class FixtureProcessor : IProcessor

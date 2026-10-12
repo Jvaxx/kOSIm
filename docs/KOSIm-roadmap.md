@@ -55,7 +55,7 @@ This is an agreed direction, not a claim that builds, tests, reproductions, or i
 
 ### Status
 
-**Headless work complete.** The local build/test commands, gate and baseline are in place. The suite is fully green (735/735 after the NET-03/EXEC-01 fixes) with an empty known-failure list. The dev instance and its isolated Proton launcher are defined and smoke-tested.
+**Headless work complete.** The local build/test commands, gate and baseline are in place. The suite is fully green (832/832 after the review NET-03 and PROMPT-01 work) with an empty known-failure list. The dev instance and its isolated Proton launcher are defined and smoke-tested.
 
 Compatibility fixtures now cover these headlessly (details in [testing-and-build.md](testing-and-build.md#compatibility-fixtures-phase-0)):
 
@@ -98,9 +98,13 @@ Ship small, independently reviewable changes with regression tests rather than b
 
 - `FMT-01`: the 3 recorded "known" test failures were a real upstream display regression. Since v1.3.0.0, `PRINT`/`:DUMP` of lists and lexicons showed nested primitives as `["value"] = …` sub-dumps (upstream issue #2939 shows it in a game). Display dumps now keep primitives inline, and JSON/message/save formats are unchanged and pinned. The suite is fully green (675/675) and the known-failure baseline is empty. The user decided to keep the JSON format unchanged.
 
-- `NET-03` (fixture-found): telnet terminal types shorter than 5 characters (Microsoft Telnet's `ANSI`, `VT52`, `dumb`, empty) made the mapper factory throw on the reader thread and end the session. Type recognition moved to `kOS.Safe.UserIO.TerminalTypeNames`, which the game mapper calls; such types now get the plain mapper. 23 headless tests. Not checked with a real Windows client. This label is separate from the review's NET-03 (queue budgets/backpressure), which remains open.
+- `NET-03` (fixture-found): telnet terminal types shorter than 5 characters (Microsoft Telnet's `ANSI`, `VT52`, `dumb`, empty) made the mapper factory throw on the reader thread and end the session. Type recognition moved to `kOS.Safe.UserIO.TerminalTypeNames`, which the game mapper calls; such types now get the plain mapper. 23 headless tests. Not checked with a real Windows client. This label is separate from the review's NET-03 (queue budgets/backpressure), below.
 
 - `EXEC-01` (fixture-found): a `COMPILE` that failed at the prompt re-reported its error on every update and blocked the prompt until reboot. The CPU now drops a yield whose check throws, and the threaded detector reports its error once, with the original stack trace. 4 headless tests on the real prompt. Not checked in game.
+
+- Review `NET-03` (implemented and headless-tested): telnet keys split across socket reads now decode as one key (stateful `TerminalInputDecoder`, 100 ms timeout for a lone Escape), and blank lines in pastes keep their Enter. Both telnet queues are bounded (262,144 characters each). Interrupts, resizes and repaint requests overtake waiting text; an interrupt discards the text typed before it. A full input backlog discards further text with a notice until it drains to half; a stalled client's unsent output is replaced by a full repaint. Telnet input and prompt typing are limited per update (4,096 and 2,048 keys, 4 ms), clients take turns. 92 headless tests, including the recordings replayed to keys, end-to-end paste and interrupt tests on the real prompt, and 13 mutations. Headless proxy: the worst update for a 6,000-character pasted line fell from about 370–400 ms to about 5 ms. The game adapters are compiled, not run; real clients, frame time and stalled clients under Proton are deferred. Limits are code constants (user decision).
+- `PROMPT-01` (fixture-found by the paste tests): a command wrapped at the bottom of the screen overwrote the last output row, and a line taller than the screen made Enter throw. `TextEditor` now adds the rows before scrolling. 5 headless tests. Not checked in game.
+- Found, not fixed (user: fix later, in its own task): Ctrl-C does not end a `WAIT` or `COMPILE` typed directly at the prompt, because `CPU.BreakExecution` aborts yields only inside a program. Upstream behavior; inside a program Ctrl-C works.
 
 ### Priorities
 
