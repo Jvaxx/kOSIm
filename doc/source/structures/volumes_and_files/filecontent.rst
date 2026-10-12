@@ -3,13 +3,19 @@
 FileContent
 ================
 
-Represents the contents of a file. You can obtain an instance of this class using :meth:`VolumeFile:READALL`.
+Represents file contents. Obtain it using :meth:`VolumeFile:READRAW` for exact
+bytes on built-in volumes, or :meth:`VolumeFile:READALL` for the legacy content view.
 
-Internally this class stores raw data (a byte array). It can be passed around as is, for example this will copy a file::
+Internally this class stores a byte array. For a new destination, this copies bytes
+without text conversion on built-in volumes::
 
-  SET CONTENTS TO OPEN("filename"):READALL.
+  SET CONTENTS TO OPEN("filename"):READRAW.
   SET NEWFILE TO CREATE("newfile").
-  NEWFILE:WRITE(CONTENTS).
+  NEWFILE:WRITERAW(CONTENTS).
+
+``WRITERAW`` appends; it is not atomic replacement. ``COPYPATH`` and ``MOVEPATH``
+also use raw operations on built-in volumes. Legacy ``READALL`` can normalize or
+change archive bytes before they enter this object; raw writing cannot undo that.
 
 You can parse the contents to read them as a string::
 
@@ -72,7 +78,9 @@ Instances of this class can be iterated over. In each iteration step a single li
     :access: Get only
     :type: :struct:`String`
 
-    Type of the content as a string. Can be one of the following:\
+    Heuristic classification from the first four bytes, not a guarantee that content
+    is safely textual. Raw I/O does not use this classification to transform data.
+    Can be one of the following:\
 
     TOOSHORT
         Content too short to establish a type
@@ -91,7 +99,10 @@ Instances of this class can be iterated over. In each iteration step a single li
     :access: Get only
     :type: :struct:`String`
 
-    Contents of the file decoded using UTF-8 encoding
+    Stored bytes decoded using UTF-8 replacement fallback. Invalid sequences appear
+    as U+FFFD in the string without changing the stored bytes. A UTF-8 BOM is retained
+    as U+FEFF; other encodings are not automatically detected. Raw reads do not normalize
+    CRLF in this string. Legacy archive ``READALL`` may have converted the bytes first.
 
 .. attribute:: FileContent:BINARY
 

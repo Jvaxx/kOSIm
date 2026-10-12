@@ -25,14 +25,32 @@ namespace kOS.Safe.Persistence
             return new FileContent(bytes);
         }
 
+        public override FileContent ReadAllRaw()
+        {
+            // Preserve existing derived-provider hooks until they explicitly opt in.
+            if (GetType() != typeof(ArchiveFile)) return base.ReadAllRaw();
+            return new FileContent(File.ReadAllBytes(fileInfo.FullName));
+        }
+
         public override bool Write(byte[] content)
+        {
+            return Append(content, true);
+        }
+
+        public override bool WriteRaw(byte[] content)
+        {
+            if (GetType() != typeof(ArchiveFile)) return base.WriteRaw(content);
+            return Append(content, false);
+        }
+
+        private bool Append(byte[] content, bool convertText)
         {
             if (!fileInfo.Exists)
             {
                 throw new KOSFileException("File does not exist: " + fileInfo.Name);
             }
 
-            byte[] bytes = Archive.ConvertToWindowsNewlines(content);
+            byte[] bytes = convertText ? Archive.ConvertToWindowsNewlines(content) : content;
             using (FileStream stream = fileInfo.Open(FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
             {
                 stream.Write(bytes, 0, bytes.Length);

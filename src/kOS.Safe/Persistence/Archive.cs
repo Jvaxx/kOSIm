@@ -15,6 +15,7 @@ namespace kOS.Safe.Persistence
         public ArchiveDirectory RootArchiveDirectory { get; private set; }
 
         private static string ArchiveFolder { get; set; }
+        private readonly ArchiveFileWriter fileWriter;
 
         public override VolumeDirectory Root {
             get {
@@ -22,8 +23,13 @@ namespace kOS.Safe.Persistence
             }
         }
 
-        public Archive(string archiveFolder)
+        public Archive(string archiveFolder) : this(archiveFolder, new ArchiveFileOperations())
         {
+        }
+
+        internal Archive(string archiveFolder, ArchiveFileOperations fileOperations)
+        {
+            fileWriter = new ArchiveFileWriter(fileOperations);
             ArchiveFolder = Path.GetFullPath(archiveFolder).TrimEnd(VolumePath.PathSeparator);
             CreateArchiveDirectory();
             Renameable = false;
@@ -184,6 +190,20 @@ namespace kOS.Safe.Persistence
 
         public override VolumeFile SaveFile(VolumePath path, FileContent content, bool verifyFreeSpace = true)
         {
+            return SaveFileContents(path, content, true);
+        }
+
+        public override VolumeFile SaveFileRaw(VolumePath path, FileContent content, bool verifyFreeSpace = true)
+        {
+            // Existing derived providers may enforce policy in SaveFile. Do not bypass
+            // their legacy override merely because they inherit the new raw method.
+            // Such providers must explicitly override SaveFileRaw to opt into raw I/O.
+            if (GetType() != typeof(Archive)) return base.SaveFileRaw(path, content, verifyFreeSpace);
+            return SaveFileContents(path, content, false);
+        }
+
+        private VolumeFile SaveFileContents(VolumePath path, FileContent content, bool convertText)
+        {
             Directory.CreateDirectory(ArchiveFolder);
 
             string archivePath = GetArchivePath(path);
@@ -199,12 +219,9 @@ namespace kOS.Safe.Persistence
                 Directory.CreateDirectory(parentPath);
             }
 
-            byte[] fileBody = ConvertToWindowsNewlines(content.Bytes);
+            byte[] fileBody = convertText ? ConvertToWindowsNewlines(content.Bytes) : content.Bytes;
 
-            using (var outfile = new BinaryWriter(File.Open(archivePath, FileMode.Create)))
-            {
-                outfile.Write(fileBody);
-            }
+            fileWriter.Write(archivePath, fileBody);
 
             return Open(path) as VolumeFile;
         }
@@ -216,8 +233,10 @@ namespace kOS.Safe.Persistence
             if (SafeHouse.IsWindows && !PersistenceUtilities.IsBinary(category))
             {
                 string asString = FileContent.DecodeString(bytes);
-                // Only evil windows gets evil windows line breaks, and only if this is some sort of ASCII:
-                asString = asString.Replace("\n", "\r\n");
+                // Legacy text path/classification and UTF-8 fallback are retained.
+                // Normalize existing CRLF first so repeated saves do not add CRs.
+                // Lone CRs and already doubled CRs are not guessed away.
+                asString = asString.Replace("\r\n", "\n").Replace("\n", "\r\n");
                 return FileContent.EncodeString(asString);
             }
 

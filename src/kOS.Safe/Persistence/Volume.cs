@@ -174,10 +174,20 @@ namespace kOS.Safe.Persistence
 
         public VolumeFile SaveFile(VolumeFile volumeFile)
         {
-            return SaveFile(volumeFile.Path, volumeFile.ReadAll());
+            return SaveFileRaw(volumeFile.Path, volumeFile.ReadAllRaw());
         }
 
         public abstract VolumeFile SaveFile(VolumePath path, FileContent content, bool verifyFreeSpace = true);
+
+        /// <summary>
+        /// Save without text/newline conversion. Built-in volumes preserve bytes.
+        /// Defaults to the legacy method so existing providers remain compatible;
+        /// providers with transforming SaveFile behavior must override for exact I/O.
+        /// </summary>
+        public virtual VolumeFile SaveFileRaw(VolumePath path, FileContent content, bool verifyFreeSpace = true)
+        {
+            return SaveFile(path, content, verifyFreeSpace);
+        }
 
         public bool IsRoomFor(VolumePath path, FileContent fileContent)
         {

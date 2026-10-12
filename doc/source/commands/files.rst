@@ -286,8 +286,11 @@ COPYPATH(FROMPATH, TOPATH)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Copies the file or directory pointed to by :code:`FROMPATH` to the location
-pointed to :code:`TOPATH`. Depending on what kind of items both paths point
-to the exact behaviour of this command will differ:
+pointed to :code:`TOPATH`. Built-in archive/local volume transfers preserve exact
+file bytes, including CRLF and binary data, without legacy text conversion.
+Third-party providers need raw I/O support for the same guarantee. Directory
+copies are not a single atomic transaction. Depending on what kind of items both
+paths point to the exact behaviour of this command will differ:
 
 1. :code:`FROMPATH` points to a file
 
@@ -338,6 +341,8 @@ MOVEPATH(FROMPATH, TOPATH)
 Moves the file or directory pointed to by :code:`FROMPATH` to the location
 pointed to :code:`TOPATH`. Depending on what kind of items both paths point
 to the exact behaviour of this command will differ, see :code:`COPYPATH` above.
+It uses the same raw transfer path, deleting the source only after copying succeeds;
+this does not add a whole-directory transaction or external-change conflict detection.
 
 .. _deletepath:
 

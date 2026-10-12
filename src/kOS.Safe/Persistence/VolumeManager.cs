@@ -341,13 +341,13 @@ namespace kOS.Safe.Persistence
         protected bool CopyFile(VolumeFile volumeFile, GlobalPath destinationPath, Volume targetVolume,
             bool verifyFreeSpace)
         {
-            return targetVolume.SaveFile(destinationPath, volumeFile.ReadAll(), verifyFreeSpace) != null;
+            return targetVolume.SaveFileRaw(destinationPath, volumeFile.ReadAllRaw(), verifyFreeSpace) != null;
         }
 
         protected bool CopyFileToDirectory(VolumeFile volumeFile, VolumeDirectory volumeDirectory,
             bool verifyFreeSpace)
         {
-            return volumeDirectory.Volume.SaveFile(volumeDirectory.Path.Combine(volumeFile.Name), volumeFile.ReadAll(),
+            return volumeDirectory.Volume.SaveFileRaw(volumeDirectory.Path.Combine(volumeFile.Name), volumeFile.ReadAllRaw(),
                 verifyFreeSpace) != null;
         }
 

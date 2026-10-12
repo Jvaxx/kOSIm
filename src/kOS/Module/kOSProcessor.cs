@@ -623,7 +623,7 @@ namespace kOS.Module
                     var bootVolumeFile = Archive.Open(BootFilePath) as VolumeFile;
                     if (bootVolumeFile != null)
                     {
-                        if (HardDisk.SaveFile(BootFilePath, bootVolumeFile.ReadAll()) == null)
+                        if (HardDisk.SaveFileRaw(BootFilePath, bootVolumeFile.ReadAllRaw()) == null)
                         {
                             // Throwing an exception during InitObjects will break the initialization and won't show
                             // the error to the user.  So we just log the error instead.  At some point in the future
