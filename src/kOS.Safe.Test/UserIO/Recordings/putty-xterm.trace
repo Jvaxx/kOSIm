@@ -1,0 +1,17 @@
+negotiate WILL NAWS -> no reply
+negotiate WILL TSPEED -> no reply
+negotiate WILL TERMTYPE -> SB TERMTYPE SEND
+negotiate WILL NEW-ENVIRON -> no reply
+negotiate DO ECHO -> WILL ECHO
+negotiate WILL SGA -> no reply
+negotiate DO SGA -> WILL SGA
+resize 80x24
+termtype "XTERM"
+text "list.\r\n"
+text "\x7f"
+text "\x1b[D"
+text "€"
+notice Ignored: command 241
+resize 300x80 (applied as 255x80)
+break
+text "1\r\n"

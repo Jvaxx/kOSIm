@@ -1,0 +1,20 @@
+# RECONSTRUCTED, not captured: no Windows telnet client on the development host.
+# Byte sequences follow Microsoft Telnet Client (telnet.exe) defaults: passive
+# negotiation (it only answers the server), terminal types offered in the order
+# ANSI, VT100, VT52, VTNT on repeated SEND requests, a 120x30 console, Enter as
+# CR LF, Backspace as BS (0x08), and arrow keys as ANSI escape sequences.
+# Replace with a live capture when a Windows client is available.
+# answers to kOS's WILL ECHO, DONT ECHO, WILL SGA, DO NAWS, DO TERMTYPE
+read: ff fd 01 ff fc 01 ff fd 03 ff fb 1f ff fa 1f 00 78 00 1e ff f0 ff fb 18
+# first terminal type answer
+read: ff fa 18 00 41 4e 53 49 ff f0
+# typing: 'print 2.' Enter, Backspace, Down arrow
+read: 70 72 69 6e 74 20 32 2e 0d 0a
+read: 08
+read: 1b 5b 42
+# kOS asks for the terminal type again as a keepalive; the client moves on to VT100,
+# with text typed just before it in the same read
+read: 78 ff fa 18 00 56 54 31 30 30 ff f0 79
+# Ctrl-C is sent as the plain control character
+read: 03
+eof

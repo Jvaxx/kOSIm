@@ -1,0 +1,26 @@
+# RECONSTRUCTED, not captured: PuTTY is not installed on the development host.
+# Byte sequences follow PuTTY's telnet backend (telnet.c) with default settings:
+# active negotiation (WILL NAWS, WILL TSPEED, WILL TTYPE, WILL NEW-ENVIRON, DO ECHO,
+# WILL SGA, DO SGA on connect), the terminal type sent in upper case, Enter as CR LF
+# ("Return key sends Telnet New Line"), Backspace as DEL, keepalives (IAC NOP) enabled,
+# and UTF-8 character set. Replace with a live capture when PuTTY is available.
+# connect: PuTTY's own requests, before it has read the server's
+read: ff fb 1f ff fb 20 ff fb 18 ff fb 27 ff fd 01 ff fb 03 ff fd 03
+# answers to kOS: NAWS size after DO NAWS, then the terminal type after SEND
+read: ff fa 1f 00 50 00 18 ff f0
+read: ff fa 18 00 58 54 45 52 4d ff f0
+# typing: 'list.' Enter, Backspace, Left arrow, a euro sign split across two reads
+read: 6c 69 73 74 2e 0d 0a
+read: 7f
+read: 1b 5b 44
+read: e2 82
+read: ac
+# keepalive
+read: ff f1
+# window maximized to 300x80 (beyond kOS's 255-column limit)
+read: ff fa 1f 01 2c 00 50 ff f0
+# Special Command > Interrupt Process, with type-ahead in the same read
+read: ff f4 61 62 63
+# typing resumes after the break: '1' Enter
+read: 31 0d 0a
+eof

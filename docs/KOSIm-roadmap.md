@@ -53,6 +53,25 @@ This is an agreed direction, not a claim that builds, tests, reproductions, or i
 - Assemble compatibility fixtures: boot and flight scripts, character-grid dashboards, script input, compiled KSM files, telnet sessions, and representative saves/craft where practical.
 - Record existing failures separately from regressions introduced by the fork.
 
+### Status
+
+**Headless work complete.** The local build/test commands, gate and baseline are in place. The suite is fully green (708/708) with an empty known-failure list. The dev instance and its isolated Proton launcher are defined and smoke-tested.
+
+Compatibility fixtures now cover these headlessly (details in [testing-and-build.md](testing-and-build.md#compatibility-fixtures-phase-0)):
+
+- Representative scripts (printing, functions/delegates, triggers/waits, file I/O, a CRLF boot file), run from source and from compiled KSM with identical recorded output, in both archive newline modes.
+- A character-grid dashboard checked against full-screen snapshots of the real screen model.
+- Telnet byte streams (one live inetutils capture; PuTTY and Windows telnet reconstructed) replayed whole and fragmented.
+
+Still manual, on the Proton checklist:
+
+- Saves and craft.
+- Real KSP types and mod-facing APIs.
+- In-game input routing, rendering and fonts.
+- Terminal mappers and the telnet server with real clients.
+
+The fixtures exposed two upstream defects, NET-03 and EXEC-01 (see Phase 1). They are recorded and await a decision.
+
 ### Exit criterion
 
 Reliable local build/test commands, a documented baseline and known failures, and a defined Proton game-test setup. Passing compilation alone does not satisfy this phase.
@@ -82,6 +101,7 @@ Ship small, independently reviewable changes with regression tests rather than b
 ### Priorities
 
 - Continue focused local safety work. Archive byte/text policy, replacement, editor transactions, scoped render recovery and telnet parsing/shutdown are implemented/host-tested within documented limits; target-runtime acceptance remains deferred. Keep all pending GUI/editor/archive/raw I/O/boot/telnet checks until the user resumes Proton.
+- Fixture-found defects awaiting a decision: `NET-03` (telnet terminal types shorter than 5 characters, e.g. Microsoft Telnet's `ANSI`, make the mapper factory throw and end the session) and `EXEC-01` (a failing `COMPILE` typed at the prompt re-reports its error every update and blocks the prompt until reboot).
 - Focus and flight-control lock cleanup during hide, close, destruction, power loss, and scene changes (`INPUT-01`).
 - Other contained, confirmed defects such as port-field capacity and widget selection/callback behavior, when adequately testable.
 

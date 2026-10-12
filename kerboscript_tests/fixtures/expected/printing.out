@@ -1,0 +1,57 @@
+42
+-7
+3.25
+0.333333333333333
+1099511627776
+1E-05
+plain string
+with "quotes" inside
+True
+False
+True
+a1
+1a
+LIST of 0 items:
+LIST of 4 items:
+[0] = 1
+[1] = "two"
+[2] = True
+[3] = 4.5
+LIST of 2 items:
+[0] = LIST of 2 items:
+  [0] = 1
+  [1] = 2
+[1] = LIST of 0 items:
+LEXICON of 0 items:
+LEXICON of 3 items:
+["alt"] = 70000
+["name"] = "Kerbin"
+["ok"] = False
+LEXICON of 2 items:
+[1] = "one"
+[2.5] = "two and a half"
+LEXICON of 1 items:
+["inner"] = LIST of 2 items:
+  [0] = 1
+  [1] = LEXICON of 1 items:
+    ["k"] = "v"
+LIST of 2 items:
+[0] = 1
+[1] = 2
+QUEUE of 2 items:
+[0] = 1
+[1] = 2
+STACK of 2 items:
+[0] = 2
+[1] = 1
+RANGE(0, 3, 1)
+UNIQUESET of 2 items:
+[0] = 5
+[1] = 6
+23
+LIST of 2 items:
+[0] = 20
+[1] = 30
+ABCdef
+2 3.14 -1 1
+Program ended.

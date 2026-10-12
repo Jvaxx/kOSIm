@@ -1,0 +1,16 @@
+repeating trigger at tick 2
+when fired at tick 3
+repeating trigger at tick 3
+stage changed to 1
+repeating trigger at tick 4
+repeating trigger at tick 5
+repeating trigger at tick 6
+stage changed to 2
+loop done at tick 7
+flag trigger
+after flag
+LIST of 3 items:
+[0] = 0
+[1] = 1
+[2] = 4
+Program ended.

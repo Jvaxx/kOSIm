@@ -99,7 +99,7 @@ At upstream commit `8f281a459b6ea0ba917c91bbbc117e68bb948199`, the unchanged sui
 - **Tests.** `PrimitiveDisplayTest` adds 7 regressions: inline list, module-field and nested-collection printing; a pinned JSON format; bare-scalar JSON (#2824); loading pre-1.3 raw-primitive JSON; and typed dumps keeping wrapped primitives. With the fix disabled as a temporary mutation, the 3 original tests and the 3 new display tests failed while the JSON and compatibility tests passed.
 - **Not checked.** The in-game terminal output has not been checked under Proton.
 
-The fork adds **13 character-grid compatibility tests**, **26 overlay regression tests**, **27 dimension regressions**, **23 cursor-read regressions**, **34 render-recovery regressions**, **48 editor document regressions**, **50 archive-save regressions**, **62 raw I/O/newline regressions**, **83 telnet regressions**, and **7 display-formatting regressions**, so the current suite executes **675 tests: all 675 pass, 0 skipped**. The local gate has **12 additional Python unit tests**.
+The fork adds **13 character-grid compatibility tests**, **26 overlay regression tests**, **27 dimension regressions**, **23 cursor-read regressions**, **34 render-recovery regressions**, **48 editor document regressions**, **50 archive-save regressions**, **62 raw I/O/newline regressions**, **83 telnet regressions**, **7 display-formatting regressions**, and **33 compatibility-fixture tests**, so the current suite executes **708 tests: all 708 pass, 0 skipped**. The local gate has **12 additional Python unit tests**.
 
 `.ci/known-test-failures.json` records exact known failing names (currently none), expected assertion-message fragments, reasons, and the minimum current test count. **No test is ignored or filtered out.** The raw NUnit process exits nonzero for any failure. The local regression gate tolerates only the recorded baseline and rejects:
 
@@ -163,6 +163,67 @@ Earlier full builds succeeded against stripped KSP 1.12.5 references stored outs
 | Other game platforms/versions | Outside current validation scope |
 
 Initial terminal fixtures cover default dimensions, addressed writes, cell overwrites, newline/wrap behavior, scrollback/clamping after a clear, clear/reset, grid growth, notifier registration/removal, fixed overlays, deep-copy snapshots, and empty snapshots. They use real models, not the integration-test screen stub. Overlay regressions now cover partial/full clipping above and below, overlays spanning both boundaries, extreme integer positions, fixed versus scrollback-relative placement, disabled/empty/wiped/shortened overlays, layer order, row-reference preservation, and long command input across width changes. A seed-3100 reference test exercises 200 compositions with resize and scroll. Dimension regressions now cover zero/negative/excessive requests, effective no-op identity/timestamps/notifications, normalized callbacks, safe writing after shrinking, negative long-input anchors, overlay width propagation, script suffix bounds, and 100 seeded resize requests (seed 3104). Cursor reads now have 23 headless regressions; actual Unity GUI group/color cleanup, fault recovery, and lifecycle checks still require runtime validation.
+
+### Compatibility fixtures (Phase 0)
+
+These fixtures record what representative scripts, dashboards and telnet clients produce today, so later changes show up as diffs. They add no production change.
+
+**Harness.** `src/kOS.Safe.Test/Execution/ScriptHost.cs` runs kerboscript the way the in-game terminal does: commands are typed key by key at the real `TextEditor` prompt line, echoed, compiled into the interpreter context and run by the real CPU. Output goes into the real `ScreenBuffer` model that the window and telnet draw. The archive is a disposable copy of `kerboscript_tests`. Game time moves only in fixed 0.02 s updates, so `WAIT` and triggers are deterministic. The older `BaseIntegrationTest` stub (one string per `Print` call, `PRINT AT` coordinates ignored, no grid) is unchanged.
+
+Game-assembly pieces are replaced by small test adapters, all in `ScriptHost.cs`:
+
+- `FixtureInterpreter`: a copy of the game's `kOS.Screen.Interpreter` on the real `TextEditor`, with the same Enter handling, input lock and cursor-preserving `PRINT AT`. History navigation keys are left out. **Keep it in step with `src/kOS/Screen/Interpreter.cs`.**
+- `FixtureBindingManager`: only `TERMINAL`, backed by the real `TerminalStruct`.
+- `FixtureFunctionClearScreen`: `CLEARSCREEN` clears the same model as `TermWindow.ClearScreen()`, without the telnet notification.
+- `RecordingLogger`: records the script errors that the game prints. Fixtures fail on any error.
+- `Opcode.InitMachineCodeData()`/`CompiledObject.InitTypeData()` are called as `kOSProcessor.OnAwake()` does. Without them, KSM packing throws.
+
+**Fixtures** (`kerboscript_tests/fixtures/`, expected output in `fixtures/expected/`):
+
+| Fixture | Covers | Tests |
+| --- | --- | --- |
+| `printing.ks` | scalars, strings, booleans, lists, lexicons, nesting, queue/stack/range/set; locks in FMT-01 | source + KSM, both newline modes |
+| `functions.ks` | parameters/defaults, recursion, closures, anonymous functions, `:BIND`/`:CALL`, built-in delegates, locks | source + KSM, both newline modes |
+| `triggers.ks` | `WHEN`/`THEN` with `PRESERVE`, `ON` with `RETURN TRUE`, `WAIT 0`, `WAIT n`, `WAIT UNTIL`, `FROM` loops | source + KSM, both newline modes |
+| `fileio.ks` | create/write/`WRITELN`/`READALL`/iterator, `LOG`, `COPYPATH`/`MOVEPATH`/`DELETEPATH`, JSON round trip, `READRAW`/`WRITERAW`, `RUNPATH`/`RUNONCEPATH` with parameters, directory listing | source + KSM, both newline modes |
+| `boot/boot_crlf.ks` | boot file with CRLF line endings (multi-line string literal included), run by the real `CPU.Boot()` boot path from source and from KSM | both newline modes |
+| `dashboard/hud.ks` | `PRINT AT` layout, shorter overwrites, wrapping past the right edge, plain `PRINT` scrolling followed by a redraw, `CLEARSCREEN`, resize watcher on window/telnet-side and script-side resizes | 15 full-screen snapshots |
+
+- **Source vs compiled.** Each script is compiled with the `COMPILE` command and the KSM is run with `RUNPATH`. KSM output must equal source output and the recording.
+- **Newline modes.** Each script runs with the managed Windows flag off and on (test-only reflection, as in the IO-01/02 tests). The game under Proton takes the Windows branch, where text saves add CRs. Only `fileio` differs: a 3-line file is 29 bytes on Unix and 32 on Windows (`fileio.windows.out`). Archive reads always fold CRLF, so the boot script's CRLF string literal reads back as LF in both modes.
+- **Recorded quirks, kept as-is:** `PRINT ""` adds no line; `ROUND(2.5)` is 2 (banker's rounding); `RUNONCEPATH` skips a file already run by `RUNPATH`; because `PRINT AT` restores the cursor, a later plain `PRINT` writes from where the cursor was, over dashboard text; `OFF` written over `ARMED` leaves `OFFED`.
+- **Re-recording.** Run with `KOSIM_RECORD_FIXTURES=1` to rewrite expected files and traces. Recording tests always fail, so a recording run never passes as a check. Record twice when Unix output changes, because a `.windows.out` file is kept only while it differs from the Unix one. Review the diff before committing. `.gitattributes` keeps `boot_crlf.ks` byte-exact, and a test fails if its CRLFs are lost.
+
+**Telnet recordings** (`src/kOS.Safe.Test/UserIO/Recordings/`; each `read:` line is one socket read in hex, and each `.trace` file is the expected server-side result, including kOS's negotiation replies and clamped sizes):
+
+- `inetutils-xterm`: **captured live** from GNU inetutils telnet 2.8, `TERM=xterm`, 80x24, against a loopback listener sending kOS's connect sequence and replies. Enter arrives as `CR NUL` and the terminal type as `XTERM`.
+- `putty-xterm` and `windows-telnet-ansi`: **reconstructed, not captured**, because neither client is installed here. They follow PuTTY's telnet backend defaults (active negotiation, `XTERM`, CR LF, DEL, keepalive NOP, UTF-8) and Microsoft Telnet's (passive, `ANSI` then `VT100`, 120x30, CR LF, BS). They include a split UTF-8 character, a 300-column NAWS clamped to 255, `IAC IP` with type-ahead, and a terminal-type change mid-input. Replace them with live captures when those clients are available.
+
+Each recording is replayed as recorded, at every split point inside each read, byte at a time, and in 150 seeded random chunkings (seeds 3, 17, 2026). Fragmented replays report more data available until the end of each original read, so the break-discard policy sees the same reads. After adjacent text is joined, all replays must match the trace. The terminal mappers, `TelnetSingletonServer` and the welcome menu remain untested.
+
+**Evidence.**
+
+- Mutations, each reverted:
+  - Disabling the FMT-01 display fix failed 16 script-fixture tests: every printed list/lexicon, from source and KSM, in both modes.
+  - Making `ScreenBuffer` wrapping ignore the cursor column failed the dashboard snapshot test at the wrap step.
+- Stability: the 33 fixture tests passed 15 consecutive runs, and 8 more with every core busy. Script fixtures wait for the background compile thread with 1 ms sleeps, bounded by the update limit.
+- Full gate: 708 executed, 708 passed.
+
+**Defects found (recorded, not fixed; awaiting a decision):**
+
+- **NET-03, short telnet terminal types.** `TerminalUnicodeMapper.GuessTypeId()` calls `Substring(0,5)` and `Substring(0,4)`, so any terminal type shorter than 5 characters throws `ArgumentOutOfRangeException`. That includes `ANSI` (Microsoft Telnet's first answer), `VT52`, `VTNT`, `dumb` and the empty string. The exception happens in `ClientTerminalType`'s setter on the reader thread, and with NET-01/02 a worker fault closes the session. The unchanged mapper files, compiled into a scratch Mono probe, threw for all five strings, while `XTERM`, `xterm-256color` and `VT100` mapped normally. This is upstream code, and the parser and dispatcher deliver `ANSI` correctly (see the Windows trace). It was not reproduced with a real Windows client or in the game.
+- **EXEC-01, repeating compile error at the prompt.** When `COMPILE` is typed at the prompt on a file with a syntax error (or any other compile-thread failure), the CPU reports the error **on every update**. Headless: 198 errors in 200 updates. Ctrl-C does not stop it, and the prompt never runs another command until reboot. Cause: `YiedFinishedThreadedDetector.IsFinished()` rethrows the stored exception without clearing it, and the yield stays in the CPU's list, because `BreakExecution(false)` only aborts yields when a program context exists. `COMPILE` yields from the interpreter context (`RUNPATH`/`RUN` push a program context and are not affected). `throw childException` also discards the original stack trace. This is upstream code unchanged since 2017. The in-game flood is inferred from the game logger printing each error, not observed.
+
+**Remaining manual coverage (cannot run headlessly):**
+
+- Save and craft loading.
+- Real KSP types: vessel, part and module suffixes, flight bindings.
+- Public mod-facing APIs against real KSP assemblies.
+- The game `Interpreter`/`TermWindow` key routing (prompt versus script input, history navigation, paste, interrupts).
+- Terminal mappers and `TelnetSingletonServer` with real clients.
+- Fonts and rendering of these dashboards in the Unity window.
+
+These stay on the Proton checklist. A fixture is a model of the terminal, not proof of in-game rendering.
 
 ### Telnet input parsing and session lifecycle (NET-01/02)
 

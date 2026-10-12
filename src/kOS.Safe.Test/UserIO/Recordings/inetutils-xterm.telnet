@@ -1,0 +1,21 @@
+# Captured live on 2026-10-12 from GNU inetutils telnet 2.8 (Arch Linux),
+# TERM=xterm, in a 80x24 pseudo-terminal, against a loopback listener that sent
+# kOS's connect sequence (WILL ECHO, DONT ECHO, WILL SGA, DO NAWS, DO TERMTYPE)
+# and kOS's character-mode negotiation replies.
+# Each read: line is one recv() from the client socket, in hex.
+# Keys typed: 'print 1+1.', Enter, e-acute, Up arrow, Backspace (DEL), Ctrl-C;
+# then the window grew to 100x30; then Ctrl-] quit closed the connection.
+# Note: Enter arrives as CR NUL (RFC 854), the terminal type in upper case.
+read: ff fd 01 ff fd 03 ff fb 1f ff fa 1f 00 50 00 18 ff f0 ff fb 18
+read: ff fa 18 00 58 54 45 52 4d ff f0
+# typing
+read: 70 72 69 6e 74 20 31 2b 31 2e
+read: 0d 00
+read: c3 a9
+read: 1b 5b 41
+read: 7f
+read: 03
+# resize 30x100
+read: ff fa 1f 00 64 00 1e ff f0
+# close
+eof

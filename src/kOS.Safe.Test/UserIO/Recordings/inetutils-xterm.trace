@@ -1,0 +1,13 @@
+negotiate DO ECHO -> WILL ECHO
+negotiate DO SGA -> WILL SGA
+negotiate WILL NAWS -> no reply
+resize 80x24
+negotiate WILL TERMTYPE -> SB TERMTYPE SEND
+termtype "XTERM"
+text "print 1+1."
+text "\r\x00"
+text "é"
+text "\x1b[A"
+text "\x7f"
+text "\x03"
+resize 100x30

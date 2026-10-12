@@ -1,0 +1,149 @@
+== first frame
+|STATUS                  |
+|                        |
+|alt:       0            |
+|spd:       0            |
+|mode: ARMED             |
+|                        |
+|                        |
+|f0 24x8                 |
+cursor 0,0
+
+== key n
+|STATUS                  |
+|                        |
+|alt:    1000            |
+|spd:     2.5            |
+|mode: ARMED             |
+|                        |
+|                        |
+|f1 24x8                 |
+cursor 0,0
+
+== key n
+|STATUS                  |
+|                        |
+|alt:    2000            |
+|spd:       5            |
+|mode: ARMED             |
+|                        |
+|                        |
+|f2 24x8                 |
+cursor 0,0
+
+== key s
+|STATUS                  |
+|                        |
+|alt:    2000            |
+|spd:       5            |
+|mode: OFFED             |
+|                        |
+|                        |
+|f2 24x8                 |
+cursor 0,0
+
+== key w
+|STATUS                  |
+|                        |
+|alt:    2000            |
+|spd:       5            |
+|mode: OFFED             |
+|                  012345|
+|6789ABCDEFGHIJ          |
+|f2 24x8                 |
+cursor 0,0
+
+== window resized to 10x30
+|STATUS                        |
+|                              |
+|alt:    2000                  |
+|spd:       5                  |
+|mode: OFF                     |
+|                              |
+|                              |
+|                              |
+|                              |
+|f2 30x10                      |
+cursor 0,0
+
+== window resized to 5x16
+|STATUS          |
+|                |
+|alt:    2000    |
+|spd:       5    |
+|f2 16x5FF       |
+cursor 0,0
+
+== window resized to 8x24
+|STATUS                  |
+|                        |
+|alt:    2000            |
+|spd:       5            |
+|mode: OFF               |
+|                        |
+|                        |
+|f2 24x8                 |
+cursor 0,0
+
+== key r
+|STATUS              |
+|                    |
+|alt:    2000        |
+|spd:       5        |
+|mode: OFF           |
+|f2 20x6             |
+cursor 0,0
+
+== key p
+|plain 1             |
+|plain 2             |
+|plain 3 2000        |
+|spd:       5        |
+|mode: OFF           |
+|f2 20x6             |
+cursor 3,0
+
+== key p
+|plain 2             |
+|plain 3 2000        |
+|plain 1    5        |
+|plain 2FF           |
+|plain 3             |
+|                    |
+cursor 5,0
+
+== key p
+|plain 2FF           |
+|plain 3             |
+|plain 1             |
+|plain 2             |
+|plain 3             |
+|                    |
+cursor 5,0
+
+== key n
+|plain 2FF           |
+|plain 3             |
+|plain   3000        |
+|plain    7.5        |
+|plain OFF           |
+|f3 20x6             |
+cursor 5,0
+
+== key c
+|                    |
+|  cleared           |
+|                    |
+|                    |
+|                    |
+|                    |
+cursor 0,0
+
+== key q
+|bye                 |
+|Program ended.      |
+|                    |
+|                    |
+|                    |
+|                    |
+cursor 2,0

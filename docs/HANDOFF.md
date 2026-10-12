@@ -2,22 +2,37 @@
 
 ## Resume here
 
-**NET-01/02 (telnet) and FMT-01 (the 3 former known test failures) are done.** BUFFER-01–04, EDIT-01/02, IO-01–03 and NET-01/02 are committed. FMT-01 is committed too. The headless suite is fully green (675/675) and the known-failure baseline is empty. Phase 0 remains partially complete: broader compatibility fixtures are missing.
+**Phase 0 compatibility fixtures are done (the agreed task of the fixtures session).** BUFFER-01–04, EDIT-01/02, IO-01–03, NET-01/02 and FMT-01 were already committed. This session added headless fixtures:
+
+- source/KSM output-equivalence scripts, including a CRLF boot file;
+- real-screen-model dashboard snapshots;
+- recorded telnet streams.
+
+The suite is fully green (708/708) and the known-failure list is empty. Phase 0's headless work is complete. Saves, craft, real-KSP mod-API checks and in-game rendering/input stay as documented manual coverage.
 
 The user **deferred further Proton checks**. Continue local implementation/tests; do not deploy, terminate/restart the game, or request immediate game verification. No UI redesign, hosted testing/release automation, or push. Commit only when the user asks.
 
-Suggested next tasks (all headless; confirm the choice with the user):
+**Waiting on the user:** the fixtures exposed two upstream defects, recorded but **not fixed** (the user asked to be consulted first):
 
-1. Phase 0 compatibility fixtures: boot/flight scripts, character-grid dashboards, compiled KSM round-trips, and recorded telnet byte streams replayed through `TelnetInputParser`/`TelnetInputDispatcher`.
-2. Optional telnet follow-up: terminal mappers (`src/kOS/UserIO/Terminal*Mapper.cs`) still convert each read separately, so `\r\n` or `ESC [` split across reads is mishandled (pre-existing). This needs the mappers moved to `kOS.Safe` or given a stateful wrapper, plus tests.
+- **NET-03:** a telnet terminal type shorter than 5 characters (`ANSI`, `VT52`, `VTNT`, `dumb`, empty) makes `TerminalUnicodeMapper.GuessTypeId()` throw on the reader thread, which ends the session.
+- **EXEC-01:** a failing `COMPILE` typed at the prompt re-reports its error on every update, and the prompt stays blocked until reboot.
+
+Evidence and causes are in `docs/testing-and-build.md` ("Compatibility fixtures").
+
+Next tasks, in suggested order (confirm with the user):
+
+1. Decide on, then fix with regression tests, NET-03 (guard the mapper prefix checks; a `kOS.Safe` move would make it headlessly testable) and EXEC-01 (clear the failed threaded yield; keep the original stack trace).
+2. Optional telnet follow-up: terminal mappers (`src/kOS/UserIO/Terminal*Mapper.cs`) still convert each read separately, so `\r\n` or `ESC [` split across reads is mishandled (pre-existing). This needs the mappers moved to `kOS.Safe` or given a stateful wrapper, plus tests. Moving them would also let the recorded telnet streams run through the mappers.
 3. `INPUT-01` (focus/flight-control lock cleanup) is mostly Unity behavior. Design and test what's possible headlessly; real verification waits for Proton.
+4. When convenient, replace the reconstructed PuTTY and Windows telnet recordings with live captures (`src/kOS.Safe.Test/UserIO/Recordings/`).
+
 Decided: the user chose to **leave the JSON format unchanged**. JSON from kOS 1.3+ wraps nested primitives as `{"value", "$type"}`; keep that for file compatibility.
 
 ## Workspace and constraints
 
 - Workspace: `/home/jvz/Projects/KOS-Improved`; branch `kosim/test-baseline`.
 - Base: `8f281a459b6ea0ba917c91bbbc117e68bb948199` (`fix element counting parts multiple times`), from upstream `develop`; origin remains <https://github.com/KSP-KOS/KOS>.
-- Local commits on `kosim/test-baseline` (not pushed; no fork): `Add local headless test tooling and baseline`, `Fix screen buffer overlay, dimension and cursor safety`, `Prevent editor data loss on open, focus and failed I/O`, `Make archive saves atomic and add raw byte file I/O`, `Add fork roadmap, handoff and agent instructions` (checkpoint of all earlier work), then the NET-01/02 commit (`a81609e1`) and the FMT-01 commit. Use `git log`/`git status` rather than a stale inventory.
+- Local commits on `kosim/test-baseline` (not pushed; no fork): `Add local headless test tooling and baseline`, `Fix screen buffer overlay, dimension and cursor safety`, `Prevent editor data loss on open, focus and failed I/O`, `Make archive saves atomic and add raw byte file I/O`, `Add fork roadmap, handoff and agent instructions` (checkpoint of all earlier work), then the NET-01/02 commit (`a81609e1`), the FMT-01 commit (`1dc22449`) and the compatibility-fixtures commit. Use `git log`/`git status` rather than a stale inventory.
 - Primary workflow: external editor + kerboscript LSP; terminal/telnet for execution/debugging. Order: tests → safety → incremental structure → QoL → UI.
 - Preserve character-grid semantics, KSM/save/craft compatibility, public mod APIs, safe network defaults and predictable flight-input ownership. Runtime stays `net48`; SDK 8 is tooling only. No incidental compiler/VM/steering changes or external-file autorun.
 - Local tests only. Upstream workflows are inactive under `.github/upstream-workflows/`; do not reactivate them.
@@ -29,7 +44,7 @@ Detailed evidence and deferred runtime checklists live in `docs/testing-and-buil
 
 | Area | Current implementation / entry points | Limits to retain |
 | --- | --- | --- |
-| Local baseline | `.ci/test.sh`, strict known-failure gate, `KOSHeadless=true` library/test builds; NUnit 2.7.1/NSubstitute 1.8.1 retained. 13 initial real-model compatibility tests. Failure propagation and fresh-checkout builds previously verified. | Gate passes with 3 visible upstream failures; no tests skipped/filtered. Do not expand the allowlist to hide regressions; raise minimum count as coverage grows. |
+| Local baseline | `.ci/test.sh`, strict known-failure gate, `KOSHeadless=true` library/test builds; NUnit 2.7.1/NSubstitute 1.8.1 retained. 13 initial real-model compatibility tests. Failure propagation and fresh-checkout builds previously verified. | The baseline is now empty (the 3 upstream failures were fixed by FMT-01); no tests skipped/filtered. Do not expand the allowlist to hide regressions; raise minimum count as coverage grows. |
 | BUFFER-01 | `ScreenBuffer.GetBuffer()` clips overlays by row-intersection replacement; 26 regressions. | Fixed = viewport-relative, non-fixed = absolute minus TopRow; later overlays win; shared row references retained. No horizontal semantics or snapshot concurrency guarantee. Only this earlier build has guided Proton smoke evidence. |
 | BUFFER-04 | `ScreenBuffer.SetSize()` normalizes before allocation/callbacks; `SubBuffer` validates before mutation; 27 regressions. | Zero model axis preserves current size; others clamp to 1–160 rows / 1–255 columns. Script minima remain 3/15. Effective same-size requests are true no-ops. Negative long-input row anchors remain valid; overlay height is uncapped. |
 | BUFFER-02/03 | `ScreenSnapShotExtensions.TryGetCursorCharacter()` (23 tests), snapshot-only GUI cursor reads and scoped group/color/skin cleanup in `TermWindow`; `RenderFaultRecovery` (34 tests). | Invalid cursor hidden, not moved; snapshot interface unchanged. Font/geometry preparation and window callback recover nonfatal faults with Retry/Close/Resize, 2-second retries and 10-second diagnostic batching. Fatal/Unity GUI-exit branches propagate. Update/snapshot acquisition, input, title/lifecycle, telnet, GUI.Window internals and fallback/reporter faults are outside recovery. Unity cleanup/control behavior only simulated headlessly. |
@@ -38,6 +53,7 @@ Detailed evidence and deferred runtime checklists live in `docs/testing-and-buil
 | IO-01/02 | User-approved **Preserve text APIs** policy: additive `ReadAllRaw`/`WriteRaw`/`SaveFileRaw`, script `READRAW`/`WRITERAW(FileContent)`; copy/move/helper/boot seeding route raw. 62 tests (`RawFileIoTest`, `LegacyNewlineTest`). | Built-in raw transfers preserve bytes; raw append is nontransactional. Legacy READALL/WRITE, UTF-8 replacement/BOM/type behavior retained; Windows CRLF conversion is idempotent. Legacy archive READALL still risks binary corruption: use raw APIs. Old/derived providers retain legacy hooks until opting into raw overrides; no universal byte-exact or precompiled-mod guarantee. Exact byte capacity can reject moves previously accepted via shortened text views. |
 | NET-01/02 | `kOS.Safe/UserIO`: `TelnetInputParser` (incremental RFC 854, persistent UTF-8 decoder, 1024-byte subnegotiation cap), `TelnetInputDispatcher` (text coalescing, break discard), `TelnetProtocol` (negotiation replies, NAWS clamping), `TelnetMenuText`, and `TelnetConnectionWorker` (background reader/writer, serialized writes, 5 s write timeout, cooperative idempotent shutdown with 1 s bounded join, no `Thread.Abort`). `TelnetSingletonServer` keeps its public API, and game-side stop/menu work runs in `MainThreadUpdate()`, called from `TelnetMainServer.Update()`. 83 tests (34 parser, 23 protocol, 5 dispatcher, 9 menu, 12 loopback-socket worker). | Intentional changes are listed in `docs/testing-and-build.md` (NET-01/02 section). Server, menu and mapper adapters are compiled but not tested. Mappers still work per read. A game-thread raw send to a stalled client can block for up to 5 s. Socket semantics have been checked only on Linux Mono; Unity/Proton telnet acceptance is deferred. |
 | FMT-01 | `SafeSerializationMgr.DumpValue()` returns nested primitives inline for type-less (display) dumps only. This fixes `PRINT`/`:DUMP` of lists and lexicons, which upstream has shown as `["value"] = …` since v1.3.0.0 (cause: commit `21dcea00`; seen in issue #2939). `PrimitiveDisplayTest` (7 tests). The 3 baseline failures are removed. | JSON/message/save formats are unchanged and pinned by a test. The in-game print has not been checked under Proton. |
+| Compatibility fixtures | `ScriptHost` (real `TextEditor` prompt, CPU, compiler and screen model; disposable archive) with test adapters `FixtureInterpreter` (copy of the game `Interpreter`, keep in step), `FixtureBindingManager` (`TERMINAL`), `FixtureFunctionClearScreen`, `RecordingLogger`. `ScriptFixtureTest` (19: printing, functions, triggers, fileio from source and KSM in both newline modes; CRLF boot; KSM category), `DashboardFixtureTest` (1 test, 15 snapshots), `TelnetRecordingTest` (13). Fixtures in `kerboscript_tests/fixtures/` (expected in `expected/`), recordings in `src/kOS.Safe.Test/UserIO/Recordings/`. Re-record with `KOSIM_RECORD_FIXTURES=1`. | Model of the terminal, not in-game rendering. Game key routing, mappers and telnet server are untested. PuTTY/Windows telnet streams are reconstructed, not captured. `boot_crlf.ks` is `-text` in `.gitattributes`. |
 
 ## Latest verification and commands
 
@@ -51,7 +67,19 @@ bash .ci/test.sh
 dotnet build kOS.sln -c Release
 ```
 
-Latest implementation-session results (FMT-01 session):
+Latest session results (compatibility fixtures, 2026-10-12):
+
+- Baseline at session start: `bash .ci/test.sh` exit 0, 675/675.
+- Final: `bash .ci/test.sh` exit 0, **708 NUnit executed, 708 passed, 0 known failures, 0 skipped; 12 Python gate tests passed**. Gate minimum raised to 708; `failures` still empty.
+- Mutations, each reverted: disabling the FMT-01 display fix failed 16 fixture tests; making `ScreenBuffer` wrapping ignore the cursor column failed the dashboard snapshot test.
+- Stability: the 33 fixture tests passed 15 consecutive runs and 8 under full CPU load. No temporary fixture archives were left in `/tmp`.
+- Clean full build: `dotnet build kOS.sln -c Release --no-incremental` exit 0, **0 errors, 44 existing warnings** (none from new files). Not deployed; no game launched.
+- Defect evidence:
+  - NET-03: the unchanged mapper files compiled into a scratch Mono probe threw for `ANSI`/`VT52`/`VTNT`/`dumb`/empty.
+  - EXEC-01: a temporary probe test logged 198 errors in 200 updates and kept reporting after Ctrl-C.
+  - Both probes were removed.
+
+Previous implementation session (FMT-01):
 
 - Investigation: a temporary probe test (removed) showed the garbled display and the wrapped JSON at HEAD, and that pre-1.3 raw-primitive JSON still loads. Upstream history traced the behavior to `21dcea00` (#2824, a bare-scalar `WRITEJSON` fix). Issue #2939 shows the garbled output in a real game.
 - Final: `bash .ci/test.sh` exit 0, **675 NUnit executed, 675 passed, 0 known failures, 0 skipped; 12 Python gate tests passed**. Gate minimum 675; baseline `failures` is empty.
@@ -72,6 +100,6 @@ Passing headless tests are not Proton validation.
 
 ## Follow-on priorities
 
-See "Resume here" for the ordering: compatibility fixtures, the optional mapper follow-up, then `INPUT-01` and other small confirmed safety defects. Retain pending GUI/telnet equivalence, fixed communications overlay, multiple-viewer, focus/power/scene and native-resource checks; no systematic performance profile has run.
+See "Resume here" for the ordering: the NET-03/EXEC-01 decision, the optional mapper follow-up, then `INPUT-01` and other small confirmed safety defects. Retain pending GUI/telnet equivalence, fixed communications overlay, multiple-viewer, focus/power/scene and native-resource checks; no systematic performance profile has run.
 
 Before major structural extraction, document screen/viewport coordinates, resize authority across viewers, input/thread ownership and explicit lifecycle/resource contracts. No wholesale rewrite or UI modernization yet.

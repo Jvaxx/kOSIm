@@ -1,0 +1,25 @@
+True
+32
+line one
+line two
+line three
+0: line one
+1: line two
+2: line three
+log entry 1
+log entry 2
+False True
+True
+ascent 80000.5 True
+LIST of 3 items:
+[0] = "phase"
+[1] = "targets"
+[2] = "armed"
+True
+mathlib loaded, scale 3
+15 10
+loads 1, scaled 15
+5
+False
+False
+Program ended.

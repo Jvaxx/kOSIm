@@ -6,3 +6,6 @@
 
 *.csproj text=auto merge=union
 *.sln text=auto eol=crlf merge=union
+
+# Compatibility fixture that must keep its CRLF bytes.
+kerboscript_tests/fixtures/boot/boot_crlf.ks -text

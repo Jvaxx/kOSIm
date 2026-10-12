@@ -1,0 +1,5 @@
+boot: start
+mathlib loaded, scale 2
+boot: target 160000 auto
+10
+boot: done after 3 waits, log booted
