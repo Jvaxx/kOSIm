@@ -202,9 +202,12 @@ namespace kOS.Safe.Screen
             if (CursorRowShow >= RowCount)
             {
                 int rowsToScroll = (CursorRowShow-RowCount) + 1;
+                // Add the rows before scrolling: scrolling stops at the end of the buffer, and
+                // a scroll cut short left the input line one row too high, over the last
+                // output row (or above the buffer, failing on Enter).
+                AddNewBufferLines(rowsToScroll);
                 CursorRow -= rowsToScroll;
                 ScrollVertical(rowsToScroll);
-                AddNewBufferLines(rowsToScroll);
             }
         }
 
