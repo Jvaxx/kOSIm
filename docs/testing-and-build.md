@@ -498,6 +498,12 @@ Mutations, each reverted:
 
 **Not runtime-tested yet (deferred by the user, 2026-10-15):** the game `Interpreter`/`ConnectivityInterpreter` changes are compiled only; needs a Proton check (Ctrl-C on `WAIT 5.` and on a slow `COMPILE` in the GUI and over telnet, then a normal `COMPILE`, history Up after Ctrl-C). A thread that finished but was not yet seen is discarded by `Cancel()`; that path has no dedicated test (it needs thread timing).
 
+### Input ownership policy (INPUT-01, headless part)
+
+`kOS.Safe.UserIO.InputOwnership` holds the agreed keyboard-ownership policy (`docs/KOSIm-roadmap.md`, "INPUT-01 design") with no Unity or KSP state. Windows register (with or without a control lock; script GUI windows take none) and report user opens, unfocused opens (action group, script), clicks, closes, power, suspension (hidden UI or flight-results dialog) and removal. It answers which window has the keyboard and applies lock changes to an `IInputLockSink` at once, unlocks before locks so the terminals' shared `kOSTerminal` lock name is handed over cleanly. A refused change is reported and retried by the next call; while an unlock is refused no new lock is taken. Removal and `ReleaseAll()` are idempotent. **Not wired into the game yet**: the Unity adapter (`TermWindow`, `KOSManagedWindow`, `KOSTextEditPopup`, `KOSNameTagWindow`, `kOSProcessor` scripted-open flag) is the next step, and only then do in-game checks apply.
+
+**Tests.** `UserIO/InputOwnershipTest` (23): user and unfocused opens, focus transfer with a shared lock name (unlock before lock), clicks outside and on closed windows, a lockless GUI window taking the keyboard, close, suspension and return (including a user open or a close during it), power loss for good, removal and `ReleaseAll` twice, no redundant sink calls, refused lock/unlock retried, removal despite a refused unlock, null arguments. Mutations, each reverted and each failing the gate: suspension ignored (3 failures), power loss keeping focus (1), lock regardless of `TakesLock` (1), every open taking focus (7), a click on a closed window focusing it (1), locking despite a refused unlock (1), removal keeping focus (2). Gate 862/862, `minimum_tests` 839 → 862.
+
 ### Telnet input parsing and session lifecycle (NET-01/02)
 
 **Upstream behavior confirmed before the change.** The original `TelnetProtocolScrape` code was compiled unchanged into a temporary Mono harness, with logging and socket calls stubbed out. It showed four faults:
