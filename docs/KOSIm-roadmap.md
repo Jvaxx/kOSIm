@@ -110,7 +110,7 @@ Ship small, independently reviewable changes with regression tests rather than b
 
 - Continue focused local safety work. Archive byte/text policy, replacement, editor transactions, scoped render recovery and telnet parsing/shutdown are implemented/host-tested within documented limits; target-runtime acceptance remains deferred. Keep all pending GUI/editor/archive/raw I/O/boot/telnet checks until the user resumes Proton.
 - Focus and flight-control lock cleanup during hide, close, destruction, power loss, and scene changes (`INPUT-01`).
-- Other contained, confirmed defects such as port-field capacity and widget selection/callback behavior, when adequately testable.
+- Other contained, confirmed defects: port-field capacity (`PANEL-02`, fixed and headless-tested 2026-10-15) and widget selection/callback behavior (`WIDGET-01`, then `WIDGET-02`), when adequately testable.
 
 The editor's low feature priority does not lower the priority of preventing data loss. Preserve legacy text API behavior through an explicit compatibility policy rather than changing it incidentally.
 

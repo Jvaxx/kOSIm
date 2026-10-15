@@ -504,7 +504,7 @@ namespace kOS.Screen
                 }
                 else if (key.Value is int)
                 {
-                    key.Value = DrawConfigIntField((int)(key.Value), whichInt++);
+                    key.Value = DrawConfigIntField(key, whichInt++);
                 }
                 else if (key.Value is float || key.Value is double) // if double, the UI will only handle it to float precisions, by the way.
                 {
@@ -621,8 +621,9 @@ namespace kOS.Screen
         }
 
 
-        private int DrawConfigIntField(int keyVal, int whichInt)
+        private int DrawConfigIntField(ConfigKey key, int whichInt)
         {
+            int keyVal = (int)key.Value;
             int returnValue = keyVal; // no change, by default - return what was passed.
             string fieldName = String.Format("CONFIG_intfield_{0}", whichInt);
 
@@ -632,13 +633,12 @@ namespace kOS.Screen
             string fieldValue = (backInt == 0) ? "" : backInt.ToString(); // this lets the user temporarily delete the whole value instead of having it become a zero.
 
             GUI.SetNextControlName(fieldName);
-            fieldValue = GUILayout.TextField(fieldValue, 4, panelSkin.textField, GUILayout.MinWidth(60));
+            // PANEL-02: as long as the key's range needs (a fixed 4 rejected five-digit telnet ports):
+            fieldValue = GUILayout.TextField(fieldValue, ConfigIntInput.MaxLength(key), panelSkin.textField, GUILayout.MinWidth(60));
 
-            fieldValue = fieldValue.Trim(' ');
-            int newInt = -99; // Nonzero value to act as a flag to detect if the following line got triggered:
-            if (fieldValue.Length == 0)
-                newInt = 0;// Empty or whitespace input should be a zero, instead of letting int.TryParse() call it an error.
-            if (newInt == 0 || int.TryParse(fieldValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out newInt))
+            int newInt;
+            // Empty or whitespace input reads as zero, so the user can clear the field while typing:
+            if (ConfigIntInput.TryParse(fieldValue, out newInt))
             {
                 backingConfigInts[whichInt] = newInt;
                 // Don't commit the temp value back to the CONFIGs unless RETURN is being pressed right now:
