@@ -160,7 +160,7 @@ namespace kOS.Screen
             if (delayedActions.Count > 0) {
                 var c = GUI.color;
                 GUI.color = new Color(1,1,1, Mathf.PingPong(Time.realtimeSinceStartup * 0.9f, 0.2f)+0.4f);
-                var delay = delayedActions[0].time - shared.UpdateHandler.CurrentTime;
+                var delay = delayedActions.Next.Time - shared.UpdateHandler.CurrentTime;
                 var textHeight = 30;
                 var rect = new Rect((WindowRect.width-commDelayedTexture.width) / 2, (WindowRect.height-commDelayedTexture.height- textHeight) / 2, commDelayedTexture.width, commDelayedTexture.height);
                 GUI.DrawTexture(rect, commDelayedTexture);
@@ -168,7 +168,7 @@ namespace kOS.Screen
                 rect.x -= 10;
                 rect.width += 20;
                 rect.height = textHeight;
-                GUI.Label(rect, string.Format("{1}\n{0:0.0} seconds", delay,delayedActions[0].reason), commDelayStyle);
+                GUI.Label(rect, string.Format("{1}\n{0:0.0} seconds", delay,delayedActions.Next.Reason), commDelayStyle);
                 GUI.color = c;
             }
 
@@ -236,15 +236,8 @@ namespace kOS.Screen
         }
 
 
-        class ActionTime
-        {
-            public ActionTime(Widget w, string r, Action a, double t) { widget = w;  reason = r;  action = a; time = t; }
-            public Widget widget { get; private set;}
-            public string reason { get; private set;}
-            public Action action { get; private set;}
-            public double time { get; private set;}
-        }
-        List<ActionTime> delayedActions = new List<ActionTime>();
+        // User actions held back for the communications delay (WIDGET-02: delivered once each):
+        private readonly kOS.Safe.Screen.DelayedGuiActions delayedActions = new kOS.Safe.Screen.DelayedGuiActions();
         public void Communicate(Widget w, string reason, Action a)
         {
             if (shared == null) return;
@@ -252,13 +245,8 @@ namespace kOS.Screen
             if (ConnectivityManager.HasConnectionToControl(shared.Vessel)) {
                 var mdelay = ConnectivityManager.GetDelayToControl(shared.Vessel) + extraDelay;
                 if (mdelay > 0.1 || extraDelay > 0) {
-                    var newat = new ActionTime(w, reason, a, shared.UpdateHandler.CurrentTime + mdelay);
-                    // Linear insert because almost always it will be added at the end
-                    // Only if FTL travel or if new pathways come online will it not.
-                    int index = delayedActions.Count;
-                    while (index-1 >= 0 && delayedActions[index - 1].time > newat.time)
-                        index--;
-                    delayedActions.Insert(index,newat);
+                    // Usually added at the end; only if FTL travel or if new pathways come online will it not.
+                    delayedActions.Enqueue(w, reason, a, shared.UpdateHandler.CurrentTime + mdelay);
                 } else {
                     a();
                 }
@@ -266,25 +254,14 @@ namespace kOS.Screen
         }
         public void ClearCommunication(Widget w)
         {
-            for (var i=0; i<delayedActions.Count; ) {
-                if (delayedActions[i].widget == w)
-                    delayedActions.RemoveAt(i);
-                else
-                    i++;
-            }
+            delayedActions.Remove(w);
         }
 
 
         public void KOSUpdate(double deltaTime)
         {
             if (shared != null) {
-                while (delayedActions.Count > 0) {
-                    var next = delayedActions[0];
-                    if (next.time > shared.UpdateHandler.CurrentTime)
-                        break;
-                    next.action();
-                    delayedActions.RemoveAt(0);
-                }
+                delayedActions.DeliverDue(shared.UpdateHandler.CurrentTime);
             }
         }
 

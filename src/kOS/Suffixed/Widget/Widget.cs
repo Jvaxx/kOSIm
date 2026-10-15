@@ -23,12 +23,14 @@ namespace kOS.Suffixed.Widget
     {
         protected Box parent;
 
+        private readonly kOS.Safe.Screen.GuiCause guiCause = new kOS.Safe.Screen.GuiCause();
+
         /// <summary>
-        /// Temporarily set to "true" to tell the widget that any state changes
-        /// are happening because of a gui activity (rather than because of a script
-        /// deliberately changing a value for example).
+        /// True while the widget's state changes because of a gui activity (rather than because
+        /// of a script deliberately changing a value for example), including when the change
+        /// arrives later because of a communications delay (WIDGET-02).
         /// </summary>
-        protected bool guiCaused;
+        protected bool guiCaused { get { return guiCause.IsGuiCaused; } }
 
         protected int myId;
 
@@ -178,13 +180,14 @@ namespace kOS.Suffixed.Widget
 
         virtual protected void Communicate(Action a)
         {
-            guiCaused = true;
+            // The action carries its GUI origin, so it is still GUI-caused when a communications
+            // delay delivers it later (WIDGET-02):
+            Action marked = guiCause.Mark(a);
             GUIWidgets gui = FindGUI();
             if (gui != null)
-                gui.Communicate(this,ToString(),a);
+                gui.Communicate(this,ToString(),marked);
             else
-                a();
-            guiCaused = false;
+                marked();
         }
 
         public override string ToString()
