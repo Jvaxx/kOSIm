@@ -97,7 +97,13 @@ namespace kOS.Screen
                             actions[bNum](parent);
                             Dismiss();
                             parent.Freeze(false);
-                            if (parent.IsOpen) GUI.FocusWindow(parent.GetUniqueId());
+                            if (parent.IsOpen)
+                            {
+                                GUI.FocusWindow(parent.GetUniqueId());
+                                // The click on this dialog may have counted as outside the editor;
+                                // give the keyboard back to it, as unfreezing it always did (INPUT-01).
+                                parent.GetFocus();
+                            }
                         }
                         catch (Exception ex) when (CanDisplayFileError(ex))
                         {

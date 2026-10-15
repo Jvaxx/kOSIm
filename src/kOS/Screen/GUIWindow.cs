@@ -92,9 +92,9 @@ namespace kOS.Screen
             uiGloballyHidden = false;            
         }        
 
-        public override void Open()
+        public override void Open(bool takeFocus)
         {
-            base.Open();
+            base.Open(takeFocus);
             BringToFront();
         }
 

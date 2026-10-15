@@ -1,6 +1,7 @@
 ﻿using kOS.Utilities;
 using UnityEngine;
 using kOS.Module;
+using kOS.Safe.UserIO;
 using System;
 
 namespace kOS.Screen
@@ -15,6 +16,9 @@ namespace kOS.Screen
         private int numberOfRepaints = 0; // "explicit", not "redundant".
         private bool gameEventHooksExist = false; // "explicit", not "redundant".
         private int myWindowId; // must be unique for Unity to not mash two nametag windows togehter.
+        // In flight, typing a tag takes the terminal's control lock until the window closes (INPUT-01).
+        // The VAB/SPH keeps its own EditorLogic lock below instead.
+        private InputOwnership.Window inputWindow;
         
         // ReSharper enable RedundantDefaultFieldInitializer
 
@@ -46,6 +50,10 @@ namespace kOS.Screen
             // SafeHouse.Logger.Log("tagLineRect = " + tagLineRect );
 
             SetEnabled(true);
+
+            if (inputWindow == null)
+                inputWindow = KOSInputOwnership.Instance.Register("KOSNameTag", !HighLogic.LoadedSceneIsEditor);
+            KOSInputOwnership.Instance.Open(inputWindow, !KOSInputOwnership.IsScriptedInvocation);
 
             if (HighLogic.LoadedSceneIsEditor)
                 attachedModule.part.SetHighlight(false, false);
@@ -185,6 +193,9 @@ namespace kOS.Screen
             
             SetEnabled(false);
 
+            if (inputWindow != null)
+                KOSInputOwnership.Instance.Close(inputWindow);
+
             if (HighLogic.LoadedSceneIsEditor)
                 attachedModule.part.SetHighlight(false, false);
         }
@@ -192,6 +203,12 @@ namespace kOS.Screen
         public void OnDestroy()
         {
             SetEnabled(false);
+            if (inputWindow != null)
+            {
+                InputOwnership.Window window = inputWindow;
+                inputWindow = null;
+                KOSInputOwnership.Instance.Unregister(window);
+            }
         }
     }
 }

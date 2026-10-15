@@ -72,7 +72,7 @@ Still manual, on the Proton checklist:
 
 The fixtures exposed two upstream defects, NET-03 and EXEC-01 (see Phase 1). Both are now fixed with regression tests.
 
-### INPUT-01 design (agreed with the user 2026-10-15; headless policy implemented, game adapter pending)
+### INPUT-01 design (agreed with the user 2026-10-15; implemented, compiled and headless-tested; in-game checks deferred)
 
 **Current behavior** (upstream code, checked against `7fa54cff`):
 

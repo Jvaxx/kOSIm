@@ -177,7 +177,9 @@ namespace kOS.Suffixed.Widget
         override public void Show()
         {
             base.Show();
-            window.Open();
+            // Shown by a script: it does not take the keyboard from the terminal the user is
+            // typing in (INPUT-01); a click on it does.
+            window.Open(false);
         }
         override public void Hide()
         {

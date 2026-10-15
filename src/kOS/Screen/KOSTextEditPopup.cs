@@ -47,7 +47,9 @@ namespace kOS.Screen
         private bool resizeMouseDown;
         private Vector2 resizeOldSize; // width and height it had when the mouse button went down on the resize button.
         private bool isDirty { get { return document.IsDirty; } }
-        private bool InteractionFrozen { get { return frozen || (dialog != null && dialog.IsInvoked); } }
+        // Without the keyboard focus (another window has it, or input is suspended) the editor is frozen, as
+        // losing focus always did; it now also takes the terminal's control lock while focused (INPUT-01).
+        private bool InteractionFrozen { get { return frozen || !HasKeyboard || (dialog != null && dialog.IsInvoked); } }
         private bool frozen;
         private DelegateDialog dialog;
         private Vector2 scrollPosition; // tracks where within the text box it's scrolled to.
@@ -118,20 +120,10 @@ namespace kOS.Screen
             return WindowRect.Contains(posAbs);
         }
 
-        public override void GetFocus()
-        {
-            Freeze(false);
-        }
-
-        public override void LoseFocus()
-        {
-            Freeze(true);
-        }
-
-        public override void Open()
+        public override void Open(bool takeFocus)
         {
             // View operations never reset document state or resolve a modal transaction.
-            base.Open();
+            base.Open(takeFocus);
             BringToFront();
         }
 

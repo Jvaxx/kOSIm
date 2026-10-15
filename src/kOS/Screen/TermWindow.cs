@@ -78,7 +78,7 @@ namespace kOS.Screen
         };
         private GUISkin terminalLetterSkin;
             
-        private bool isLocked;
+        private bool hadKeyboard;
         /// <summary>How long blinks should last for, for various blinking needs</summary>
         private readonly TimeSpan blinkDuration = System.TimeSpan.FromMilliseconds(150);
         /// <summary>How long to pad between consecutive blinks to ensure they are visibly detectable as distinct blinks.</summary>
@@ -237,21 +237,9 @@ namespace kOS.Screen
             uiGloballyHidden = false;            
         }
         
-        public override void GetFocus()
+        public override void Open(bool takeFocus)
         {
-            base.GetFocus();
-            Lock();
-        }
-
-        public override void LoseFocus()
-        {
-            base.LoseFocus();
-            Unlock();
-        }
-
-        public override void Open()
-        {
-            base.Open();
+            base.Open(takeFocus);
             BringToFront();
             guiTerminalBeepsPending = 0; // Closing and opening the window will wipe pending beeps from the beep queue.
         }
@@ -291,37 +279,29 @@ namespace kOS.Screen
 
         public void Toggle()
         {
+            Toggle(true);
+        }
+
+        /// <param name="takeFocus">False for an action group or a script.</param>
+        public void Toggle(bool takeFocus)
+        {
             if (IsOpen) Close();
-            else Open();
+            else Open(takeFocus);
         }
 
-        private void Lock()
+        /// <summary>
+        /// Bring the shared input policy up to date and notice a gained keyboard focus. The
+        /// control lock itself (<see cref="CONTROL_LOCKOUT"/>, all controls, which also covers
+        /// the VAB/SPH editor) is set and removed by <see cref="KOSInputOwnership"/>.
+        /// </summary>
+        private bool RefreshKeyboard()
         {
-            if (isLocked) return;
-
-            isLocked = true;
-            ShowCursor = true;
-            BringToFront();
-
-
-            InputLockManager.SetControlLock(ControlTypes.All, CONTROL_LOCKOUT);
-            // Prevent editor keys from being pressed while typing
-            EditorLogic editor = EditorLogic.fetch;
-                //TODO: POST 0.90 REVIEW
-            if (editor != null && InputLockManager.IsUnlocked(ControlTypes.All)) editor.Lock(true, true, true, CONTROL_LOCKOUT);
-        }
-
-        private void Unlock()
-        {
-            if (!isLocked) return;
-            
-            isLocked = false;
-
-            InputLockManager.RemoveControlLock(CONTROL_LOCKOUT);
-
-            EditorLogic editor = EditorLogic.fetch;
-            if (editor != null) editor.Unlock(CONTROL_LOCKOUT);
-
+            KOSInputOwnership.Update();
+            bool hasKeyboard = HasKeyboard;
+            if (hasKeyboard && !hadKeyboard)
+                ShowCursor = true; // as focusing always did: a CPU loaded already powered never set it
+            hadKeyboard = hasKeyboard;
+            return hasKeyboard;
         }
 
         void OnGUI()
@@ -332,7 +312,9 @@ namespace kOS.Screen
             // so the callback can still offer fallback Close/Retry/Resize controls.
             renderFaultRecovery.TryRender(RenderTimeSeconds(), PrepareTerminalRendering, CanRecoverRenderFault, ReportRenderFault);
 
-            if (isLocked) ProcessKeyEvents();
+            // Hidden UI and the flight-results dialog suspend the keyboard focus, so a terminal
+            // that is not drawn does not read keys (INPUT-01):
+            if (RefreshKeyboard()) ProcessKeyEvents();
             if (FlightResultsDialog.isDisplaying) return;
             if (uiGloballyHidden)
             {
@@ -383,7 +365,7 @@ namespace kOS.Screen
             UpdateLogic();
             UpdateGUIBeeps();
 
-            if (!isLocked) return;
+            if (!RefreshKeyboard()) return;
 
             cursorBlinkTime += Time.deltaTime;
             if (cursorBlinkTime > 1) cursorBlinkTime -= 1;
@@ -1131,7 +1113,7 @@ namespace kOS.Screen
 
             // Draw the rounded corner frame atop the chars field, so it covers the sqaure corners of the character zone
             // if they bleed over a bit.  Also, change which variant is used depending on focus:
-            if (isLocked)
+            if (HasKeyboard)
                 GUI.Label(new Rect(15, 20, WindowRect.width-30, WindowRect.height-55), "", terminalFrameActiveStyle);
             else
                 GUI.Label(new Rect(15, 20, WindowRect.width-30, WindowRect.height-55), "", terminalFrameStyle);

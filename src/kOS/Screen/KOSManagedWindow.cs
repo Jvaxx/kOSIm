@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using kOS.Safe.UserIO;
 using UnityEngine;
 
 namespace kOS.Screen
@@ -43,7 +44,12 @@ namespace kOS.Screen
 
         private bool isOpen;
 
-        private string lockIdName;
+        private bool isPowered;
+
+        private readonly string lockIdName;
+
+        // Keyboard focus and the control lock are decided by the shared policy (INPUT-01):
+        private InputOwnership.Window inputWindow;
 
         private bool optOutOfControlLocking;
         /// <summary>
@@ -54,7 +60,21 @@ namespace kOS.Screen
         public bool OptOutOfControlLocking
         {
             get { return optOutOfControlLocking; }
-            set { if (value) InputLockManager.RemoveControlLock(lockIdName); optOutOfControlLocking = value; }
+            set
+            {
+                if (value == optOutOfControlLocking)
+                    return;
+                optOutOfControlLocking = value;
+                if (inputWindow == null)
+                    return;
+                // Register again with the new lock choice, keeping the open state but not the focus:
+                KOSInputOwnership.Instance.Unregister(inputWindow);
+                inputWindow = null;
+                if (isOpen)
+                    KOSInputOwnership.Instance.Open(InputWindow, false);
+                if (!isPowered)
+                    KOSInputOwnership.Instance.SetPowered(InputWindow, false);
+            }
         }
 
         protected KOSManagedWindow(string lockIdName = "")
@@ -67,9 +87,36 @@ namespace kOS.Screen
                 this.lockIdName = "KOSManagedWindow ID:" + uniqueId;
             else
                 this.lockIdName = lockIdName;
+            isPowered = true;
         }
 
-        public bool IsPowered { get; set; }
+        /// <summary>This window's entry in the shared keyboard-ownership policy, registered on first use.</summary>
+        protected InputOwnership.Window InputWindow
+        {
+            get
+            {
+                if (inputWindow == null)
+                    inputWindow = KOSInputOwnership.Instance.Register(lockIdName, !optOutOfControlLocking);
+                return inputWindow;
+            }
+        }
+
+        /// <summary>True when keys typed now are meant for this window.</summary>
+        public bool HasKeyboard
+        {
+            get { return inputWindow != null && KOSInputOwnership.Instance.HasKeyboard(inputWindow); }
+        }
+
+        /// <summary>An unpowered window loses keyboard focus for good and cannot take it.</summary>
+        public bool IsPowered
+        {
+            get { return isPowered; }
+            set
+            {
+                isPowered = value;
+                KOSInputOwnership.Instance.SetPowered(InputWindow, value);
+            }
+        }
 
         protected static int TermWindowIDRange
         {
@@ -150,45 +197,51 @@ namespace kOS.Screen
         protected void OnDestroy()
         {
             depthSort.Remove(this);
+            if (inputWindow != null)
+            {
+                InputOwnership.Window window = inputWindow;
+                inputWindow = null;
+                KOSInputOwnership.Instance.Unregister(window);
+            }
         }
 
         /// <summary>
-        /// Implement this for how to make your widget get the keyboard focus.
-        /// It is VITAL that if you override this method in a derived class,
-        /// that you also call this base version in that overridden method.  Otherwise
-        /// you will get the map view spinning bug when the focus is in this window.
+        /// Give this window the keyboard focus, as a user's click on it does. The shared policy
+        /// takes it from any other kOS window and sets the control lock if this window uses one.
         /// </summary>
         public virtual void GetFocus()
         {
-            if (OptOutOfControlLocking)
-                return;
-            if (HighLogic.LoadedSceneIsFlight || HighLogic.LoadedSceneHasPlanetarium)
-                InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, lockIdName);
+            KOSInputOwnership.Instance.Click(InputWindow);
         }
 
         /// <summary>
-        /// Implement this for how to make your widget give up the keyboard focus:
-        /// It is VITAL that if you override this method in a derived class,
-        /// that you also call this base version in that overridden method.  Otherwise
-        /// you will get the map view spinning bug when the focus is in this window.
+        /// Take the keyboard focus away from this window, as a click outside it does.
+        /// Does nothing when another window has the focus.
         /// </summary>
         public virtual void LoseFocus()
         {
-            if (OptOutOfControlLocking)
-                return;
-            InputLockManager.RemoveControlLock(lockIdName);
+            if (inputWindow != null && inputWindow.WantsFocus)
+                KOSInputOwnership.Instance.Click(null);
         }
-        
+
+        /// <summary>Open the window as a user's action does: it takes the keyboard focus.</summary>
+        public void Open()
+        {
+            Open(true);
+        }
+
         /// <summary>
         /// Implement this to make the window appear when it wasn't there before.
         /// be sure to also call the base.Open() as well, because it has
         /// important logic in it.
         /// </summary>
-        public virtual void Open()
+        /// <param name="takeFocus">True when the user opened it; false for an action group or a
+        /// script, which must not take the keyboard and flight controls.</param>
+        public virtual void Open(bool takeFocus)
         {
             isOpen = true;
             BringToFront();
-            GetFocus();
+            KOSInputOwnership.Instance.Open(InputWindow, takeFocus);
             
             // I was having trouble before with this.  If it crops up again, I want
             // to re-enable this line:
@@ -204,17 +257,30 @@ namespace kOS.Screen
         {
             isOpen = false;
             depthSort.Remove(this);
-            LoseFocus();
+            KOSInputOwnership.Instance.Close(InputWindow);
 
             // I was having trouble before with this.  If it crops up again, I want
             // to re-enable this line:
             // DumpDepthSort();
         }
         
+        /// <summary>
+        /// Setting it bypasses the subclass's Open()/Close() logic, but keeps the keyboard
+        /// focus consistent: hiding releases it and showing never takes it.
+        /// </summary>
         public bool IsOpen
         {
             get { return isOpen; }
-            protected set { isOpen = value; }
+            protected set
+            {
+                if (value == isOpen)
+                    return;
+                isOpen = value;
+                if (value)
+                    KOSInputOwnership.Instance.Open(InputWindow, false);
+                else
+                    KOSInputOwnership.Instance.Close(InputWindow);
+            }
         }
         
         public void DumpDepthSort() // exists purely for debugging.
@@ -244,13 +310,16 @@ namespace kOS.Screen
             }
             else
             {
+                // Every open window checks the same click: only the one that had the focus
+                // gives it up, so the order of their Update() calls does not matter.
                 LoseFocus();
             }
             return wasInside;
         }
 
         /// <summary>
-        /// Cause this window to become front most, AND it also gets the keyboard focus.
+        /// Cause this window to become front most. The keyboard focus is separate: see
+        /// <see cref="GetFocus"/>.
         /// </summary>
         public virtual void BringToFront()
         {
@@ -261,11 +330,6 @@ namespace kOS.Screen
             }
             depthSort.Insert(0,this);
             GUI.BringWindowToFront(uniqueId);
-            // Make sure all the other windows unlock (lose focus):
-            for (int i = 1 ; i<depthSort.Count ; ++i)
-            {
-                depthSort[i].LoseFocus();
-            }
         }
 
         // Returns true only if the position is inside this window and NOT inside
@@ -301,6 +365,7 @@ namespace kOS.Screen
         /// <returns>True if there was a mouseclick within this window.</returns>
         public bool UpdateLogic()
         {
+            KOSInputOwnership.Update();
             if (!IsOpen) return false;
 
             // Input.mousePosition, unlike Event.current.MousePosition, puts the origin at the

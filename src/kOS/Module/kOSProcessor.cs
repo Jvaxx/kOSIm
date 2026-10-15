@@ -155,7 +155,8 @@ namespace kOS.Module
         public void Activate()
         {
             SafeHouse.Logger.Log("Open Window by event");
-            OpenWindow();
+            // A user's click on the part menu takes the keyboard; a script's DOEVENT does not.
+            OpenWindow(!Screen.KOSInputOwnership.IsScriptedInvocation);
         }
 
         [KSPEvent(guiActive = true, guiName = "Close Terminal", category = "skip_delay;", groupName = PAWGroup, groupDisplayName = PAWGroup)]
@@ -180,7 +181,7 @@ namespace kOS.Module
         public void Activate(KSPActionParam param)
         {
             SafeHouse.Logger.Log("Open Terminal from ActionGroup");
-            Activate();
+            OpenWindow(false); // an action group never takes the keyboard and flight controls
         }
 
         [KSPAction("Close Terminal", actionGroup = KSPActionGroup.None)]
@@ -194,7 +195,7 @@ namespace kOS.Module
         public void Toggle(KSPActionParam param)
         {
             SafeHouse.Logger.Log("Toggle Terminal from ActionGroup");
-            ToggleWindow();
+            shared.Window.Toggle(false); // an action group never takes the keyboard and flight controls
         }
 
         [KSPAction("Toggle Power", actionGroup = KSPActionGroup.None)]
@@ -228,6 +229,13 @@ namespace kOS.Module
         public void OpenWindow()
         {
             shared.Window.Open();
+        }
+
+        /// <param name="takeFocus">True only when the user opened it; false for an action
+        /// group or a script, which must not take the keyboard and flight controls.</param>
+        public void OpenWindow(bool takeFocus)
+        {
+            shared.Window.Open(takeFocus);
         }
 
         public void CloseWindow()
@@ -1154,7 +1162,7 @@ namespace kOS.Module
                 case ProcessorModes.STARVED:
                     if (shared.Cpu != null) shared.Cpu.BreakExecution(true);
                     if (shared.Interpreter != null) shared.Interpreter.SetInputLock(true);
-                    if (shared.Window != null) shared.Window.IsPowered = false;
+                    if (shared.Window != null) shared.Window.IsPowered = false; // also drops its keyboard focus for good
                     if (shared.SoundMaker != null) shared.SoundMaker.StopAllVoices();
                     foreach (var w in shared.ManagedWindows) w.IsPowered = false;
                     kOSVesselModule vesselModule = kOSVesselModule.GetInstance(shared.Vessel);

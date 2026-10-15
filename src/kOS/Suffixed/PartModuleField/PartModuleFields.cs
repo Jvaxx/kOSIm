@@ -544,14 +544,19 @@ namespace kOS.Suffixed.PartModuleField
             if (!EventIsVisible(evt))
                 throw new KOSLookupFailException("EVENT", suffixName, this, true);
 
-            if (RemoteTechHook.IsAvailable())
+            // Marked as a script's invocation, so an opened terminal does not take the keyboard
+            // (INPUT-01). An event RemoteTech delays runs later, outside this mark.
+            kOS.Screen.KOSInputOwnership.RunScripted(() =>
             {
-                RemoteTechHook.Instance.InvokeOriginalEvent(evt);
-            }
-            else
-            {
-                evt.Invoke();
-            }
+                if (RemoteTechHook.IsAvailable())
+                {
+                    RemoteTechHook.Instance.InvokeOriginalEvent(evt);
+                }
+                else
+                {
+                    evt.Invoke();
+                }
+            });
         }
 
         /// <summary>
@@ -572,7 +577,8 @@ namespace kOS.Suffixed.PartModuleField
             string careerReason;
             if (!Career.CanDoActions(out careerReason))
                 throw new KOSLowTechException("use :DOACTION", careerReason);
-            act.Invoke(new KSPActionParam(act.actionGroup, (param ? KSPActionType.Activate : KSPActionType.Deactivate)));
+            kOS.Screen.KOSInputOwnership.RunScripted(() =>
+                act.Invoke(new KSPActionParam(act.actionGroup, (param ? KSPActionType.Activate : KSPActionType.Deactivate))));
         }
     }
 }
