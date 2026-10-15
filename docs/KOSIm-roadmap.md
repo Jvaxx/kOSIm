@@ -139,6 +139,26 @@ The editor's low feature priority does not lower the priority of preventing data
 
 **In-game checks (Proton, need the user):** first a baseline on the current build: do keys typed in the editor popup reach KSP (`.`/`,` warp, staging off)? Then after the fix: focus cycling between terminals and the editor; F2 while typing and back; flight-results dialog; power loss/restore; action-group and boot-script open (no focus taken); part-menu and toolbar open (focus taken); map view; VAB name tag; vessel destruction; scene exit; no `kOSTerminal`/kOS locks left after each (log `InputLockManager.lockStack` on demand, a debug-only helper).
 
+### Exit review (2026-10-15)
+
+Every P0/P1 finding in `docs/improvements-overview.md` was checked against the current code (`5057a0a3`).
+
+**Fixed and headless-tested; Proton-checked at the `e943ecf4` checkpoint** (details there; listed unperformed checks still apply): `EDIT-01/02`, `BUFFER-01`–`04`, `IO-01/02/03`, `NET-01/02/03`, plus the fixture-found `FMT-01`, `EXEC-01`, `PROMPT-01`.
+
+**Fixed and headless-tested; in-game checks deferred by the user:** prompt-level Ctrl-C (decision 4), `INPUT-01` keyboard/locks, `PANEL-02`, `WIDGET-01`, `WIDGET-02`.
+
+**Still open in Phase 1 scope:**
+
+- `IO-05` — **confirmed** by a throwaway probe (removed): with two volumes named `data` in one `VolumeManager`, `GlobalPathFromObject(second)` gives `data:/`, which resolves to the *first* volume, silently. A copy/move given a volume or file object can therefore act on the wrong disk. A volume not in the manager fails clearly ("Volume not found"). Recommended next.
+- `IO-04` — the reviewed prefix escape does not apply as deployed: `SafeHouse.ArchiveFolder` keeps the trailing separator from `.../Ships/Script/`, so a sibling `Script-private` does not match, and archive `VolumePath` segments cannot contain `/` or `\`. Residual hardening (P2): the widget texture check depends on that trailing separator; no symlink policy; no image size limit.
+- `INPUT-01` mouse half (click-through #2659/#2759, modal mouse blocking) — the agreed follow-up; mostly Unity, best done with in-game testing.
+
+**Reclassified, not Phase 1:** `EDIT-03` (editor follows the caret on every repaint — confirmed, `KOSTextEditPopup.cs:465`) and `TERM-05` (history cannot return to the draft — confirmed, `Interpreter.cs:112`) are P1 in the review but workflow behavior; `TERM-05` is Phase 3 item 2, `EDIT-03` fits there too. `TERM-01/02/04/06/07` are Phase 3/4 terminal and UI work.
+
+**Test items:** `TEST-01` is resolved by policy (local gate `.ci/test.sh` with a result checker and minimum count; no hosted CI). `TEST-02` is largely covered (real `ScreenBuffer` overlay/cursor/dimension suites, the real CPU and prompt in `ScriptHost`, long-input and paste tests); history-model tests come with `TERM-05`.
+
+**Exit criterion status: not met.** Remaining: `IO-05` (and optionally the `IO-04` hardening), and the in-game verification of the fixes listed as deferred above.
+
 ### Exit criterion
 
 High-risk failures are reproduced and covered by tests, fixes have appropriate in-game verification, and unrelated behavior remains unchanged.
