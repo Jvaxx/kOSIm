@@ -107,18 +107,11 @@ namespace kOS.Suffixed.Widget
 
         public void Choose(Structure v)
         {
-            for (Index = 0; Index < list.Count; ++Index) {
-                if (list[Index] == v) {
-                    return;
-                }
-            }
-            string vs = GetItemString(v);
-            for (Index = 0; Index < list.Count; ++Index) {
-                if (GetItemString(list[Index]) == vs) {
-                    return;
-                }
-            }
-            Index = -1;
+            // WIDGET-01: search first, then commit once, so the change callback fires at most once,
+            // for the final option, and the shown text matches it (empty when nothing matched).
+            int found = OptionSearch.IndexOf(list, v, GetItemString);
+            Index = found;
+            SetVisibleText(found >= 0 ? GetItemString(list[found]) : "");
         }
 
         public override void DoGUI()
