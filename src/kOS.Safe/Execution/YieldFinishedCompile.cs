@@ -76,6 +76,11 @@ namespace kOS.Safe.Execution
             shared.Cpu.StopCompileStopwatch();
         }
 
+        public override void ThreadCancelled()
+        {
+            shared.Cpu.StopCompileStopwatch();
+        }
+
         public static YieldFinishedCompile RunScript(GlobalPath scriptPath, int lineNumber, string fileContent, string contextIdentifier, CompilerOptions compilerOptions)
         {
             var ret = new YieldFinishedCompile(scriptPath, lineNumber, fileContent, contextIdentifier, compilerOptions);

@@ -536,7 +536,7 @@ namespace kOS.Safe.Execution
             }
             else if (contexts.Count > 1)
             {
-                AbortAllYields();
+                CancelAllYields();
 
                 if (SafeHouse.Config.ShowStatistics)
                     CalculateProfileResult();
@@ -565,7 +565,10 @@ namespace kOS.Safe.Execution
             else
             {
                 if (manual)
+                {
                     currentContext.ClearTriggers(); // Removes the interpreter's triggers on Control-C and the like, but not on errors.
+                    CancelAllYields(); // A WAIT or COMPILE typed at the prompt; upstream kept waiting.
+                }
                 SkipCurrentInstructionId();
                 CurrentPriority = InterruptPriority.Normal;
             }
@@ -626,9 +629,38 @@ namespace kOS.Safe.Execution
             return (numStillBlocking > 0);
         }
         
-        private void AbortAllYields()
+        /// <summary>
+        /// True while a compile cancelled by a break still runs on its thread. The prompt
+        /// must not compile another command until it ends: the compiler is not thread-safe.
+        /// </summary>
+        public bool IsFinishingCancelledCompile
         {
-            yields.Clear();
+            get
+            {
+                foreach (YieldFinishedWithPriority yielder in yields)
+                {
+                    var threaded = yielder.detector as YiedFinishedThreadedDetector;
+                    if (threaded != null && threaded.IsCancelledAndRunning)
+                        return true;
+                }
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// End every yield for a break. A compile still running on its thread cannot be
+        /// stopped, and the compiler is not thread-safe: it is cancelled and kept, so the CPU
+        /// (and with it the prompt) waits for the thread, then drops its result and error.
+        /// </summary>
+        private void CancelAllYields()
+        {
+            for (int i = yields.Count - 1; i >= 0; --i)
+            {
+                var threaded = yields[i].detector as YiedFinishedThreadedDetector;
+                if (threaded != null && threaded.Cancel())
+                    continue;
+                yields.RemoveAt(i);
+            }
         }
         
         public void PushArgumentStack(object item)

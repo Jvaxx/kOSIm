@@ -46,6 +46,8 @@ namespace kOS.Safe.Test.Execution
         private bool booted;
 
         public FixtureInterpreter Screen { get; private set; }
+        /// <summary>The real compiler; can hold background (non-interpreter) compiles at a gate.</summary>
+        public GatedScript Compiler { get; private set; }
         public string ArchiveRoot { get; private set; }
         public IList<Exception> Errors { get { return logger.Errors; } }
 
@@ -64,7 +66,8 @@ namespace kOS.Safe.Test.Execution
             shared.FunctionManager = new FunctionManager(shared);
             shared.GameEventDispatchManager = new NoopGameEventDispatchManager();
             shared.Processor = processor;
-            shared.ScriptHandler = new KSScript();
+            Compiler = new GatedScript();
+            shared.ScriptHandler = Compiler;
             shared.Screen = Screen;
             shared.Interpreter = Screen;
             shared.UpdateHandler = new UpdateHandler();
@@ -279,6 +282,7 @@ namespace kOS.Safe.Test.Execution
 
         public void Dispose()
         {
+            Compiler.Release(); // never leave a compile thread parked at the gate
             if (Directory.Exists(ArchiveRoot))
                 Directory.Delete(ArchiveRoot, true);
         }
@@ -328,18 +332,20 @@ namespace kOS.Safe.Test.Execution
             string commandText = LineBuilder.ToString();
 
             if (shared.ScriptHandler.IsCommandComplete(commandText))
-            {
-                base.NewLine();
-                AddCommandHistoryEntry(commandText);
-                CompileCommand(commandText);
-                int numRows = LineSubBuffer.RowCount;
-                LineSubBuffer.Wipe();
-                LineSubBuffer.SetSize(numRows, ColumnCount);
-            }
+                EndLine(commandText, true);
             else
-            {
                 InsertChar('\n');
-            }
+        }
+
+        private void EndLine(string commandText, bool compile)
+        {
+            base.NewLine();
+            AddCommandHistoryEntry(commandText);
+            if (compile)
+                CompileCommand(commandText);
+            int numRows = LineSubBuffer.RowCount;
+            LineSubBuffer.Wipe();
+            LineSubBuffer.SetSize(numRows, ColumnCount);
         }
 
         public bool IsAtStartOfCommand()
@@ -359,7 +365,7 @@ namespace kOS.Safe.Test.Execution
             {
                 shared.Cpu.BreakExecution(true);
                 LineBuilder.Remove(0, LineBuilder.Length);
-                NewLine();
+                EndLine(string.Empty, false); // as the game's Interpreter: no compile of the emptied line
             }
             if (locked) return false;
             return base.SpecialKey(key);
@@ -402,7 +408,10 @@ namespace kOS.Safe.Test.Execution
 
         public bool IsWaitingForCommand()
         {
-            IProgramContext context = ((CPU)shared.Cpu).GetInterpreterContext();
+            var cpu = (CPU)shared.Cpu;
+            if (cpu.IsFinishingCancelledCompile)
+                return false; // as the game's Interpreter
+            IProgramContext context = cpu.GetInterpreterContext();
             return !locked && context.Program[context.InstructionPointer] is OpcodeEOF;
         }
 
@@ -444,6 +453,65 @@ namespace kOS.Safe.Test.Execution
             public override string ToString()
             {
                 return InterpreterName;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The real kerboscript compiler. With <see cref="Hold"/> set, a background compile
+    /// (any context but the interpreter's: COMPILE, RUNPATH, boot) waits at the gate until
+    /// <see cref="Release"/>, so a test can act while the compile thread is still running.
+    /// Records whether two compiles ever ran at once: the compiler is not thread-safe.
+    /// </summary>
+    internal sealed class GatedScript : KSScript
+    {
+        private const string InterpreterName = "interpreter";
+        private readonly ManualResetEvent gate = new ManualResetEvent(true);
+        private readonly ManualResetEvent entered = new ManualResetEvent(false);
+        private int running;
+        private int overlaps;
+
+        public int Overlaps { get { return Thread.VolatileRead(ref overlaps); } }
+        public readonly List<string> OverlapLog = new List<string>();
+        private string activeContext;
+
+        public void Hold()
+        {
+            entered.Reset();
+            gate.Reset();
+        }
+
+        public void Release()
+        {
+            gate.Set();
+        }
+
+        /// <summary>Wait until a held background compile has reached the gate.</summary>
+        public bool WaitUntilHeld(int milliseconds = 5000)
+        {
+            return entered.WaitOne(milliseconds);
+        }
+
+        public override List<CodePart> Compile(GlobalPath filePath, int startLineNum, string scriptText, string contextId, CompilerOptions options)
+        {
+            if (Interlocked.Increment(ref running) > 1)
+            {
+                Interlocked.Increment(ref overlaps);
+                lock (OverlapLog) OverlapLog.Add("[" + contextId + "] while [" + activeContext + "]: " + Environment.StackTrace);
+            }
+            activeContext = contextId;
+            try
+            {
+                if (contextId != InterpreterName)
+                {
+                    entered.Set();
+                    gate.WaitOne();
+                }
+                return base.Compile(filePath, startLineNum, scriptText, contextId, options);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref running);
             }
         }
     }

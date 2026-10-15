@@ -12,6 +12,7 @@ namespace kOS.Safe.Execution
         private ManualResetEvent childThreadEvent;
         private Thread childThread;
         private Exception childException;
+        private bool cancelled;
 
         protected SafeSharedObjects shared;
 
@@ -38,6 +39,14 @@ namespace kOS.Safe.Execution
             if (childThreadEvent.WaitOne(0))
             {
                 childThread.Join();
+                if (cancelled)
+                {
+                    // The work is over and nobody wants it: no ThreadFinish(), no error.
+                    childThread = null;
+                    childException = null;
+                    ThreadCancelled();
+                    return true;
+                }
                 if (childException == null)
                 {
                     try
@@ -71,6 +80,31 @@ namespace kOS.Safe.Execution
                 return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Discard the result (a break, e.g. Ctrl-C). The child thread cannot be stopped, so
+        /// once it ends <see cref="ThreadFinish"/> is skipped and any error is dropped.
+        /// Returns true while the thread is still running: the caller must keep this
+        /// detector, so that nothing else starts until the thread is done.
+        /// </summary>
+        public bool Cancel()
+        {
+            cancelled = true;
+            if (childThread == null)
+                return false; // Never started, or already seen to end.
+            if (!childThreadEvent.WaitOne(0))
+                return true;
+            IsFinished(); // Ended but not yet seen: discard it now.
+            return false;
+        }
+
+        /// <summary>True after <see cref="Cancel"/> until the main thread has seen the child thread end.</summary>
+        public bool IsCancelledAndRunning { get { return cancelled && childThread != null; } }
+
+        /// <summary>Called on the main thread instead of <see cref="ThreadFinish"/> after <see cref="Cancel"/>.</summary>
+        public virtual void ThreadCancelled()
+        {
         }
 
         private void DoThread()

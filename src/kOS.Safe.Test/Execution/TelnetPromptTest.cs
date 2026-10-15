@@ -110,8 +110,8 @@ namespace kOS.Safe.Test.Execution
         [Test]
         public void InterruptDuringABacklogAbortsAtOnceAndDiscardsTheBacklog()
         {
-            // A program: Ctrl-C does not end a WAIT typed at the prompt itself (upstream CPU
-            // behavior, BreakExecution with only the interpreter context; recorded separately).
+            // A program, as in the original check; a WAIT typed at the prompt itself is
+            // covered by PromptBreakTest.
             using (var session = new Session())
             {
                 session.Host.WriteArchiveBytes("telnet/wait.ks", Encoding.UTF8.GetBytes("wait 1000.\nprint \"waited\".\n"));

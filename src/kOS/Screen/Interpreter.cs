@@ -30,20 +30,22 @@ namespace kOS.Screen
             string commandText = LineBuilder.ToString();
 
             if (Shared.ScriptHandler.IsCommandComplete(commandText))
-            {
-                base.NewLine();
-                AddCommandHistoryEntry(commandText); // add to history first so that if ProcessCommand generates an exception,
-                                                     // the command is present in the history to be found and printed in the
-                                                     // error message.
-                ProcessCommand(commandText);
-                int numRows = LineSubBuffer.RowCount;
-                LineSubBuffer.Wipe();
-                LineSubBuffer.SetSize(numRows,ColumnCount); // refill it to its previous size
-            }
+                EndLine(commandText, true);
             else
-            {
                 InsertChar('\n');
-            }
+        }
+
+        private void EndLine(string commandText, bool process)
+        {
+            base.NewLine();
+            AddCommandHistoryEntry(commandText); // add to history first so that if ProcessCommand generates an exception,
+                                                 // the command is present in the history to be found and printed in the
+                                                 // error message.
+            if (process)
+                ProcessCommand(commandText);
+            int numRows = LineSubBuffer.RowCount;
+            LineSubBuffer.Wipe();
+            LineSubBuffer.SetSize(numRows,ColumnCount); // refill it to its previous size
         }
         
         /// <summary>
@@ -70,8 +72,10 @@ namespace kOS.Screen
                 Shared.Cpu.BreakExecution(true);
                 LineBuilder.Remove(0, LineBuilder.Length); // why isn't there a StringBuilder.Clear()?
 
-                NewLine(); // process the now emptied line, to make it do all the updates it normally
-                           // does to the screenbuffers on pressing enter.
+                // Do all the updates pressing enter does to the screenbuffers, but leave the
+                // emptied line out of the compiler: it compiles to nothing, and a cancelled
+                // compile thread may still be using the compiler, which is not thread-safe.
+                EndLine(string.Empty, false);
             }
 
             if (locked) return false;
@@ -161,7 +165,10 @@ namespace kOS.Screen
 
         public bool IsWaitingForCommand()
         {
-            IProgramContext context = ((CPU)Shared.Cpu).GetInterpreterContext();
+            var cpu = (CPU)Shared.Cpu;
+            if (cpu.IsFinishingCancelledCompile)
+                return false; // Ctrl-C'd COMPILE or RUNPATH: its thread still uses the compiler.
+            IProgramContext context = cpu.GetInterpreterContext();
             // If running from a boot script, there will be no interpreter instructions,
             // only a single OpcodeEOF.  So we check to see if the interpreter is locked,
             // which is a sign that a sub-program is running.
