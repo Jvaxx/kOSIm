@@ -391,6 +391,8 @@ namespace kOS.Safe.Persistence
                 throw new KOSPersistenceException("Can't move directory to a subdirectory of itself: " + destinationPath);
             }
 
+            CheckNotMovedOntoItself(sourceVolume, sourcePath, destinationVolume, destinationPath);
+
             bool verifyFreeSpace = sourceVolume != destinationVolume;
 
             if (!Copy(sourceVolume, sourcePath, destinationVolume, destinationPath, verifyFreeSpace))
@@ -404,6 +406,67 @@ namespace kOS.Safe.Persistence
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// A move copies, then deletes the source: refuse one whose copy would land on the source
+        /// itself, or for a directory inside it, or the delete removes the only copy. Upstream
+        /// compared only the given paths, missing a file moved into its own directory, a volume
+        /// alias, a default extension ("p" is p.ks) and another case on a case-insensitive volume.
+        /// The destination is found as <see cref="Copy(Volume, GlobalPath, Volume, GlobalPath, bool)"/>
+        /// finds it.
+        /// </summary>
+        private static void CheckNotMovedOntoItself(Volume sourceVolume, GlobalPath sourcePath, Volume destinationVolume,
+            GlobalPath destinationPath)
+        {
+            if (sourceVolume != destinationVolume)
+                return;
+            VolumeItem source = sourceVolume.Open(sourcePath);
+            if (source == null)
+                return; // Copy reports it
+            VolumeItem destination = destinationVolume.Open(destinationPath);
+
+            VolumePath target;
+            if (source is VolumeDirectory)
+                target = destination == null ? destinationPath : destinationPath.Combine(sourcePath.Name);
+            else
+                target = destination is VolumeDirectory ? destination.Path.Combine(source.Name) : destinationPath;
+
+            if (NameSameEntry(sourceVolume, source.Path, target))
+                throw new KOSPersistenceException("Can't move onto itself: " + destinationPath);
+
+            if (source is VolumeDirectory)
+            {
+                VolumePath prefix = target;
+                while (prefix.Depth > source.Path.Depth)
+                    prefix = prefix.GetParent();
+                if (target.Depth > source.Path.Depth && NameSameEntry(sourceVolume, source.Path, prefix))
+                    throw new KOSPersistenceException("Can't move directory to a subdirectory of itself: " + destinationPath);
+            }
+        }
+
+        /// <summary>
+        /// Whether two paths on <paramref name="volume"/> name the same file or directory.
+        /// Paths differing only in case do on a disk (it ignores case); on the archive it depends
+        /// on the file system (<see cref="Archive.NameSameEntryIgnoringCase"/>).
+        /// </summary>
+        private static bool NameSameEntry(Volume volume, VolumePath a, VolumePath b)
+        {
+            if (a.Depth != b.Depth)
+                return false;
+            bool exact = true;
+            for (int i = 0; i < a.Segments.Count; ++i)
+            {
+                if (string.Equals(a.Segments[i], b.Segments[i], StringComparison.Ordinal))
+                    continue;
+                if (!string.Equals(a.Segments[i], b.Segments[i], StringComparison.InvariantCultureIgnoreCase))
+                    return false;
+                exact = false;
+            }
+            if (exact)
+                return true;
+            var archive = volume as Archive;
+            return archive == null || archive.NameSameEntryIgnoringCase(a, b);
         }
 
         // check the range on the current volume without calling GetVolumeWithRangeCheck

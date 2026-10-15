@@ -79,6 +79,41 @@ namespace kOS.Safe.Persistence
             Directory.CreateDirectory(ArchiveFolder);
         }
 
+        /// <summary>
+        /// Whether two existing paths differing only in case name the same entry: true on a
+        /// case-insensitive file system (Windows, so under Proton), false on a case-sensitive one,
+        /// where an existing path always matches the entries' names exactly. False when either
+        /// does not exist (on a case-sensitive file system that is a different name).
+        /// </summary>
+        internal bool NameSameEntryIgnoringCase(VolumePath a, VolumePath b)
+        {
+            string pathA = GetArchivePath(a), pathB = GetArchivePath(b);
+            if (!(File.Exists(pathA) || Directory.Exists(pathA)) || !(File.Exists(pathB) || Directory.Exists(pathB)))
+                return false;
+            return !(MatchesEntryNamesExactly(a) && MatchesEntryNamesExactly(b));
+        }
+
+        private bool MatchesEntryNamesExactly(VolumePath path)
+        {
+            string directory = ArchiveFolder;
+            foreach (string segment in path.Segments)
+            {
+                bool found = false;
+                foreach (string entry in Directory.GetFileSystemEntries(directory))
+                {
+                    if (string.Equals(Path.GetFileName(entry), segment, StringComparison.Ordinal))
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found)
+                    return false;
+                directory = Path.Combine(directory, segment);
+            }
+            return true;
+        }
+
         public override VolumeItem Open(VolumePath path, bool ksmDefault = false)
         {
             try
