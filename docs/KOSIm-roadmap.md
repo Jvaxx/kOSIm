@@ -146,19 +146,19 @@ Every P0/P1 finding in `docs/improvements-overview.md` was checked against the c
 
 **Fixed and headless-tested; Proton-checked at the `e943ecf4` checkpoint** (details there; listed unperformed checks still apply): `EDIT-01/02`, `BUFFER-01`–`04`, `IO-01/02/03`, `NET-01/02/03`, plus the fixture-found `FMT-01`, `EXEC-01`, `PROMPT-01`.
 
-**Fixed and headless-tested; in-game checks deferred by the user:** prompt-level Ctrl-C (decision 4), `INPUT-01` keyboard/locks, `PANEL-02`, `WIDGET-01`, `WIDGET-02`.
+**Fixed and headless-tested; in-game checks deferred by the user:** prompt-level Ctrl-C (decision 4), `INPUT-01` keyboard/locks, `PANEL-02`, `WIDGET-01`, `WIDGET-02`, `IO-05`, `IO-04` hardening.
 
 **Still open in Phase 1 scope:**
 
 - `IO-05` — **fixed and headless-tested (2026-10-15; in-game check deferred)**: path functions (`COPYPATH`, `MOVEPATH`, `DELETEPATH`, `OPEN`, `EXISTS`, `CD`, JSON, `RUNPATH`, `EDIT`, …) keep a volume or file/directory object's own volume (it must be attached and in range), and paths without a volume id use the actual current volume; strings with a volume id unchanged. Before the fix the second `data` disk's objects (and relative paths after switching to it) acted on the first one, and moving or deleting a file object from a detached disk deleted the other disk's same-named file. 23 tests; see `docs/testing-and-build.md`, "Volume identity in path arguments (IO-05)". Not covered: `PATH` values (name only). Also found: `MOVEPATH` of a file onto itself deletes it (upstream, confirmed by a removed probe; not fixed).
-- `IO-04` — the reviewed prefix escape does not apply as deployed: `SafeHouse.ArchiveFolder` keeps the trailing separator from `.../Ships/Script/`, so a sibling `Script-private` does not match, and archive `VolumePath` segments cannot contain `/` or `\`. Residual hardening (P2): the widget texture check depends on that trailing separator; no symlink policy; no image size limit.
+- `IO-04` — the reviewed prefix escape does not apply as deployed (`SafeHouse.ArchiveFolder` keeps its trailing separator; archive `VolumePath` segments cannot leave the root). **Hardening done (2026-10-15, headless-tested; in-game check deferred):** `DirectoryContainment` (kOS.Safe) checks by directory boundary for `Widget.GetTexture` (each candidate file, so the archive folder itself cannot become `Script.png`) and `Archive`; user-approved symlink policy (follow links to read/write/list, a delete never enters one: `LinkSafeDelete`) and image limits (16 MiB file, 4096 pixels a side, script error). 27 tests; see `docs/testing-and-build.md`, "Archive containment, symlinks and image limits (IO-04 hardening)". Limits: a save onto a file link replaces the link; Wine's reporting of Unix symlinks unverified.
 - `INPUT-01` mouse half (click-through #2659/#2759, modal mouse blocking) — the agreed follow-up; mostly Unity, best done with in-game testing.
 
 **Reclassified, not Phase 1:** `EDIT-03` (editor follows the caret on every repaint — confirmed, `KOSTextEditPopup.cs:465`) and `TERM-05` (history cannot return to the draft — confirmed, `Interpreter.cs:112`) are P1 in the review but workflow behavior; `TERM-05` is Phase 3 item 2, `EDIT-03` fits there too. `TERM-01/02/04/06/07` are Phase 3/4 terminal and UI work.
 
 **Test items:** `TEST-01` is resolved by policy (local gate `.ci/test.sh` with a result checker and minimum count; no hosted CI). `TEST-02` is largely covered (real `ScreenBuffer` overlay/cursor/dimension suites, the real CPU and prompt in `ScriptHost`, long-input and paste tests); history-model tests come with `TERM-05`.
 
-**Exit criterion status: not met.** Remaining: the `IO-04` hardening, the `INPUT-01` mouse half, and the in-game verification of the fixes listed as deferred above (now including `IO-05`).
+**Exit criterion status: not met.** Remaining: the `INPUT-01` mouse half, and the in-game verification of the fixes listed as deferred above (now including `IO-05`).
 
 ### Exit criterion
 

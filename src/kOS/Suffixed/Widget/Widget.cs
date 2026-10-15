@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using kOS.Safe.Utilities;
 using kOS.Safe.Exceptions;
 using kOS.Safe.Execution;
+using kOS.Safe.Persistence;
 using System.IO;
 using System;
 
@@ -148,9 +149,8 @@ namespace kOS.Suffixed.Widget
             if (textureCache == null)
                 textureCache = new Dictionary<string, TexFileInfo> ();
 
-            string path = Path.GetFullPath (Path.Combine (SafeHouse.ArchiveFolder, relativePath));
-            if (!path.StartsWith (SafeHouse.ArchiveFolder, StringComparison.Ordinal))
-                throw new KOSInvalidPathException ("Path refers to parent directory", path);
+            // Checked by directory boundary, for each file it may read (IO-04):
+            string[] files = ArchiveTextureFiles.Candidates(SafeHouse.ArchiveFolder, relativePath);
 
             TexFileInfo t;
             if (textureCache.TryGetValue(relativePath, out t)) {
@@ -165,11 +165,9 @@ namespace kOS.Suffixed.Widget
             }
 
             var r = new Texture2D(0, 0, TextureFormat.ARGB32, false);
-            string[] exts = {".png", "" };
-            foreach (string ext in exts) {
-                string filename = path + ext;
+            foreach (string filename in files) {
                 if (File.Exists(filename)) {
-                    r.LoadImage(File.ReadAllBytes(filename));
+                    r.LoadImage(ArchiveTextureFiles.ReadImage(filename, relativePath)); // size limits (IO-04)
                     t.texture = r;
                     t.info = new FileInfo(filename);
                     break;

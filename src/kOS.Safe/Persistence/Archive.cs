@@ -59,7 +59,7 @@ namespace kOS.Safe.Persistence
 
             string fullPath = Path.GetFullPath(mergedPath);
 
-            if (!fullPath.StartsWith(ArchiveFolder, StringComparison.Ordinal))
+            if (!DirectoryContainment.IsWithin(ArchiveFolder, fullPath))
             {
                 throw new KOSInvalidPathException("Path refers to parent directory", path.ToString());
             }
@@ -69,9 +69,11 @@ namespace kOS.Safe.Persistence
 
         public override void Clear()
         {
+            // Keep the folder (it may be a link to the player's scripts); never delete through
+            // a link inside it (IO-04).
             if (Directory.Exists(ArchiveFolder))
             {
-                Directory.Delete(ArchiveFolder, true);
+                LinkSafeDelete.DeleteContents(ArchiveFolder);
             }
 
             Directory.CreateDirectory(ArchiveFolder);
@@ -182,7 +184,7 @@ namespace kOS.Safe.Persistence
             }
             else
             {
-                Directory.Delete(fileSystemInfo.FullName, true);
+                LinkSafeDelete.DeleteDirectory(fileSystemInfo.FullName); // never through a link (IO-04)
             }
 
             return true;
