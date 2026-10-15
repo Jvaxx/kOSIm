@@ -72,31 +72,6 @@ Still manual, on the Proton checklist:
 
 The fixtures exposed two upstream defects, NET-03 and EXEC-01 (see Phase 1). Both are now fixed with regression tests.
 
-### INPUT-01 design (agreed with the user 2026-10-15; implemented, compiled and headless-tested; in-game checks deferred)
-
-**Current behavior** (upstream code, checked against `7fa54cff`):
-
-- A focused terminal sets `ControlTypes.All` under the shared name `kOSTerminal` (`TermWindow.Lock`), plus the base `ALLBUTCAMERAS` lock under its per-window name in flight/planetarium. The editor-lock branch in `Lock()` (`IsUnlocked(All)` right after setting `All`) never runs; harmless, since `All` covers the editor bits. `VesselUtils.cs:220` reads and restores `kOSTerminal` by name: **keep the lock names** (other mods may read them too).
-- `Open()` always takes focus, whoever opens: part menu, toolbar, action group, or script (`doevent("Open Terminal")` goes through the same KSP event, `PartModuleFields.cs:553`).
-- F2 hide and `FlightResultsDialog`: `OnGUI` runs `ProcessKeyEvents()` before those checks (`TermWindow.cs:335`), so an invisible terminal keeps reading keys and keeps its locks.
-- Power loss: the interpreter ignores input but the window keeps focus and locks.
-- `KOSTextEditPopup.GetFocus/LoseFocus` override without calling the base: **the editor sets no lock**, so typed keys may reach KSP (candidate cause of #2694, #2949; to confirm in game). `KOSNameTagWindow` locks only in the VAB/SPH (re-applied every `OnGUI`), not in flight.
-- Script GUI windows (`GUIWindow`) opt out of locking on purpose (#2568); unchanged.
-- Close, vessel loss (`Update` → `Close`) and `OnDestroy` release locks. Focus moves only by mouse click (`KOSManagedWindow.UpdateLogic`).
-
-**Agreed policy:**
-
-1. **Camera:** keep locking everything (`All`) while a terminal or the editor has keyboard focus. #3012 stays open; clicking outside releases.
-2. **Focus on open:** only an open by the user takes focus (part-menu event clicked by the user, toolbar button). Action groups and scripts open the window without focus and without locks. Scripted invocations are told apart by a scope flag set by kOS around `evt.Invoke()`/`act.Invoke()` in `PartModuleFields`; `Activate(KSPActionParam)`/`Toggle(KSPActionParam)` open unfocused.
-3. **Hide / dialog / power:** F2 hide (when `ObeyHideUI`) or the flight-results dialog: stop reading keys and release the locks; take focus back when the UI returns, if the window still wanted it. Power loss: release and do not take it back (flight keys and action groups work at once); the user clicks to refocus.
-4. **One keyboard owner** among kOS windows; release on close, destroy, vessel loss and scene change on every path, including exceptions; cleanup idempotent.
-5. **Editor and in-flight name-tag window** take the same lock as the terminal while focused (name-tag: in flight too).
-6. **Scope of this pass:** keyboard and locks only. Mouse click-through (#2659, #2759) and modal mouse blocking are a later step.
-
-**Implementation shape:** a small pure policy class in `kOS.Safe` (window states in: open, wants focus, visible/hidden, dialog, powered, kind; out: the owner and the locks each window should hold) with headless tests for every transition; a thin Unity adapter in `kOS` applies only the differences through `InputLockManager`, keeping the lock names. No change to `GUIWindow` locking.
-
-**In-game checks (Proton, need the user):** first a baseline on the current build: do keys typed in the editor popup reach KSP (`.`/`,` warp, staging off)? Then after the fix: focus cycling between terminals and the editor; F2 while typing and back; flight-results dialog; power loss/restore; action-group and boot-script open (no focus taken); part-menu and toolbar open (focus taken); map view; VAB name tag; vessel destruction; scene exit; no `kOSTerminal`/kOS locks left after each (log `InputLockManager.lockStack` on demand, a debug-only helper).
-
 ### Exit criterion
 
 Reliable local build/test commands, a documented baseline and known failures, and a defined Proton game-test setup. Passing compilation alone does not satisfy this phase.
@@ -138,6 +113,31 @@ Ship small, independently reviewable changes with regression tests rather than b
 - Other contained, confirmed defects such as port-field capacity and widget selection/callback behavior, when adequately testable.
 
 The editor's low feature priority does not lower the priority of preventing data loss. Preserve legacy text API behavior through an explicit compatibility policy rather than changing it incidentally.
+
+### INPUT-01 design (agreed with the user 2026-10-15; implemented, compiled and headless-tested; in-game checks deferred)
+
+**Current behavior** (upstream code, checked against `7fa54cff`):
+
+- A focused terminal sets `ControlTypes.All` under the shared name `kOSTerminal` (`TermWindow.Lock`), plus the base `ALLBUTCAMERAS` lock under its per-window name in flight/planetarium. The editor-lock branch in `Lock()` (`IsUnlocked(All)` right after setting `All`) never runs; harmless, since `All` covers the editor bits. `VesselUtils.cs:220` reads and restores `kOSTerminal` by name: **keep the lock names** (other mods may read them too).
+- `Open()` always takes focus, whoever opens: part menu, toolbar, action group, or script (`doevent("Open Terminal")` goes through the same KSP event, `PartModuleFields.cs:553`).
+- F2 hide and `FlightResultsDialog`: `OnGUI` runs `ProcessKeyEvents()` before those checks (`TermWindow.cs:335`), so an invisible terminal keeps reading keys and keeps its locks.
+- Power loss: the interpreter ignores input but the window keeps focus and locks.
+- `KOSTextEditPopup.GetFocus/LoseFocus` override without calling the base: **the editor sets no lock**, so typed keys may reach KSP (candidate cause of #2694, #2949; to confirm in game). `KOSNameTagWindow` locks only in the VAB/SPH (re-applied every `OnGUI`), not in flight.
+- Script GUI windows (`GUIWindow`) opt out of locking on purpose (#2568); unchanged.
+- Close, vessel loss (`Update` → `Close`) and `OnDestroy` release locks. Focus moves only by mouse click (`KOSManagedWindow.UpdateLogic`).
+
+**Agreed policy:**
+
+1. **Camera:** keep locking everything (`All`) while a terminal or the editor has keyboard focus. #3012 stays open; clicking outside releases.
+2. **Focus on open:** only an open by the user takes focus (part-menu event clicked by the user, toolbar button). Action groups and scripts open the window without focus and without locks. Scripted invocations are told apart by a scope flag set by kOS around `evt.Invoke()`/`act.Invoke()` in `PartModuleFields`; `Activate(KSPActionParam)`/`Toggle(KSPActionParam)` open unfocused.
+3. **Hide / dialog / power:** F2 hide (when `ObeyHideUI`) or the flight-results dialog: stop reading keys and release the locks; take focus back when the UI returns, if the window still wanted it. Power loss: release and do not take it back (flight keys and action groups work at once); the user clicks to refocus.
+4. **One keyboard owner** among kOS windows; release on close, destroy, vessel loss and scene change on every path, including exceptions; cleanup idempotent.
+5. **Editor and in-flight name-tag window** take the same lock as the terminal while focused (name-tag: in flight too).
+6. **Scope of this pass:** keyboard and locks only. Mouse click-through (#2659, #2759) and modal mouse blocking are a later step.
+
+**Implementation shape:** a small pure policy class in `kOS.Safe` (window states in: open, wants focus, visible/hidden, dialog, powered, kind; out: the owner and the locks each window should hold) with headless tests for every transition; a thin Unity adapter in `kOS` applies only the differences through `InputLockManager`, keeping the lock names. No change to `GUIWindow` locking.
+
+**In-game checks (Proton, need the user):** first a baseline on the current build: do keys typed in the editor popup reach KSP (`.`/`,` warp, staging off)? Then after the fix: focus cycling between terminals and the editor; F2 while typing and back; flight-results dialog; power loss/restore; action-group and boot-script open (no focus taken); part-menu and toolbar open (focus taken); map view; VAB name tag; vessel destruction; scene exit; no `kOSTerminal`/kOS locks left after each (log `InputLockManager.lockStack` on demand, a debug-only helper).
 
 ### Exit criterion
 
