@@ -1,6 +1,7 @@
 using kOS.Module;
 using kOS.Safe.Encapsulation.Suffixes;
 using kOS.Safe.Module;
+using kOS.Safe.UserIO;
 using kOS.Safe.Utilities;
 using kOS.UserIO;
 using kOS.Utilities;
@@ -49,6 +50,7 @@ namespace kOS.Screen
         private Vector2 scrollPos = new Vector2(200, 350);
 
         private static Rect windowRect; // does anybody know why this is static?
+        private MouseBlocking.Area mouseArea;
         private const int UNIQUE_ID = 8675309; // Jenny, I've got your number.
         private static GUISkin panelSkin;
         private static GUIStyle headingLabelStyle;
@@ -261,6 +263,7 @@ namespace kOS.Screen
             GameEvents.onGameStateSave.Remove(OnGameStateSave);
 
             GoAway();
+            KOSMouseBlocking.Unregister(ref mouseArea);
             SafeHouse.Logger.SuperVerbose("[kOSToolBarWindow] OnDestroy successful");
         }
 
@@ -445,6 +448,7 @@ namespace kOS.Screen
 
             windowRect = GUILayout.Window(UNIQUE_ID, windowRect, DrawWindow, "kOS " + versionString);
             windowRect = RectExtensions.ClampToRectAngle(windowRect, rectToFit);
+            KOSMouseBlocking.Show(ref mouseArea, "kOS toolbar panel", windowRect);
         }
 
         public void DrawWindow(int windowID)

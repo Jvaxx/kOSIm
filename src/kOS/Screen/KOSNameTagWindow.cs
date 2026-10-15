@@ -19,6 +19,9 @@ namespace kOS.Screen
         // In flight, typing a tag takes the terminal's control lock until the window closes (INPUT-01).
         // The VAB/SPH keeps its own EditorLogic lock below instead.
         private InputOwnership.Window inputWindow;
+        // In every scene the mouse over the window stays out of the scene, and for two frames
+        // after Accept or Cancel closes it (#2759):
+        private MouseBlocking.Area mouseArea;
         
         // ReSharper enable RedundantDefaultFieldInitializer
 
@@ -132,7 +135,8 @@ namespace kOS.Screen
                 EditorLogic.fetch.Lock(false, false, false, "KOSNameTagLock");
 
             GUI.skin = HighLogic.Skin;
-            GUILayout.Window(myWindowId, windowRect, DrawWindow,"KOS nametag");
+            Rect drawn = GUILayout.Window(myWindowId, windowRect, DrawWindow,"KOS nametag");
+            KOSMouseBlocking.Show(ref mouseArea, "KOSNameTag", drawn);
             
             // Ensure that the first time the window is made, it gets keybaord focus,
             // but allow the focus to leave the window after that:
@@ -203,6 +207,7 @@ namespace kOS.Screen
         public void OnDestroy()
         {
             SetEnabled(false);
+            KOSMouseBlocking.Unregister(ref mouseArea);
             if (inputWindow != null)
             {
                 InputOwnership.Window window = inputWindow;

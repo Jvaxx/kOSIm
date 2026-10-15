@@ -51,6 +51,10 @@ namespace kOS.UserIO
         private Rect optInRect = new Rect( 200, 200, 500, 400);
         private Rect realIPRect = new Rect( 240, 140, 500, 400); // offset just in case multiples are up at the same time, to ensure visible bits to click on.  They aren't movable.
         private Rect bgSimRect = new Rect( 280, 100, 400, 300); // offset just in case multiples are up at the same time, to ensure visible bits to click on.  They aren't movable.
+        // The mouse over a permission dialog stays out of the scene (INPUT-01):
+        private Safe.UserIO.MouseBlocking.Area optInMouseArea;
+        private Safe.UserIO.MouseBlocking.Area realIPMouseArea;
+        private Safe.UserIO.MouseBlocking.Area bgSimMouseArea;
         private const string HELP_URL = "https://ksp-kos.github.io/KOS_DOC/general/telnet.html";
 
         public TelnetMainServer()
@@ -295,6 +299,9 @@ namespace kOS.UserIO
         /// </summary>
         void OnDestroy()
         {
+            Screen.KOSMouseBlocking.Unregister(ref optInMouseArea);
+            Screen.KOSMouseBlocking.Unregister(ref realIPMouseArea);
+            Screen.KOSMouseBlocking.Unregister(ref bgSimMouseArea);
             StopListening();
         }
         
@@ -377,14 +384,23 @@ namespace kOS.UserIO
         void OnGUI()
         {
             if (activeOptInDialog)
+            {
                 optInRect = GUILayout.Window(401123, // any made up number unlikely to clash is okay here
                                              optInRect, OptInOnGui, "kOS Telnet Opt-In Permisssion");
+                Screen.KOSMouseBlocking.Show(ref optInMouseArea, "Telnet opt-in dialog", optInRect);
+            }
             if (activeRealIPDialog)
+            {
                 realIPRect = GUILayout.Window(401124, // any made up number unlikely to clash is okay here
                                               realIPRect, RealIPOnGui, "kOS Telnet Non-Loopback Permisssion");
+                Screen.KOSMouseBlocking.Show(ref realIPMouseArea, "Telnet real IP dialog", realIPRect);
+            }
             if (activeBgSimDialog)
+            {
                 bgSimRect = GUILayout.Window(401125, // any made up number unlikely to clash is okay here
                                              bgSimRect, BgSimGui, "kOS Telnet \"Simulate in Background\" notice.");
+                Screen.KOSMouseBlocking.Show(ref bgSimMouseArea, "Telnet background notice", bgSimRect);
+            }
         }
         
         void OptInOnGui(int id)

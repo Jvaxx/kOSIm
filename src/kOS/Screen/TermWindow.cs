@@ -331,6 +331,7 @@ namespace kOS.Screen
             ChangeTitle(CalcualteTitle());
 
             WindowRect = GUI.Window(UniqueId, WindowRect, TerminalGui, TitleText);
+            BlockMouseOver(WindowRect);
             
             if (consumeEvent)
             {

@@ -31,6 +31,7 @@ namespace kOS.Screen
         private Texture2D commDelayedTexture;
         public float extraDelay = 0f;
         public PopupMenu currentPopup;
+        private MouseBlocking.Area popupMouseArea;
 
         public bool ShowCursor { get; set; }
 
@@ -79,6 +80,7 @@ namespace kOS.Screen
             GameEvents.onHideUI.Remove(OnHideUI);
             GameEvents.onShowUI.Remove(OnShowUI);
 
+            KOSMouseBlocking.Unregister(ref popupMouseArea);
             base.OnDestroy();
         }
 
@@ -119,6 +121,7 @@ namespace kOS.Screen
             GUI.skin = HighLogic.Skin;
 
             WindowRect = GUILayout.Window(UniqueId, WindowRect, WidgetGui, TitleText, style);
+            BlockMouseOver(WindowRect);
 
             if (currentPopup != null) {
                 var r = RectExtensions.EnsureCompletelyVisible(currentPopup.popupRect);
@@ -127,6 +130,7 @@ namespace kOS.Screen
                 } else {
                     GUI.BringWindowToFront(UniqueId + 1);
                     currentPopup.popupRect = GUILayout.Window(UniqueId + 1, r, PopupGui, "", style);
+                    KOSMouseBlocking.Show(ref popupMouseArea, "GUIWindow popup", currentPopup.popupRect);
                 }
             }
         }

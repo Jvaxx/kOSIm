@@ -222,11 +222,23 @@ namespace kOS.Utilities
             // a non-nullable enum)
             if (termInputLock != ControlTypes.None)
                 InputLockManager.RemoveControlLock(Screen.TermWindow.CONTROL_LOCKOUT);
+            // The same for the lock held while the mouse is over a kOS window (INPUT-01), which
+            // includes TARGETING in flight:
+            ControlTypes mouseInputLock = InputLockManager.GetControlLock(Screen.KOSMouseBlocking.LockName);
+            if (mouseInputLock != ControlTypes.None)
+                InputLockManager.RemoveControlLock(Screen.KOSMouseBlocking.LockName);
 
-            FlightGlobals.fetch.SetVesselTarget(val, true);
-
-            if (termInputLock != ControlTypes.None)
-                InputLockManager.SetControlLock(termInputLock, Screen.TermWindow.CONTROL_LOCKOUT);
+            try
+            {
+                FlightGlobals.fetch.SetVesselTarget(val, true);
+            }
+            finally
+            {
+                if (termInputLock != ControlTypes.None)
+                    InputLockManager.SetControlLock(termInputLock, Screen.TermWindow.CONTROL_LOCKOUT);
+                if (mouseInputLock != ControlTypes.None)
+                    InputLockManager.SetControlLock(mouseInputLock, Screen.KOSMouseBlocking.LockName);
+            }
         }
 
         public static float AngleDelta(float a, float b)

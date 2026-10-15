@@ -164,6 +164,7 @@ namespace kOS.Screen
             CalcInnerCoords();
 
             WindowRect = GUI.Window(UniqueId, WindowRect, ProcessWindow, "");
+            BlockMouseOver(WindowRect);
             // Some mouse global state data used by several of the checks:
 
             if (consumeEvent)

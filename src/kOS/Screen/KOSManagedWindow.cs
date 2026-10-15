@@ -51,6 +51,9 @@ namespace kOS.Screen
         // Keyboard focus and the control lock are decided by the shared policy (INPUT-01):
         private InputOwnership.Window inputWindow;
 
+        // The mouse over the drawn window is kept from the scene (INPUT-01 mouse half), opted out or not:
+        private MouseBlocking.Area mouseArea;
+
         private bool optOutOfControlLocking;
         /// <summary>
         /// Fixes #2568 - If the window is one where Unity can handle doing the keyboard focus
@@ -197,12 +200,22 @@ namespace kOS.Screen
         protected void OnDestroy()
         {
             depthSort.Remove(this);
+            KOSMouseBlocking.Unregister(ref mouseArea);
             if (inputWindow != null)
             {
                 InputOwnership.Window window = inputWindow;
                 inputWindow = null;
                 KOSInputOwnership.Instance.Unregister(window);
             }
+        }
+
+        /// <summary>
+        /// Call from OnGUI right after drawing the window, and only when it was drawn: the mouse
+        /// over <paramref name="drawnRect"/> stays out of the scene while the window keeps drawing.
+        /// </summary>
+        protected void BlockMouseOver(Rect drawnRect)
+        {
+            KOSMouseBlocking.Show(ref mouseArea, lockIdName, drawnRect);
         }
 
         /// <summary>

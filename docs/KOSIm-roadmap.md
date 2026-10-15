@@ -115,7 +115,7 @@ Ship small, independently reviewable changes with regression tests rather than b
 
 The editor's low feature priority does not lower the priority of preventing data loss. Preserve legacy text API behavior through an explicit compatibility policy rather than changing it incidentally.
 
-### INPUT-01 design (agreed with the user 2026-10-15; implemented, compiled and headless-tested; in-game checks deferred)
+### INPUT-01 design (agreed with the user 2026-10-15; keyboard half and mouse half step 1 implemented, compiled and headless-tested; in-game checks deferred)
 
 **Current behavior** (upstream code, checked against `7fa54cff`):
 
@@ -134,7 +134,15 @@ The editor's low feature priority does not lower the priority of preventing data
 3. **Hide / dialog / power:** F2 hide (when `ObeyHideUI`) or the flight-results dialog: stop reading keys and release the locks; take focus back when the UI returns, if the window still wanted it. Power loss: release and do not take it back (flight keys and action groups work at once); the user clicks to refocus.
 4. **One keyboard owner** among kOS windows; release on close, destroy, vessel loss and scene change on every path, including exceptions; cleanup idempotent.
 5. **Editor and in-flight name-tag window** take the same lock as the terminal while focused (name-tag: in flight too).
-6. **Scope of this pass:** keyboard and locks only. Mouse click-through (#2659, #2759) and modal mouse blocking are a later step.
+6. **Scope of this pass:** keyboard and locks only. Mouse click-through (#2659, #2759) and modal mouse blocking follow as the mouse half below.
+
+**Mouse half (agreed with the user 2026-10-15; step 1 implemented, compiled and headless-tested; in-game checks deferred):**
+
+- **Approach:** step 1, kOS's own hover lock with no dependency (works without ClickThroughBlocker; the user runs a click-through mod, likely CTB). Step 2, an optional CTB integration by reflection, only if an in-game check with the user's CTB shows a conflict.
+- **Hover scope:** while the mouse is over any drawn kOS window (terminals, editor, its confirm dialog, name tag, script GUIs and their popup menus, toolbar panel, list picker, telnet dialogs), lock the scene's mouse controls under a separate name `kOSMouseOver`: flight `CAMERACONTROLS | MAP_UI | TARGETING`; editor `EDITOR_SOFT_LOCK | CAMERACONTROLS`; space center `CAMERACONTROLS | KSC_UI`; tracking station `CAMERACONTROLS | TRACKINGSTATION_UI | MAP_UI`. Never keys, flight controls or staging; the #2568 keyboard opt-out stays.
+- **Presses and release:** a press started over a kOS window keeps the lock until released (drags, resizes); one started on the scene is not taken over. Release two frames after the lock was last wanted, so a click that closes a window (#2759) or ends a drag does not reach the scene. Scene change releases at once.
+- **Modal:** the editor stays frozen under its confirm dialog; the terminal stays usable; the hover lock keeps dialog clicks out of the scene.
+- **Shape:** `kOS.Safe.UserIO.MouseBlocking` (pure policy, 20 tests) + `kOS.Screen.KOSMouseBlocking` (KSP sink, per-frame driver addon); `VesselUtils.SetTarget` lifts it like `kOSTerminal`. Details and the pending in-game list: `docs/testing-and-build.md`, "Mouse over kOS windows (INPUT-01, mouse half)". #2659 (key order with CTB) is not addressed by step 1.
 
 **Implementation shape:** a small pure policy class in `kOS.Safe` (window states in: open, wants focus, visible/hidden, dialog, powered, kind; out: the owner and the locks each window should hold) with headless tests for every transition; a thin Unity adapter in `kOS` applies only the differences through `InputLockManager`, keeping the lock names. No change to `GUIWindow` locking.
 
@@ -146,19 +154,19 @@ Every P0/P1 finding in `docs/improvements-overview.md` was checked against the c
 
 **Fixed and headless-tested; Proton-checked at the `e943ecf4` checkpoint** (details there; listed unperformed checks still apply): `EDIT-01/02`, `BUFFER-01`–`04`, `IO-01/02/03`, `NET-01/02/03`, plus the fixture-found `FMT-01`, `EXEC-01`, `PROMPT-01`.
 
-**Fixed and headless-tested; in-game checks deferred by the user:** prompt-level Ctrl-C (decision 4), `INPUT-01` keyboard/locks, `PANEL-02`, `WIDGET-01`, `WIDGET-02`, `IO-05`, `IO-04` hardening.
+**Fixed and headless-tested; in-game checks deferred by the user:** prompt-level Ctrl-C (decision 4), `INPUT-01` keyboard/locks, `PANEL-02`, `WIDGET-01`, `WIDGET-02`, `IO-05`, `IO-04` hardening, `INPUT-01` mouse half step 1 (policy only; the Unity side is untested).
 
 **Still open in Phase 1 scope:**
 
 - `IO-05` — **fixed and headless-tested (2026-10-15; in-game check deferred)**: path functions (`COPYPATH`, `MOVEPATH`, `DELETEPATH`, `OPEN`, `EXISTS`, `CD`, JSON, `RUNPATH`, `EDIT`, …) keep a volume or file/directory object's own volume (it must be attached and in range), and paths without a volume id use the actual current volume; strings with a volume id unchanged. Before the fix the second `data` disk's objects (and relative paths after switching to it) acted on the first one, and moving or deleting a file object from a detached disk deleted the other disk's same-named file. 23 tests; see `docs/testing-and-build.md`, "Volume identity in path arguments (IO-05)". Not covered: `PATH` values (name only). Also found: `MOVEPATH` of a file onto itself deletes it (upstream, confirmed by a removed probe; not fixed).
 - `IO-04` — the reviewed prefix escape does not apply as deployed (`SafeHouse.ArchiveFolder` keeps its trailing separator; archive `VolumePath` segments cannot leave the root). **Hardening done (2026-10-15, headless-tested; in-game check deferred):** `DirectoryContainment` (kOS.Safe) checks by directory boundary for `Widget.GetTexture` (each candidate file, so the archive folder itself cannot become `Script.png`) and `Archive`; user-approved symlink policy (follow links to read/write/list, a delete never enters one: `LinkSafeDelete`) and image limits (16 MiB file, 4096 pixels a side, script error). 27 tests; see `docs/testing-and-build.md`, "Archive containment, symlinks and image limits (IO-04 hardening)". Limits: a save onto a file link replaces the link; Wine's reporting of Unix symlinks unverified.
-- `INPUT-01` mouse half (click-through #2659/#2759, modal mouse blocking) — the agreed follow-up; mostly Unity, best done with in-game testing.
+- `INPUT-01` mouse half (click-through #2659/#2759, modal mouse blocking) — **step 1 done (2026-10-15, policy headless-tested, game side compiled only; in-game checks deferred)**: kOS's own `kOSMouseOver` hover lock over every kOS window (see "Mouse half" above). Step 2 (optional ClickThroughBlocker integration) waits for an in-game check with the user's CTB; #2659 (key order with CTB) still open.
 
 **Reclassified, not Phase 1:** `EDIT-03` (editor follows the caret on every repaint — confirmed, `KOSTextEditPopup.cs:465`) and `TERM-05` (history cannot return to the draft — confirmed, `Interpreter.cs:112`) are P1 in the review but workflow behavior; `TERM-05` is Phase 3 item 2, `EDIT-03` fits there too. `TERM-01/02/04/06/07` are Phase 3/4 terminal and UI work.
 
 **Test items:** `TEST-01` is resolved by policy (local gate `.ci/test.sh` with a result checker and minimum count; no hosted CI). `TEST-02` is largely covered (real `ScreenBuffer` overlay/cursor/dimension suites, the real CPU and prompt in `ScriptHost`, long-input and paste tests); history-model tests come with `TERM-05`.
 
-**Exit criterion status: not met.** Remaining: the `INPUT-01` mouse half, and the in-game verification of the fixes listed as deferred above (now including `IO-05`).
+**Exit criterion status: not met.** All Phase 1 code items are done; remaining is the in-game verification of the fixes listed as deferred above (now including `IO-05`, `IO-04` and the `INPUT-01` mouse half, whose CTB check decides step 2 and #2659).
 
 ### Exit criterion
 

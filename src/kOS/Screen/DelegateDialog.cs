@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using kOS.Safe.Exceptions;
+using kOS.Safe.UserIO;
 using UnityEngine;
 
 namespace kOS.Screen
@@ -25,6 +26,7 @@ namespace kOS.Screen
         private List<DialogAction> actions;
         private bool               invoked;
         private string             error = "";
+        private MouseBlocking.Area mouseArea;
 
         public bool IsInvoked { get { return invoked; } }
 
@@ -75,11 +77,17 @@ namespace kOS.Screen
             if (invoked && parent.IsOpen)
             {
                 float guessWidth = GUI.skin.label.CalcSize( new GUIContent(message) ).x;
-                GUILayout.Window( parent.GetUniqueId()+1, new Rect( parent.GetRect().xMin+200,
+                Rect drawn = GUILayout.Window( parent.GetUniqueId()+1, new Rect( parent.GetRect().xMin+200,
                                                  parent.GetRect().yMin+10,
                                                  guessWidth,
                                                  0) , DrawConfirm, "Confirm", GUILayout.ExpandWidth(true) );
+                KOSMouseBlocking.Show(ref mouseArea, "DelegateDialog", drawn);
             }
+        }
+
+        public void OnDestroy()
+        {
+            KOSMouseBlocking.Unregister(ref mouseArea);
         }
         
         public void DrawConfirm( int windowID )

@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using kOS.Safe.UserIO;
 using UnityEngine;
 
 namespace kOS.Screen
@@ -33,6 +34,7 @@ namespace kOS.Screen
         private string title;
         private string subTitle;
         private Rect outerWindowRect = new Rect();
+        private MouseBlocking.Area mouseArea;
         private static Dictionary<int,Vector2> prevScrollPositions; // track prev scroll positions of my instances.
         private bool running;
         private ChangeAction callWhenChanged;
@@ -103,6 +105,11 @@ namespace kOS.Screen
             running = false;
         }
 
+        public void OnDestroy()
+        {
+            KOSMouseBlocking.Unregister(ref mouseArea);
+        }
+
         public void OnGUI()
         {
             if (!running)
@@ -120,6 +127,8 @@ namespace kOS.Screen
                 GUILayout.MinHeight(300),
                 GUILayout.MaxHeight(UnityEngine.Screen.height - outerWindowRect.y - 15)
             );
+
+            KOSMouseBlocking.Show(ref mouseArea, "ListPickerDialog", outerWindowRect);
 
             // This is meant to be a one-off instance.  Once it's been used to make one pick, it's gone:
             if (!running)
