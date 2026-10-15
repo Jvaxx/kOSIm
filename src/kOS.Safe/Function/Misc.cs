@@ -150,6 +150,7 @@ namespace kOS.Safe.Function
             bool defaultOutput = false;
             bool justCompiling = false; // is this load() happening to compile, or to run?
             GlobalPath outPath = null;
+            object outputObject = null;
             object topStack = PopValueAssert(shared, true); // null if there's no output file (output file means compile, not run).
             if (topStack != null)
             {
@@ -158,7 +159,11 @@ namespace kOS.Safe.Function
                 if (outputArg.Equals("-default-compile-out-"))
                     defaultOutput = true;
                 else
-                    outPath = shared.VolumeMgr.GlobalPathFromObject(outputArg);
+                {
+                    // The object itself, so a PATH value, file or volume keeps its own volume (PATH-01):
+                    outputObject = topStack;
+                    outPath = shared.VolumeMgr.GlobalPathFromObject(outputObject);
+                }
             }
 
             object skipAlreadyObject = PopValueAssert(shared, false);
@@ -224,7 +229,9 @@ namespace kOS.Safe.Function
                 if (justCompiling)
                 {
                     // since we've already read the file content, use the volume from outPath instead of the source path
-                    volume = shared.VolumeMgr.GetVolumeFromPath(outPath);
+                    volume = outputObject == null
+                        ? shared.VolumeMgr.GetVolumeFromPath(outPath)
+                        : shared.VolumeMgr.GetVolumeFromObject(outputObject, outPath);
                     shared.Cpu.YieldProgram(YieldFinishedCompile.CompileScriptToFile(path, 1, fileContent.String, options, volume, outPath));
                 }
                 else
@@ -267,14 +274,15 @@ namespace kOS.Safe.Function
     {
         public override void Execute(SafeSharedObjects shared)
         {
-            string pathString = PopValueAssert(shared, true).ToString();
+            // The object itself, so a PATH value, file or volume keeps its own volume (PATH-01):
+            object pathObject = PopValueAssert(shared, true);
             string toAppend = PopValueAssert(shared).ToString();
             AssertArgBottomAndConsume(shared);
 
             if (shared.VolumeMgr != null)
             {
-                GlobalPath path = shared.VolumeMgr.GlobalPathFromObject(pathString);
-                Volume volume = shared.VolumeMgr.GetVolumeFromPath(path);
+                GlobalPath path = shared.VolumeMgr.GlobalPathFromObject(pathObject);
+                Volume volume = shared.VolumeMgr.GetVolumeFromObject(pathObject, path);
 
                 VolumeItem volumeItem = volume.Open(path) as VolumeFile;
                 VolumeFile volumeFile = null;

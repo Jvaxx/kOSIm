@@ -26,21 +26,28 @@ namespace kOS.Safe
                 int remaining = CountRemainingArgs(shared);
 
                 GlobalPath path;
+                Volume ownVolume;
 
                 if (remaining == 0)
                 {
+                    ownVolume = shared.VolumeMgr.CurrentVolume;
                     path = GlobalPath.FromVolumePath(shared.VolumeMgr.CurrentDirectory.Path,
-                                                     shared.VolumeMgr.GetVolumeRawIdentifier(shared.VolumeMgr.CurrentVolume));
+                                                     shared.VolumeMgr.GetVolumeRawIdentifier(ownVolume));
                 }
                 else
                 {
                     object pathObject = PopValueAssert(shared, true);
                     path = shared.VolumeMgr.GlobalPathFromObject(pathObject);
+                    // Keep the volume the argument names, as path functions use it (PATH-01): a
+                    // path without a volume id is on the current volume.
+                    ownVolume = VolumeArguments.OwnVolume(pathObject);
+                    if (ownVolume == null && !GlobalPath.HasVolumeId(pathObject.ToString()))
+                        ownVolume = shared.VolumeMgr.CurrentVolume;
                 }
 
                 AssertArgBottomAndConsume(shared);
 
-                ReturnValue = new PathValue(path, shared);
+                ReturnValue = new PathValue(path, shared, ownVolume);
             }
         }
 
@@ -48,6 +55,15 @@ namespace kOS.Safe
 
         public GlobalPath Path { get; private set; }
         private SafeSharedObjects sharedObjects;
+
+        /// <summary>
+        /// The volume this path is on, when it was made from one (the current volume, a volume
+        /// or file object, or a path that had one) rather than from a "name:" string; null
+        /// otherwise, and after loading from a dump. Two volumes can share a name, so
+        /// <see cref="Path"/>'s volume id alone may find the other one (PATH-01). Printing,
+        /// saving and comparing still use <see cref="Path"/> only.
+        /// </summary>
+        public Volume OwnVolume { get; private set; }
 
         public SafeSharedObjects Shared {
             set
@@ -64,10 +80,15 @@ namespace kOS.Safe
             InitializeSuffixes();
         }
 
-        public PathValue(GlobalPath path, SafeSharedObjects sharedObjects) : this()
+        public PathValue(GlobalPath path, SafeSharedObjects sharedObjects) : this(path, sharedObjects, null)
+        {
+        }
+
+        public PathValue(GlobalPath path, SafeSharedObjects sharedObjects, Volume ownVolume) : this()
         {
             Path = path;
             this.sharedObjects = sharedObjects;
+            OwnVolume = ownVolume;
         }
 
         // Required for all IDumpers for them to work, but can't enforced by the interface because it's static:
@@ -81,17 +102,24 @@ namespace kOS.Safe
 
         public PathValue FromPath(GlobalPath path)
         {
-            return new PathValue(path, sharedObjects);
+            return new PathValue(path, sharedObjects, OwnVolume);
         }
 
         public PathValue FromPath(VolumePath volumePath, string volumeId)
         {
-            return new PathValue(GlobalPath.FromVolumePath(volumePath, volumeId), sharedObjects);
+            return new PathValue(GlobalPath.FromVolumePath(volumePath, volumeId), sharedObjects, OwnVolume);
+        }
+
+        private Volume GetVolume()
+        {
+            if (OwnVolume != null)
+                return sharedObjects.VolumeMgr.CheckAttachedAndInRange(OwnVolume);
+            return sharedObjects.VolumeMgr.GetVolumeFromPath(Path);
         }
 
         private void InitializeSuffixes()
         {
-            AddSuffix("VOLUME", new Suffix<Volume>(() => sharedObjects.VolumeMgr.GetVolumeFromPath(Path)));
+            AddSuffix("VOLUME", new Suffix<Volume>(GetVolume));
             AddSuffix("SEGMENTS", new Suffix<ListValue>(() => new ListValue(Path.Segments.Select((s) => (Structure)new StringValue(s)))));
             AddSuffix("LENGTH", new Suffix<ScalarIntValue>(() => Path.Length));
             AddSuffix("NAME", new Suffix<StringValue>(() => Path.Name));

@@ -262,6 +262,144 @@ namespace kOS.Safe.Test.Execution
             Assert.AreEqual("from second\nProgram ended.", host.Output("runpath(open(\"2:/p.ks\"))."));
             host.AssertNoErrors();
         }
+
+        // PATH values (PATH-01): a path made from the current volume, a volume or a file object
+        // keeps that volume; printed and saved it is still "name:/path".
+
+        [Test]
+        public void PathOfTheCurrentVolumeKeepsIt()
+        {
+            second.CreateFile(VolumePath.FromString("/only2.txt")).WriteLn("2");
+            Run("switch to 2.");
+            Assert.AreEqual("True", host.Output("print exists(path():combine(\"only2.txt\"))."));
+            Assert.AreEqual("True", host.Output("print exists(path(\"only2.txt\"))."));
+            Assert.AreEqual("True", host.Output("print exists(path(\"/only2.txt\"))."));
+            Assert.AreEqual("True", host.Output("print path():volume:root:list:haskey(\"only2.txt\")."));
+            Assert.AreEqual("data:/", host.Output("print path()."));
+            host.AssertNoErrors();
+        }
+
+        [Test]
+        public void PathOfAnObjectKeepsItsVolume()
+        {
+            second.CreateFile(VolumePath.FromString("/only2.txt")).WriteLn("2");
+            Assert.AreEqual("second", host.Output("print open(path(open(\"2:/x.txt\"))):readall:string:trim."));
+            Assert.AreEqual("True", host.Output("print exists(path(path(\"2:\"):volume):combine(\"only2.txt\"))."));
+            Assert.AreEqual("data:/x.txt", host.Output("print path(open(\"2:/x.txt\"))."));
+            host.AssertNoErrors();
+        }
+
+        [Test]
+        public void DerivedPathsKeepTheVolume()
+        {
+            second.CreateFile(VolumePath.FromString("/only2.txt")).WriteLn("2");
+            Run("set p to path(open(\"2:/d/inner.txt\")).");
+            Assert.AreEqual("True", host.Output("print exists(p:parent:parent:combine(\"only2.txt\"))."));
+            Assert.AreEqual("True", host.Output("print exists(p:root:combine(\"only2.txt\"))."));
+            Assert.AreEqual("True", host.Output("print exists(p:root:combine(\"d\", \"inner.txt\"))."));
+            Assert.AreEqual("True", host.Output("print exists(path(p):root:combine(\"only2.txt\"))."));
+            Run("copypath(\"0:/io05/src.txt\", p:changename(\"new.txt\")).");
+            Assert.AreEqual("archive\n", Text(second, "/d/new.txt"));
+            Assert.IsNull(Text(first, "/d/new.txt"));
+            first.CreateFile(VolumePath.FromString("/d/inner.bak")).WriteLn("first bak");
+            second.CreateFile(VolumePath.FromString("/d/inner.bak")).WriteLn("second bak");
+            Run("copypath(p:changeextension(\"bak\"), \"0:/io05/ext.txt\").");
+            Assert.AreEqual("second bak\n", ArchiveText("io05/ext.txt"));
+            host.AssertNoErrors();
+        }
+
+        [Test]
+        public void PathFunctionsUseAPathsVolume()
+        {
+            Run("set p to path(open(\"2:/x.txt\")).");
+            Run("copypath(p, \"0:/io05/p.txt\").");
+            Assert.AreEqual("second\n", ArchiveText("io05/p.txt"));
+            Run("deletepath(p).");
+            Assert.IsNull(Text(second, "/x.txt"));
+            Assert.AreEqual("first\n", Text(first, "/x.txt"));
+        }
+
+        [Test]
+        public void PathFromAStringWithANameIsStillByName()
+        {
+            Assert.AreEqual("first", host.Output("print open(path(\"data:/x.txt\")):readall:string:trim."));
+            Assert.AreEqual("first", host.Output("print open(path(\"data:/x.txt\"):root:combine(\"x.txt\")):readall:string:trim."));
+            Assert.AreEqual("second", host.Output("print open(path(\"2:/x.txt\")):readall:string:trim."));
+            Run("switch to 2.");
+            Assert.AreEqual("first", host.Output("print open(path(\"data:/x.txt\")):readall:string:trim."));
+            host.AssertNoErrors();
+        }
+
+        [Test]
+        public void PathOfADetachedVolumeFails()
+        {
+            Run("set p to path(open(\"2:/x.txt\")).");
+            host.Volumes.Remove(2);
+
+            host.Execute("copypath(p, \"0:/io05/p.txt\").");
+            Assert.AreEqual(1, host.Errors.Count);
+            StringAssert.Contains("Volume not found", host.Errors[0].Message);
+            host.Errors.Clear();
+            host.Execute("print p:volume.");
+            Assert.AreEqual(1, host.Errors.Count);
+            StringAssert.Contains("Volume not found", host.Errors[0].Message);
+            Assert.IsFalse(System.IO.File.Exists(System.IO.Path.Combine(host.ArchiveRoot, "io05", "p.txt")));
+        }
+
+        [Test]
+        public void PathSurvivesARenumbering()
+        {
+            Run("set p to path(open(\"2:/x.txt\")).");
+            host.Volumes.Remove(2);
+            host.Volumes.Add(second);
+            Assert.AreEqual("second", host.Output("print open(p):readall:string:trim."));
+            host.AssertNoErrors();
+        }
+
+        [Test]
+        public void SavedPathIsByName()
+        {
+            // JSON keeps the "name:/path" string (format unchanged), so a loaded path is by name.
+            Run("writejson(path(open(\"2:/x.txt\")), \"0:/io05/p.json\").");
+            StringAssert.Contains("data:/x.txt", ArchiveText("io05/p.json"));
+            Assert.AreEqual("first", host.Output("print open(readjson(\"0:/io05/p.json\")):readall:string:trim."));
+            host.AssertNoErrors();
+        }
+
+        [Test]
+        public void LogUsesTheCurrentVolumeAndAPathsVolume()
+        {
+            Run("switch to 2.");
+            Run("log \"rel\" to \"log.txt\".");
+            Run("switch to 0.");
+            Run("log \"kept\" to path(open(\"2:/d\")):combine(\"log.txt\").");
+            Run("log \"appended\" to open(\"2:/d/inner.txt\").");
+            Assert.AreEqual("rel\n", Text(second, "/log.txt"));
+            Assert.AreEqual("kept\n", Text(second, "/d/log.txt"));
+            Assert.AreEqual("second inner\nappended\n", Text(second, "/d/inner.txt"));
+            Assert.IsNull(Text(second, "/inner.txt"), "a file object was taken as its name");
+            Assert.IsNull(Text(first, "/log.txt"));
+            Assert.IsNull(Text(first, "/d/log.txt"));
+            Assert.AreEqual("first inner\n", Text(first, "/d/inner.txt"));
+            Assert.IsFalse(System.IO.File.Exists(System.IO.Path.Combine(host.ArchiveRoot, "inner.txt")),
+                "a file object was taken as its name, relative to the current directory");
+        }
+
+        [Test]
+        public void CompileOutputUsesTheCurrentVolumeAndAPathsVolume()
+        {
+            second.CreateFile(VolumePath.FromString("/p.ks")).WriteLn("print \"from second\".");
+            Run("switch to 2.");
+            Run("compile \"p.ks\" to \"q.ksm\".");
+            Run("switch to 0.");
+            Run("compile \"2:/p.ks\" to path(open(\"2:/d\")):combine(\"p.ksm\").");
+            Assert.IsNotNull(second.Open(VolumePath.FromString("/q.ksm")));
+            Assert.IsNotNull(second.Open(VolumePath.FromString("/d/p.ksm")));
+            Assert.IsNull(first.Open(VolumePath.FromString("/q.ksm")));
+            Assert.IsNull(first.Open(VolumePath.FromString("/d/p.ksm")));
+            Assert.AreEqual("from second\nProgram ended.", host.Output("runpath(open(\"2:/d/p.ksm\"))."));
+            host.AssertNoErrors();
+        }
     }
 
     /// <summary>
