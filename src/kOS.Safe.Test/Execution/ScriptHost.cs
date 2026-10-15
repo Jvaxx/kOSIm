@@ -50,6 +50,8 @@ namespace kOS.Safe.Test.Execution
         public GatedScript Compiler { get; private set; }
         public string ArchiveRoot { get; private set; }
         public IList<Exception> Errors { get { return logger.Errors; } }
+        /// <summary>The CPU's volumes; the archive is volume 0. Add disks before typing.</summary>
+        public IVolumeManager Volumes { get { return shared.VolumeMgr; } }
 
         public ScriptHost(int rows = 0, int columns = 0)
         {

@@ -104,6 +104,7 @@ Ship small, independently reviewable changes with regression tests rather than b
 
 - Review `NET-03` (implemented and headless-tested): telnet keys split across socket reads now decode as one key (stateful `TerminalInputDecoder`, 100 ms timeout for a lone Escape), and blank lines in pastes keep their Enter. Both telnet queues are bounded (262,144 characters each). Interrupts, resizes and repaint requests overtake waiting text; an interrupt discards the text typed before it. A full input backlog discards further text with a notice until it drains to half; a stalled client's unsent output is replaced by a full repaint. Telnet input and prompt typing are limited per update (4,096 and 2,048 keys, 4 ms), clients take turns. 92 headless tests, including the recordings replayed to keys, end-to-end paste and interrupt tests on the real prompt, and 13 mutations. Headless proxy: the worst update for a 6,000-character pasted line fell from about 370–400 ms to about 5 ms. The game adapters are compiled, not run; real clients, frame time and stalled clients under Proton are deferred. Limits are code constants (user decision).
 - `PROMPT-01` (fixture-found by the paste tests): a command wrapped at the bottom of the screen overwrote the last output row, and a line taller than the screen made Enter throw. `TextEditor` now adds the rows before scrolling. 5 headless tests. Not checked in game.
+- `IO-05` (2026-10-15): path functions keep a volume or file object's own volume (and relative paths the current volume) instead of looking its name up again; see the exit review below.
 - Prompt-level Ctrl-C (found here, fixed 2026-10-15 in its own task, decision 4): Ctrl-C now ends a `WAIT` typed at the prompt; a running `COMPILE` (or `RUNPATH` compile) is cancelled, the prompt waits for its thread and its result is discarded. Headless-verified (`PromptBreakTest`), committed; Proton check deferred by the user. See `docs/testing-and-build.md`, "Ctrl-C at the prompt (decision 4)".
 
 ### Priorities
@@ -149,7 +150,7 @@ Every P0/P1 finding in `docs/improvements-overview.md` was checked against the c
 
 **Still open in Phase 1 scope:**
 
-- `IO-05` — **confirmed** by a throwaway probe (removed): with two volumes named `data` in one `VolumeManager`, `GlobalPathFromObject(second)` gives `data:/`, which resolves to the *first* volume, silently. A copy/move given a volume or file object can therefore act on the wrong disk. A volume not in the manager fails clearly ("Volume not found"). Recommended next.
+- `IO-05` — **fixed and headless-tested (2026-10-15; in-game check deferred)**: path functions (`COPYPATH`, `MOVEPATH`, `DELETEPATH`, `OPEN`, `EXISTS`, `CD`, JSON, `RUNPATH`, `EDIT`, …) keep a volume or file/directory object's own volume (it must be attached and in range), and paths without a volume id use the actual current volume; strings with a volume id unchanged. Before the fix the second `data` disk's objects (and relative paths after switching to it) acted on the first one, and moving or deleting a file object from a detached disk deleted the other disk's same-named file. 23 tests; see `docs/testing-and-build.md`, "Volume identity in path arguments (IO-05)". Not covered: `PATH` values (name only). Also found: `MOVEPATH` of a file onto itself deletes it (upstream, confirmed by a removed probe; not fixed).
 - `IO-04` — the reviewed prefix escape does not apply as deployed: `SafeHouse.ArchiveFolder` keeps the trailing separator from `.../Ships/Script/`, so a sibling `Script-private` does not match, and archive `VolumePath` segments cannot contain `/` or `\`. Residual hardening (P2): the widget texture check depends on that trailing separator; no symlink policy; no image size limit.
 - `INPUT-01` mouse half (click-through #2659/#2759, modal mouse blocking) — the agreed follow-up; mostly Unity, best done with in-game testing.
 
@@ -157,7 +158,7 @@ Every P0/P1 finding in `docs/improvements-overview.md` was checked against the c
 
 **Test items:** `TEST-01` is resolved by policy (local gate `.ci/test.sh` with a result checker and minimum count; no hosted CI). `TEST-02` is largely covered (real `ScreenBuffer` overlay/cursor/dimension suites, the real CPU and prompt in `ScriptHost`, long-input and paste tests); history-model tests come with `TERM-05`.
 
-**Exit criterion status: not met.** Remaining: `IO-05` (and optionally the `IO-04` hardening), and the in-game verification of the fixes listed as deferred above.
+**Exit criterion status: not met.** Remaining: the `IO-04` hardening, the `INPUT-01` mouse half, and the in-game verification of the fixes listed as deferred above (now including `IO-05`).
 
 ### Exit criterion
 

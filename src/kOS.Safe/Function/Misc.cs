@@ -78,7 +78,7 @@ namespace kOS.Safe.Function
             if (shared.VolumeMgr == null) return;
 
             GlobalPath path = shared.VolumeMgr.GlobalPathFromObject(pathObject);
-            Volume volume = shared.VolumeMgr.GetVolumeFromPath(path);
+            Volume volume = shared.VolumeMgr.GetVolumeFromObject(pathObject, path);
             VolumeFile volumeFile = volume.Open(path) as VolumeFile;
 
             FileContent content = volumeFile != null ? volumeFile.ReadAll() : null;
@@ -172,7 +172,7 @@ namespace kOS.Safe.Function
                 throw new KOSFileException("No filename to load was given.");
 
             GlobalPath path = shared.VolumeMgr.GlobalPathFromObject(pathObject);
-            Volume volume = shared.VolumeMgr.GetVolumeFromPath(path);
+            Volume volume = shared.VolumeMgr.GetVolumeFromObject(pathObject, path);
 
             VolumeFile file = volume.Open(path, !justCompiling) as VolumeFile; // if running, look for KSM first.  If compiling look for KS first.
             if (file == null) throw new KOSFileException(string.Format("Can't find file '{0}'.", path));

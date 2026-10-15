@@ -22,7 +22,7 @@ namespace kOS.Function
             AssertArgBottomAndConsume(shared);
 
             GlobalPath path = shared.VolumeMgr.GlobalPathFromObject(pathObject);
-            Volume vol = shared.VolumeMgr.GetVolumeFromPath(path);
+            Volume vol = shared.VolumeMgr.GetVolumeFromObject(pathObject, path);
             shared.Window.OpenPopupEditor(vol, path);
 
         }

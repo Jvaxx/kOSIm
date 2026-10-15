@@ -241,9 +241,16 @@ namespace kOS.Safe.Persistence
 
         public bool Copy(GlobalPath sourcePath, GlobalPath destinationPath, bool verifyFreeSpace = true)
         {
-            Volume sourceVolume = GetVolumeFromPath(sourcePath);
-            Volume destinationVolume = GetVolumeFromPath(destinationPath);
+            return Copy(GetVolumeFromPath(sourcePath), sourcePath, GetVolumeFromPath(destinationPath), destinationPath,
+                verifyFreeSpace);
+        }
 
+        /// <summary>
+        /// Copy between resolved volumes. The paths' volume ids are not looked up again.
+        /// </summary>
+        public bool Copy(Volume sourceVolume, GlobalPath sourcePath, Volume destinationVolume, GlobalPath destinationPath,
+            bool verifyFreeSpace = true)
+        {
             VolumeItem source = sourceVolume.Open(sourcePath);
             VolumeItem destination = destinationVolume.Open(destinationPath);
 
@@ -274,13 +281,12 @@ namespace kOS.Safe.Persistence
                     throw new KOSException("Path was expected to point to a directory: " + destinationPath);
                 }
 
-                return CopyDirectory(sourcePath, destinationPath, verifyFreeSpace);
+                return CopyDirectory(sourceVolume, sourcePath, destinationVolume, destinationPath, verifyFreeSpace);
             } else
             {
                 if (destination is VolumeFile || destination == null)
                 {
-                    Volume targetVolume = GetVolumeFromPath(destinationPath);
-                    return CopyFile(source as VolumeFile, destinationPath, targetVolume, verifyFreeSpace);
+                    return CopyFile(source as VolumeFile, destinationPath, destinationVolume, verifyFreeSpace);
                 }
                 else
                 {
@@ -289,15 +295,28 @@ namespace kOS.Safe.Persistence
             }
         }
 
+        /// <summary>
+        /// Whether <paramref name="destinationPath"/> is inside <paramref name="sourcePath"/> on the
+        /// same volume, compared by volume rather than by the paths' volume ids.
+        /// </summary>
+        private static bool IsInside(Volume sourceVolume, GlobalPath sourcePath, Volume destinationVolume, GlobalPath destinationPath)
+        {
+            return sourceVolume == destinationVolume && ((VolumePath)sourcePath).IsParent(destinationPath);
+        }
+
         protected bool CopyDirectory(GlobalPath sourcePath, GlobalPath destinationPath, bool verifyFreeSpace)
         {
-            if (sourcePath.IsParent(destinationPath))
+            return CopyDirectory(GetVolumeFromPath(sourcePath), sourcePath, GetVolumeFromPath(destinationPath),
+                destinationPath, verifyFreeSpace);
+        }
+
+        protected bool CopyDirectory(Volume sourceVolume, GlobalPath sourcePath, Volume destinationVolume,
+            GlobalPath destinationPath, bool verifyFreeSpace)
+        {
+            if (IsInside(sourceVolume, sourcePath, destinationVolume, destinationPath))
             {
                 throw new KOSPersistenceException("Can't copy directory to a subdirectory of itself: " + destinationPath);
             }
-
-            Volume sourceVolume = GetVolumeFromPath(sourcePath);
-            Volume destinationVolume = GetVolumeFromPath(destinationPath);
 
             VolumeDirectory source = sourceVolume.Open(sourcePath) as VolumeDirectory;
 
@@ -321,7 +340,8 @@ namespace kOS.Safe.Persistence
             {
                 if (pair.Value is VolumeDirectory)
                 {
-                    if (!CopyDirectory(sourcePath.Combine(pair.Key), destinationPath.Combine(pair.Key), verifyFreeSpace))
+                    if (!CopyDirectory(sourceVolume, sourcePath.Combine(pair.Key), destinationVolume,
+                        destinationPath.Combine(pair.Key), verifyFreeSpace))
                     {
                         return false;
                     }
@@ -353,22 +373,27 @@ namespace kOS.Safe.Persistence
 
         public bool Move(GlobalPath sourcePath, GlobalPath destinationPath)
         {
+            return Move(GetVolumeFromPath(sourcePath), sourcePath, GetVolumeFromPath(destinationPath), destinationPath);
+        }
+
+        /// <summary>
+        /// Move between resolved volumes. The paths' volume ids are not looked up again.
+        /// </summary>
+        public bool Move(Volume sourceVolume, GlobalPath sourcePath, Volume destinationVolume, GlobalPath destinationPath)
+        {
             if (sourcePath.IsRoot)
             {
                 throw new KOSPersistenceException("Can't move root directory: " + sourcePath);
             }
 
-            if (sourcePath.IsParent(destinationPath))
+            if (IsInside(sourceVolume, sourcePath, destinationVolume, destinationPath))
             {
                 throw new KOSPersistenceException("Can't move directory to a subdirectory of itself: " + destinationPath);
             }
 
-            Volume sourceVolume = GetVolumeFromPath(sourcePath);
-            Volume destinationVolume = GetVolumeFromPath(destinationPath);
-
             bool verifyFreeSpace = sourceVolume != destinationVolume;
 
-            if (!Copy(sourcePath, destinationPath, verifyFreeSpace))
+            if (!Copy(sourceVolume, sourcePath, destinationVolume, destinationPath, verifyFreeSpace))
             {
                 return false;
             }

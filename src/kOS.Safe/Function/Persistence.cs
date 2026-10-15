@@ -182,7 +182,7 @@ namespace kOS.Safe.Function
                 object pathObject = PopValueAssert(shared, true);
 
                 GlobalPath path = shared.VolumeMgr.GlobalPathFromObject(pathObject);
-                Volume volume = shared.VolumeMgr.GetVolumeFromPath(path);
+                Volume volume = shared.VolumeMgr.GetVolumeFromObject(pathObject, path);
 
                 directory = volume.Open(path) as VolumeDirectory;
 
@@ -210,7 +210,15 @@ namespace kOS.Safe.Function
             GlobalPath sourcePath = shared.VolumeMgr.GlobalPathFromObject(sourcePathObject);
             GlobalPath destinationPath = shared.VolumeMgr.GlobalPathFromObject(destinationPathObject);
 
-            ReturnValue = shared.VolumeMgr.Copy(sourcePath, destinationPath);
+            // A volume or file object keeps its own volume (IO-05); its path's id is only a name.
+            var manager = shared.VolumeMgr as VolumeManager;
+            if (manager == null)
+            {
+                ReturnValue = shared.VolumeMgr.Copy(sourcePath, destinationPath);
+                return;
+            }
+            ReturnValue = manager.Copy(manager.GetVolumeFromObject(sourcePathObject, sourcePath), sourcePath,
+                manager.GetVolumeFromObject(destinationPathObject, destinationPath), destinationPath);
         }
     }
 
@@ -226,7 +234,15 @@ namespace kOS.Safe.Function
             GlobalPath sourcePath = shared.VolumeMgr.GlobalPathFromObject(sourcePathObject);
             GlobalPath destinationPath = shared.VolumeMgr.GlobalPathFromObject(destinationPathObject);
 
-            ReturnValue = shared.VolumeMgr.Move(sourcePath, destinationPath);
+            // A volume or file object keeps its own volume (IO-05); its path's id is only a name.
+            var manager = shared.VolumeMgr as VolumeManager;
+            if (manager == null)
+            {
+                ReturnValue = shared.VolumeMgr.Move(sourcePath, destinationPath);
+                return;
+            }
+            ReturnValue = manager.Move(manager.GetVolumeFromObject(sourcePathObject, sourcePath), sourcePath,
+                manager.GetVolumeFromObject(destinationPathObject, destinationPath), destinationPath);
         }
     }
 
@@ -239,7 +255,7 @@ namespace kOS.Safe.Function
             AssertArgBottomAndConsume(shared);
 
             GlobalPath path = shared.VolumeMgr.GlobalPathFromObject(pathObject);
-            Volume volume = shared.VolumeMgr.GetVolumeFromPath(path);
+            Volume volume = shared.VolumeMgr.GetVolumeFromObject(pathObject, path);
 
             ReturnValue = volume.Delete(path);
         }
@@ -264,7 +280,7 @@ namespace kOS.Safe.Function
             FileContent fileContent = new FileContent(serializedString);
 
             GlobalPath path = shared.VolumeMgr.GlobalPathFromObject(pathObject);
-            Volume volume = shared.VolumeMgr.GetVolumeFromPath(path);
+            Volume volume = shared.VolumeMgr.GetVolumeFromObject(pathObject, path);
 
             ReturnValue = volume.SaveFile(path, fileContent);
         }
@@ -279,7 +295,7 @@ namespace kOS.Safe.Function
             AssertArgBottomAndConsume(shared);
 
             GlobalPath path = shared.VolumeMgr.GlobalPathFromObject(pathObject);
-            Volume volume = shared.VolumeMgr.GetVolumeFromPath(path);
+            Volume volume = shared.VolumeMgr.GetVolumeFromObject(pathObject, path);
 
             VolumeFile volumeFile = volume.Open(path) as VolumeFile;
 
@@ -302,7 +318,7 @@ namespace kOS.Safe.Function
             AssertArgBottomAndConsume(shared);
 
             GlobalPath path = shared.VolumeMgr.GlobalPathFromObject(pathObject);
-            Volume volume = shared.VolumeMgr.GetVolumeFromPath(path);
+            Volume volume = shared.VolumeMgr.GetVolumeFromObject(pathObject, path);
 
             ReturnValue = volume.Exists(path);
         }
@@ -317,7 +333,7 @@ namespace kOS.Safe.Function
             AssertArgBottomAndConsume(shared);
 
             GlobalPath path = shared.VolumeMgr.GlobalPathFromObject(pathObject);
-            Volume volume = shared.VolumeMgr.GetVolumeFromPath(path);
+            Volume volume = shared.VolumeMgr.GetVolumeFromObject(pathObject, path);
 
             VolumeItem volumeItem = volume.Open(path);
 
@@ -337,7 +353,7 @@ namespace kOS.Safe.Function
             AssertArgBottomAndConsume(shared);
 
             GlobalPath path = shared.VolumeMgr.GlobalPathFromObject(pathObject);
-            Volume volume = shared.VolumeMgr.GetVolumeFromPath(path);
+            Volume volume = shared.VolumeMgr.GetVolumeFromObject(pathObject, path);
 
             VolumeFile volumeFile = volume.CreateFile(path);
 
@@ -354,7 +370,7 @@ namespace kOS.Safe.Function
             AssertArgBottomAndConsume(shared);
 
             GlobalPath path = shared.VolumeMgr.GlobalPathFromObject(pathObject);
-            Volume volume = shared.VolumeMgr.GetVolumeFromPath(path);
+            Volume volume = shared.VolumeMgr.GetVolumeFromObject(pathObject, path);
 
             VolumeDirectory volumeDirectory = volume.CreateDirectory(path);
 
