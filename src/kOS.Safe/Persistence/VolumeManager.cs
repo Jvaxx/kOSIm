@@ -393,6 +393,11 @@ namespace kOS.Safe.Persistence
 
             CheckNotMovedOntoItself(sourceVolume, sourcePath, destinationVolume, destinationPath);
 
+            // A source that cannot be deleted is refused before it is copied:
+            var sourceArchive = sourceVolume as Archive;
+            if (sourceArchive != null)
+                sourceArchive.CheckDeletable(sourcePath);
+
             bool verifyFreeSpace = sourceVolume != destinationVolume;
 
             if (!Copy(sourceVolume, sourcePath, destinationVolume, destinationPath, verifyFreeSpace))

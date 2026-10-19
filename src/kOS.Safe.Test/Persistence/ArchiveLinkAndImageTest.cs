@@ -56,6 +56,7 @@ namespace kOS.Safe.Test.Persistence
         [TearDown]
         public void TearDown()
         {
+            LinkSafeDelete.linksCanBeDeletedOverride = null;
             // Links first, so the cleanup itself never depends on the code under test.
             foreach (string path in Directory.GetFileSystemEntries(baseDir, "*", SearchOption.AllDirectories)
                 .Where(p => SymbolicLinks.IsLink(p)).OrderByDescending(p => p.Length))
@@ -118,6 +119,68 @@ namespace kOS.Safe.Test.Persistence
             Assert.IsTrue(archive.Delete(VolumePath.FromString("/filelink.ks")));
             Assert.IsFalse(File.Exists(Path.Combine(root, "filelink.ks")));
             AssertOutsideIntact();
+        }
+
+        // Under Wine (Proton) deleting a file link deleted its target and a directory link could
+        // not be removed (2026-10-19): there, anything that is or contains a link is refused
+        // before anything is deleted or copied. Simulated here through the override.
+
+        [Test]
+        public void UnderWineAFileLinkIsRefusedAndKept()
+        {
+            LinkSafeDelete.linksCanBeDeletedOverride = false;
+            string link = Path.Combine(root, "filelink.ks");
+            SymbolicLinks.Create(Path.Combine(outside, "t.ks"), link);
+
+            var error = Assert.Throws<KOSPersistenceException>(() => archive.Delete(VolumePath.FromString("/filelink.ks")));
+            StringAssert.Contains("is or contains a link", error.Message);
+            Assert.IsTrue(SymbolicLinks.IsLink(link));
+            AssertOutsideIntact();
+        }
+
+        [Test]
+        public void UnderWineADirectoryWithALinkInsideIsRefusedWhole()
+        {
+            LinkSafeDelete.linksCanBeDeletedOverride = false;
+            File.WriteAllText(Path.Combine(root, "dir", "a-own.ks"), "own\n");
+            Directory.CreateDirectory(Path.Combine(root, "dir", "sub"));
+            SymbolicLinks.Create(outside, Path.Combine(root, "dir", "sub", "dirlink"));
+            File.WriteAllText(Path.Combine(root, "dir", "z-own.ks"), "own\n");
+
+            Assert.Throws<KOSPersistenceException>(() => archive.Delete(VolumePath.FromString("/dir")));
+            Assert.IsTrue(File.Exists(Path.Combine(root, "dir", "a-own.ks")), "nothing deleted before the refusal");
+            Assert.IsTrue(File.Exists(Path.Combine(root, "dir", "z-own.ks")));
+            Assert.IsTrue(SymbolicLinks.IsLink(Path.Combine(root, "dir", "sub", "dirlink")));
+            AssertOutsideIntact();
+        }
+
+        [Test]
+        public void UnderWineMovingALinkIsRefusedBeforeCopying()
+        {
+            LinkSafeDelete.linksCanBeDeletedOverride = false;
+            SymbolicLinks.Create(Path.Combine(outside, "t.ks"), Path.Combine(root, "filelink.ks"));
+            var manager = new VolumeManager();
+            manager.Add(archive);
+
+            Assert.Throws<KOSPersistenceException>(() =>
+                manager.Move(GlobalPath.FromString("0:/filelink.ks"), GlobalPath.FromString("0:/moved.ks")));
+            Assert.IsFalse(File.Exists(Path.Combine(root, "moved.ks")), "nothing copied");
+            Assert.IsTrue(SymbolicLinks.IsLink(Path.Combine(root, "filelink.ks")));
+            AssertOutsideIntact();
+        }
+
+        [Test]
+        public void UnderWineEntriesWithoutLinksAreStillDeletedAndMoved()
+        {
+            LinkSafeDelete.linksCanBeDeletedOverride = false;
+            File.WriteAllText(Path.Combine(root, "dir", "own.ks"), "own\n");
+            File.WriteAllText(Path.Combine(root, "plain.ks"), "plain\n");
+            var manager = new VolumeManager();
+            manager.Add(archive);
+
+            Assert.IsTrue(manager.Move(GlobalPath.FromString("0:/plain.ks"), GlobalPath.FromString("0:/dir/plain.ks")));
+            Assert.IsTrue(archive.Delete(VolumePath.FromString("/dir")));
+            Assert.IsFalse(Directory.Exists(Path.Combine(root, "dir")));
         }
 
         [Test]

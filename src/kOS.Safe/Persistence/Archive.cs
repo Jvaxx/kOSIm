@@ -213,9 +213,12 @@ namespace kOS.Safe.Persistence
             {
                 return false;
             }
-            else if (fileSystemInfo is FileInfo)
+
+            CheckDeletable(path, fileSystemInfo);
+
+            if (fileSystemInfo is FileInfo)
             {
-                File.Delete(fileSystemInfo.FullName);
+                LinkSafeDelete.DeleteFile(fileSystemInfo.FullName); // a link, not its target (IO-04)
             }
             else
             {
@@ -223,6 +226,27 @@ namespace kOS.Safe.Persistence
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Under Wine (Proton) a link cannot be deleted without deleting its target (IO-04):
+        /// refuse, before anything is deleted (or copied, for a move), to delete an entry that
+        /// is or contains a link.
+        /// </summary>
+        internal void CheckDeletable(VolumePath path, bool ksmDefault = false)
+        {
+            var fileSystemInfo = Search(path, ksmDefault);
+            if (fileSystemInfo != null)
+                CheckDeletable(path, fileSystemInfo);
+        }
+
+        private static void CheckDeletable(VolumePath path, FileSystemInfo fileSystemInfo)
+        {
+            if (!LinkSafeDelete.LinksCanBeDeleted && LinkSafeDelete.FirstLinkIn(fileSystemInfo.FullName) != null)
+            {
+                throw new KOSPersistenceException("Can't delete " + path + ": it is or contains a link, and under " +
+                    "Wine (Proton) deleting a link would delete what it points to. Remove the link outside the game.");
+            }
         }
 
         public override VolumeFile SaveFile(VolumePath path, FileContent content, bool verifyFreeSpace = true)
