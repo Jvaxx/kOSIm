@@ -10,7 +10,7 @@
 
 **Next actions, in order:**
 
-1. Phase 2 preparation (roadmap: document screen/viewport coordinates, resize authority, input/thread ownership and lifecycle contracts before structural extraction). Agree the first extraction with the user.
+1. **Phase 2 preparation done (2026-10-19, documentation only): `docs/phase2-contracts.md`.** It holds the current terminal map, new findings (VIEW-01: PageUp then a command overwrites scrollback, reproduced headlessly; VIEW-02 unbounded scrollback; INPUT-02 GUI Ctrl-D/X send Enter, kept by decision; LIFE-01/02/03 cleanup gaps), proposed contracts and the extraction order P2-1…P2-4. User decisions D1–D4 are recorded there (shared view offset; scrollback 2,000 lines; last resize wins; GUI Ctrl-D/X keep sending Enter). Next: implement **P2-1** (move `TermWindow` input routing into a `kOS.Safe` `TerminalInputRouter`, replacing the duplicated `FixtureTermWindow`; no behavior change).
 2. Optional minor checks from the pass's "Not performed" list (e.g. CTB focus modes, flight-results dialog, vessel destruction, two-client telnet).
 
 ## Workspace state (2026-10-19)
