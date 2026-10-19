@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text;
 using kOS.Safe.Screen;
 
 namespace kOS.Safe.UserIO
@@ -23,6 +24,22 @@ namespace kOS.Safe.UserIO
             while (rows.Count > 0 && rows[rows.Count - 1].Length == 0)
                 rows.RemoveAt(rows.Count - 1);
             return string.Join("\n", rows.ToArray());
+        }
+
+        /// <summary>
+        /// The text without C0 control characters other than tab and LF (COPY-01). A syntax
+        /// error's verbose description marks the bad token with chars 26 and 27
+        /// (<c>KOSParseException</c>); the screen does not keep them, but the printed error text
+        /// did, and an editor would show them as ^Z^[.
+        /// </summary>
+        public static string WithoutControlCharacters(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            var kept = new StringBuilder(text.Length);
+            foreach (char ch in text)
+                if (ch >= ' ' || ch == '\t' || ch == '\n')
+                    kept.Append(ch);
+            return kept.ToString();
         }
 
         /// <summary>How many lines a copied text holds (0 for none).</summary>

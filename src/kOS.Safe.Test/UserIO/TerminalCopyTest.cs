@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using kOS.Safe.Exceptions;
 using kOS.Safe.Screen;
 using kOS.Safe.Test.Execution;
 using kOS.Safe.UserIO;
@@ -90,6 +91,45 @@ namespace kOS.Safe.Test.UserIO
                 host.Screen.AddSubBuffer(overlay);
                 Assert.AreEqual("under\n\n\n[overlay]", TerminalCopy.VisibleText(host.Screen));
             }
+        }
+
+        /// <summary>
+        /// COPY-01, found in game: a syntax error's verbose description marks the bad token
+        /// with chars 26 and 27, drawn as nothing; the last error copy left them in (^Z^[ in an
+        /// editor). The screen does not keep them, so a copy of the rows has none either.
+        /// </summary>
+        [Test]
+        public void ControlCharactersOnTheScreenAreNotCopied()
+        {
+            using (var host = new ScriptHost(12, 50))
+            {
+                host.Boot();
+                host.Execute("print 1 2.");
+                Assert.AreEqual(1, host.Errors.Count);
+                string verbose = ((KOSException)host.Errors[0]).VerboseMessage;
+                string marked = verbose.Split('\n').Last(l => l.StartsWith("print 1"));
+                // both marks before the token (TinyPG gives it no length), as seen in game
+                Assert.AreEqual("print 1 [26][27]2.", string.Concat(marked.Select(ch => ch < ' ' ? "[" + (int)ch + "]" : ch.ToString()).ToArray()),
+                    "upstream marks the token");
+                host.Screen.Print("clear");
+                host.Screen.Print(verbose);
+                string copied = TerminalCopy.VisibleText(host.Screen);
+                StringAssert.Contains("print 1 2.", copied);
+                Assert.IsFalse(copied.Any(ch => ch < ' ' && ch != '\n' && ch != '\t'), copied);
+            }
+        }
+
+        [Test]
+        public void ControlCharactersInAnErrorAreNotCopied()
+        {
+            var recorder = new PrintedErrorRecorder();
+            recorder.Begin();
+            recorder.Printed("Error Column: 9\nprint 1 \u001a2\u001b.\u0007\r");
+            recorder.Printed("At interpreter\tline 1");
+            recorder.End();
+            Assert.AreEqual("Error Column: 9\nprint 1 2.\nAt interpreter\tline 1", recorder.Text);
+            Assert.AreEqual(null, TerminalCopy.WithoutControlCharacters(null));
+            Assert.AreEqual("", TerminalCopy.WithoutControlCharacters(""));
         }
 
         // ---- The last error, as printed ----

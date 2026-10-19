@@ -29,11 +29,14 @@ namespace kOS.Safe.UserIO
             current.Append(text.Replace("\r\n", "\n"));
         }
 
-        /// <summary>The error is complete. One that printed nothing keeps the previous one.</summary>
+        /// <summary>
+        /// The error is complete. One that printed nothing keeps the previous one. Control
+        /// characters are left out, as in a copy of the screen (COPY-01).
+        /// </summary>
         public void End()
         {
             if (current == null) return;
-            string text = current.ToString().TrimEnd('\n');
+            string text = TerminalCopy.WithoutControlCharacters(current.ToString()).TrimEnd('\n');
             current = null;
             if (text.Length > 0)
                 Text = text;
