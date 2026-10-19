@@ -441,6 +441,35 @@ namespace kOS.Safe.Execution
             return contexts[0];
         }
 
+        /// <summary>
+        /// The program running (the first one RUN or RUNPATH loaded, see
+        /// <see cref="ProgramContext.MainProgramPath"/>), or null when only the interpreter runs.
+        /// </summary>
+        public string RunningProgramPath
+        {
+            get
+            {
+                if (contexts.Count < 2) return null;
+                var program = contexts[contexts.Count - 1] as ProgramContext;
+                return program == null ? null : program.MainProgramPath;
+            }
+        }
+
+        /// <summary>
+        /// Whether the code running at the current priority has been held by a yield (a WAIT,
+        /// a compile...) for at least <paramref name="seconds"/> of game time. Unlike the
+        /// update's own check, it asks no detector, so it has no side effects (Phase 3, D2).
+        /// </summary>
+        public bool IsWaitingFor(double seconds)
+        {
+            foreach (YieldFinishedWithPriority yielder in yields)
+            {
+                if (yielder.priority >= CurrentPriority && currentTime - yielder.detector.creationTimeStamp >= seconds)
+                    return true;
+            }
+            return false;
+        }
+
         public IProgramContext SwitchToProgramContext()
         {
             if (contexts.Count == 1)

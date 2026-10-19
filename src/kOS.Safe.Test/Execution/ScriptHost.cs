@@ -46,6 +46,8 @@ namespace kOS.Safe.Test.Execution
         private bool booted;
 
         public FixtureInterpreter Screen { get; private set; }
+        /// <summary>The real CPU.</summary>
+        public CPU Cpu { get { return cpu; } }
         /// <summary>The real compiler; can hold background (non-interpreter) compiles at a gate.</summary>
         public GatedScript Compiler { get; private set; }
         public string ArchiveRoot { get; private set; }

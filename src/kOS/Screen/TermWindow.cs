@@ -11,6 +11,7 @@ using kOS.UserIO;
 using kOS.Safe.UserIO;
 using KSP.UI.Dialogs;
 using kOS.Safe.Utilities;
+using kOS.Safe.Module;
 
 namespace kOS.Screen
 {
@@ -121,7 +122,17 @@ namespace kOS.Screen
         private DateTime copyNoticeEnd;
         private static readonly TimeSpan copyNoticeDuration = TimeSpan.FromSeconds(2);
         
-        public string TitleText { get { return session.Title; } }
+        // The CPU state (Phase 3, D2), in the bottom bar and after the telnet title; worked out
+        // at most every statusInterval, which also bounds the title updates telnet clients get:
+        private string baseTitle;
+        private string statusText = string.Empty;
+        private DateTime nextStatusTime;
+        private static readonly TimeSpan statusInterval = TimeSpan.FromSeconds(0.25);
+        private bool reportedStatusFailure;
+        private GUIStyle statusLabelStyle;
+
+        /// <summary>The terminal's name (the GUI window's title; telnet clients also get the state after it).</summary>
+        public string TitleText { get { return baseTitle; } }
 
         private readonly RenderFaultRecovery renderFaultRecovery = new RenderFaultRecovery();
         private bool resizeFromFault;
@@ -347,9 +358,6 @@ namespace kOS.Screen
             
             GUI.color = color;
 
-            // Should probably make "gui screen name for my CPU part" into some sort of utility method:
-            session.ChangeTitle(CalcualteTitle());
-
             WindowRect = GUI.Window(UniqueId, WindowRect, TerminalGui, TitleText);
             BlockMouseOver(WindowRect);
             if (guiPaste.IsAwaitingConfirmation)
@@ -369,6 +377,7 @@ namespace kOS.Screen
                 // Holding onto a vessel instance that no longer exists?
                 Close();
             }
+            RefreshStatus();
             // The snapshot for the GUI, and the telnet clients' output, at most every 1/20th second:
             bool telnetsGotRepainted = session.Update(DateTime.Now);
             ProcessTelnetInput(); // want to do this even when the terminal isn't actually displaying.
@@ -1110,9 +1119,18 @@ namespace kOS.Screen
                 GUI.Label(new Rect(15, 20, WindowRect.width-30, WindowRect.height-55), "", terminalFrameStyle);
 
             if (copyNotice != null && DateTime.Now < copyNoticeEnd)
+            {
                 GUI.Label(new Rect(WindowRect.width/2-60, WindowRect.height-12, 140, 10), copyNotice, customSkin.label);
+            }
             else
-                GUI.Label(new Rect(WindowRect.width/2-40, WindowRect.height-12,100,10), screen.ColumnCount+"x"+screen.RowCount, customSkin.label);
+            {
+                // The size, then the CPU state (D2), centered between the toggles on either side:
+                if (statusLabelStyle == null)
+                    statusLabelStyle = new GUIStyle(customSkin.label) { alignment = TextAnchor.UpperCenter, clipping = TextClipping.Clip, wordWrap = false };
+                string size = screen.ColumnCount + "x" + screen.RowCount;
+                GUI.Label(new Rect(100, WindowRect.height-12, Math.Max(1, WindowRect.width - 285), 10),
+                    statusText.Length == 0 ? size : size + "   " + statusText, statusLabelStyle);
+            }
 
             if (!fontGotResized)
                 CheckResizeDrag(); // Has to occur before DragWindow or else DragWindow will consume the event and prevent drags from being seen by the resize icon.
@@ -1231,11 +1249,67 @@ namespace kOS.Screen
 
             NotifyOfScreenResize(shared.Screen);
             shared.Screen.AddResizeNotifier(NotifyOfScreenResize);
-            session.ChangeTitle(CalcualteTitle());
+            baseTitle = CalcualteTitle();
+            session.ChangeTitle(baseTitle); // the state follows in the next update
 
             soundMaker.AttachTo(shared); // Attach the soundMaker also
         }
         
+        /// <summary>
+        /// Work out the title and the CPU state again (at most every <see cref="statusInterval"/>),
+        /// and give telnet clients the title with the state after it.
+        /// </summary>
+        private void RefreshStatus()
+        {
+            if (shared == null || shared.Vessel == null || shared.KSPPart == null) return;
+            DateTime now = DateTime.Now;
+            if (now < nextStatusTime) return;
+            nextStatusTime = now + statusInterval;
+            baseTitle = CalcualteTitle();
+            if (IsOpen || session.ViewerCount > 0) // nobody to show it to otherwise
+            {
+                try
+                {
+                    statusText = DescribeStatus();
+                }
+                catch (Exception ex) when (!(ex is OutOfMemoryException))
+                {
+                    statusText = string.Empty; // the state must never stop the terminal
+                    if (!reportedStatusFailure)
+                    {
+                        reportedStatusFailure = true;
+                        UnityEngine.Debug.LogException(ex, this);
+                    }
+                }
+            }
+            session.ChangeTitle(TerminalStatus.TitleWithStatus(baseTitle, statusText));
+        }
+
+        private string DescribeStatus()
+        {
+            var status = new TerminalStatus();
+            var processor = shared.Processor as kOSProcessor;
+            if (processor != null)
+                status.Mode = processor.ProcessorMode;
+            status.Booted = shared.Processor != null && shared.Processor.HasBooted;
+            if (status.Mode == ProcessorModes.READY && status.Booted)
+            {
+                // As the input routing does (#2925): only once booted.
+                status.AtPrompt = shared.Interpreter != null && shared.Interpreter.IsWaitingForCommand();
+                var cpu = shared.Cpu as kOS.Safe.Execution.CPU;
+                if (cpu != null)
+                {
+                    status.ProgramPath = cpu.RunningProgramPath;
+                    status.Waiting = cpu.IsWaitingFor(TerminalStatus.WAIT_SHOWN_AFTER_SECONDS);
+                }
+                var connectivity = shared.Interpreter as ConnectivityInterpreter;
+                if (connectivity != null)
+                    status.DelaySecondsLeft = connectivity.DelaySecondsLeft;
+                status.Connected = kOS.Communication.ConnectivityManager.HasConnectionToControl(shared.Vessel);
+            }
+            return status.Text;
+        }
+
         internal string CalcualteTitle()
         {
            KOSNameTag partTag = shared.KSPPart.Modules.OfType<KOSNameTag>().FirstOrDefault();

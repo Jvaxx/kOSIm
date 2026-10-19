@@ -104,6 +104,7 @@ namespace kOS.Safe.Function
                     BindManager = shared.BindingMgr, AllowClobberBuiltins = Utilities.SafeHouse.Config.AllowClobberBuiltIns
                 };
                 var programContext = shared.Cpu.SwitchToProgramContext();
+                ProgramContext.NoteProgram(programContext, path);
 
                 List<CodePart> codeParts;
                 if (content.Category == FileCategory.KSM)
@@ -237,6 +238,7 @@ namespace kOS.Safe.Function
                 else
                 {
                     var programContext = shared.Cpu.SwitchToProgramContext();
+                    ProgramContext.NoteProgram(programContext, path);
                     List<CodePart> parts;
                     if (fileContent.Category == FileCategory.KSM)
                     {

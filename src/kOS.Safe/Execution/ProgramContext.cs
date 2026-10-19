@@ -45,6 +45,20 @@ namespace kOS.Safe.Execution
         /// </summary>
         private List<TriggerInfo> TriggersToInsert { get; set; }
         public bool Silent { get; set; }
+
+        /// <summary>
+        /// The first program RUN or RUNPATH loaded into this context: the one the terminal's
+        /// state names (Phase 3, D2). Null for the interpreter context.
+        /// </summary>
+        public string MainProgramPath { get; set; }
+
+        /// <summary>Note <paramref name="path"/> as the context's main program unless it has one.</summary>
+        public static void NoteProgram(IProgramContext context, object path)
+        {
+            var programContext = context as ProgramContext;
+            if (programContext != null && programContext.MainProgramPath == null && path != null)
+                programContext.MainProgramPath = path.ToString();
+        }
   
         public ProgramContext(bool interpreterContext)
         {

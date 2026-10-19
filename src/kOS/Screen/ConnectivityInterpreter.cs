@@ -20,6 +20,21 @@ namespace kOS.Screen
         private string deploymentMessage;
         private bool signalLossWarning;
 
+        /// <summary>
+        /// Seconds left to send the command being deployed, for the terminal's state (Phase 3,
+        /// D2); NaN when none is, when the delay is too short for the progress bar, or when it
+        /// is not known (no connection).
+        /// </summary>
+        public double DelaySecondsLeft
+        {
+            get
+            {
+                if (!deploymentInProgress || waitTotal <= 0.5 || double.IsInfinity(waitTotal))
+                    return double.NaN;
+                return Math.Max(0, waitTotal - waitElapsed);
+            }
+        }
+
         public ConnectivityInterpreter(SharedObjects shared) : base(shared)
         {
             Shared.UpdateHandler.AddObserver(this);
