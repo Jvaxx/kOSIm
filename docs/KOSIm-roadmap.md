@@ -242,7 +242,19 @@ Steps, each with headless tests against the real `kOS.Safe` classes, then one Pr
 - **P3-3 GUI paste** — implemented and headless-tested 2026-10-19 (`TerminalGuiPaste`; details `docs/testing-and-build.md`, "GUI paste"); in game: passed 2026-10-19. While the confirmation waits, Enter runs, Esc cancels, Ctrl+C cancels and sends BREAK, other keys type nothing. Ctrl+V (and Shift+Insert) read `GUIUtility.systemCopyBuffer`; one line pastes at once, more lines ask first. Ctrl+V does nothing today (a control character, not typed), so no existing binding changes. Telnet paste is unchanged (already ordered and bounded; the client owns its clipboard; no confirmation possible in-band). Risk: Wine/Proton clipboard bridging to the desktop must be checked in game.
 - **P3-4 copy** — implemented and headless-tested 2026-10-19 (`TerminalCopy`, `PrintedErrorRecorder`; feedback is a 2-second notice in place of the size label, nothing printed on the terminal; details `docs/testing-and-build.md`, "GUI copy"); in game: passed 2026-10-19 after the COPY-01 fix. Ctrl+Shift+C copies the rows in the current view (scrolled-back rows included) with trailing spaces trimmed; Ctrl+Shift+E copies the last error as printed with its source location (empty: a short notice). Intentional change: Ctrl+Shift+C no longer sends BREAK in the GUI (plain Ctrl+C does). Telnet unchanged.
 
-Later in Phase 3 (not planned in detail): reverse history search, optional persistence, then items 3–5.
+### Decisions for the rest of Phase 3 (agreed with the user 2026-10-19)
+
+- **H1 reverse search key:** Ctrl+R in the GUI and over telnet. Intentional change: telnet Ctrl-R no longer requests a repaint (upstream made it a duplicate of Ctrl-L, which stays).
+- **H2 search display:** inline on the prompt line, readline-style (`(search) 'query': matching command`); Ctrl+R again finds the next older match; Enter runs; Esc or Ctrl+C leaves search with the draft unchanged; cursor keys accept the match for editing. Same over telnet; no new window.
+- **H3 history persistence:** always on (no setting). To settle in the plan: storage per CPU under the save's folder (not on the CPU's volume, so no script-visible disk use and nothing in `LIST`; not in `persistent.sfs`), keyed by a stable CPU identity (e.g. the part's `persistentId`), the same 500-entry bound, behavior on revert/quickload and docking, and how to clear it.
+- **H4 exclusions:** a command typed with a leading space runs but is not recorded (so not saved either). Everything else as now.
+- **D1 errors:** keep the last error only (no change to Ctrl+Shift+E).
+- **D2 CPU state:** shown in the GUI's bottom bar (e.g. `Running 0:/launch.ks`, `Waiting`, `No power`, `Delay 2.4 s`, `No connection`; the size label stays) and appended to the telnet window title. Nothing printed on the terminal.
+- **O1 mouse wheel:** scrolls the shared view (as PageUp/PageDown, decision D1), 3 lines a notch, only while the pointer is over the terminal.
+- **O2 follow output:** when the view is scrolled back, `PRINT`/new lines no longer return it to the bottom; a "new output" marker shows in the GUI bar (and the telnet title) until the view is back at the bottom. Typing still returns the view; `PRINT AT` never moved it.
+- **O3 selection:** mouse selection of cells in the GUI (character grid; dragging at an edge scrolls); Ctrl+Shift+C copies the selection when there is one, else the rows in view. No scrollback search.
+- **Item 5:** none of E1 (show archive location), E3 (rerun key), E4 (overwrite warning in the in-game editor) for now; E2 (file picker) dropped.
+- **Order:** Ctrl+R search → persistence and leading-space exclusion → D2 state → O1 wheel and O2 follow/marker → O3 selection; a Proton pass every two or three steps. Each step gets its own plan with headless tests first, as P3-1 to P3-4 did.
 
 ### Exit criterion
 

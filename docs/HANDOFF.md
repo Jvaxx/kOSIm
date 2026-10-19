@@ -16,7 +16,7 @@ Phase 1 (correctness and safety) was completed earlier the same day ("Proton pas
 
 **Next actions, in order:**
 
-1. The rest of Phase 3 (reverse history search, optional persistence, items 3–5), to plan with the user.
+1. **The rest of Phase 3:** decisions agreed 2026-10-19 in `docs/KOSIm-roadmap.md`, Phase 3 "Decisions for the rest of Phase 3" (Ctrl+R inline search everywhere, telnet Ctrl-R stops repainting; history always saved per CPU; leading space not recorded; CPU state in the GUI bar and telnet title; wheel scrolls the shared view; scrolled-back view stays with a new-output marker; GUI mouse selection; no item 5 work; last error only). **Next: plan and implement the Ctrl+R search step** (headless tests first, shared `CommandHistory`/`TextEditor` code for GUI and telnet), then persistence (settle the storage details listed there with the user).
 2. Minor, optional: POWER-01 (a CPU powering itself off with `DOEVENT("Toggle Power")` logs `KOSBadJumpException`; likely upstream, compare with an upstream build first); the GUI's "N telnet clients attached" label overlaps "Keyclicker"; checks not performed: vessel destruction/unload with telnet attached, Phase 1 pass leftovers (CTB focus modes, flight-results dialog).
 
 ## Workspace state (2026-10-19)
