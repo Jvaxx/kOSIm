@@ -14,8 +14,8 @@ namespace kOS.Screen
     public class Interpreter : TextEditor, IInterpreter
     {
         public const string InterpreterName = "interpreter";
-        private readonly List<string> commandHistory = new List<string>();
-        private int commandHistoryIndex;
+        private readonly CommandHistory commandHistory = new CommandHistory();
+        private int commandFirstLine;
         private bool locked;
 
         protected SharedObjects Shared { get; private set; }
@@ -96,35 +96,20 @@ namespace kOS.Screen
 
         private void AddCommandHistoryEntry(string commandText)
         {
-            if (commandHistory.Count == 0 ||
-                commandText != commandHistory[commandHistory.Count - 1])
-            {
-                commandHistory.Add(commandText);
-            }
-            commandHistoryIndex = commandHistory.Count;
+            commandFirstLine = commandHistory.Add(commandText);
         }
 
         private void ShowCommandHistoryEntry(int deltaIndex)
         {
-            if (commandHistory.Count > 0)
-            {
-                int newHistoryIndex = commandHistoryIndex + deltaIndex;
-                if (newHistoryIndex >= 0 && newHistoryIndex < commandHistory.Count)
-                {
-                    commandHistoryIndex = newHistoryIndex;
-                    LineBuilder = new StringBuilder();
-                    LineBuilder.Append(commandHistory[commandHistoryIndex]);
-                    LineCursorIndex = LineBuilder.Length;
-                    MarkRowsDirty(LineSubBuffer.PositionRow, LineSubBuffer.RowCount);
-                    LineSubBuffer.Wipe();
-                    UpdateLineSubBuffer();
-                }
-            }
+            string text;
+            int cursor;
+            if (commandHistory.TryMove(deltaIndex, LineBuilder.ToString(), LineCursorIndex, out text, out cursor))
+                ReplaceLine(text, cursor);
         }
-        
+
         public string GetCommandHistoryAbsolute(int absoluteIndex)
         {
-            return commandHistory[absoluteIndex-1];
+            return commandHistory.GetLine(absoluteIndex);
         }
 
         protected virtual void ProcessCommand(string commandText)
@@ -148,7 +133,7 @@ namespace kOS.Screen
                 };
 
                 List<CodePart> commandParts = Shared.ScriptHandler.Compile(new InterpreterPath(this),
-                    commandHistoryIndex, commandText, InterpreterName, options);
+                    commandFirstLine, commandText, InterpreterName, options);
                 if (commandParts == null) return;
 
                 var interpreterContext = ((CPU)Shared.Cpu).GetInterpreterContext();
@@ -186,7 +171,7 @@ namespace kOS.Screen
         {
             Shared.ScriptHandler.ClearContext(InterpreterName);
             commandHistory.Clear();
-            commandHistoryIndex = 0;
+            commandFirstLine = 0;
             base.Reset();
         }
 

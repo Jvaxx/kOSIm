@@ -214,6 +214,16 @@ namespace kOS.Safe.Screen
             }
         }
 
+        /// <summary>Replace the line being edited (a recalled command or the restored draft).</summary>
+        protected void ReplaceLine(string text, int cursorIndex)
+        {
+            LineBuilder = new StringBuilder(text);
+            LineCursorIndex = cursorIndex;
+            MarkRowsDirty(LineSubBuffer.PositionRow, LineSubBuffer.RowCount);
+            LineSubBuffer.Wipe();
+            UpdateLineSubBuffer();
+        }
+
         protected virtual void NewLine()
         {
             Print(LineBuilder.ToString());

@@ -50,6 +50,8 @@ namespace kOS.Safe.Test.Execution
         public GatedScript Compiler { get; private set; }
         public string ArchiveRoot { get; private set; }
         public IList<Exception> Errors { get { return logger.Errors; } }
+        /// <summary>Per error, the interpreter source line the game would show (see <see cref="RecordingLogger"/>).</summary>
+        public IList<string> InterpreterSourceLines { get { return logger.InterpreterSourceLines; } }
         /// <summary>The CPU's volumes; the archive is volume 0. Add disks before typing.</summary>
         public IVolumeManager Volumes { get { return shared.VolumeMgr; } }
 
@@ -75,6 +77,7 @@ namespace kOS.Safe.Test.Execution
             shared.UpdateHandler = new UpdateHandler();
             shared.VolumeMgr = new VolumeManager();
             shared.Logger = logger;
+            logger.Shared = shared;
             shared.SoundMaker = new SilentSoundMaker(); // a manual break stops all voices
             shared.BindingMgr = new FixtureBindingManager(shared);
 
@@ -317,12 +320,14 @@ namespace kOS.Safe.Test.Execution
     internal sealed class FixtureInterpreter : TextEditor, IInterpreter
     {
         private const string InterpreterName = "interpreter";
-        private readonly List<string> commandHistory = new List<string>();
+        private readonly CommandHistory commandHistory = new CommandHistory();
         private readonly SafeSharedObjects shared;
-        private int commandHistoryIndex;
+        private int commandFirstLine;
         private bool locked;
 
         public bool InputLocked { get { return locked; } }
+        public string InputLine { get { return LineBuilder.ToString(); } }
+        public int InputCursor { get { return LineCursorIndex; } }
 
         public FixtureInterpreter(SafeSharedObjects shared)
         {
@@ -384,35 +389,23 @@ namespace kOS.Safe.Test.Execution
             return true;
         }
 
-        // As the game's Interpreter.ShowCommandHistoryEntry:
-        private void ShowCommandHistoryEntry(int deltaIndex)
-        {
-            if (commandHistory.Count > 0)
-            {
-                int newHistoryIndex = commandHistoryIndex + deltaIndex;
-                if (newHistoryIndex >= 0 && newHistoryIndex < commandHistory.Count)
-                {
-                    commandHistoryIndex = newHistoryIndex;
-                    LineBuilder = new StringBuilder();
-                    LineBuilder.Append(commandHistory[commandHistoryIndex]);
-                    LineCursorIndex = LineBuilder.Length;
-                    MarkRowsDirty(LineSubBuffer.PositionRow, LineSubBuffer.RowCount);
-                    LineSubBuffer.Wipe();
-                    UpdateLineSubBuffer();
-                }
-            }
-        }
-
+        // As the game's Interpreter:
         private void AddCommandHistoryEntry(string commandText)
         {
-            if (commandHistory.Count == 0 || commandText != commandHistory[commandHistory.Count - 1])
-                commandHistory.Add(commandText);
-            commandHistoryIndex = commandHistory.Count;
+            commandFirstLine = commandHistory.Add(commandText);
+        }
+
+        private void ShowCommandHistoryEntry(int deltaIndex)
+        {
+            string text;
+            int cursor;
+            if (commandHistory.TryMove(deltaIndex, LineBuilder.ToString(), LineCursorIndex, out text, out cursor))
+                ReplaceLine(text, cursor);
         }
 
         public string GetCommandHistoryAbsolute(int absoluteIndex)
         {
-            return commandHistory[absoluteIndex - 1];
+            return commandHistory.GetLine(absoluteIndex);
         }
 
         private void CompileCommand(string commandText)
@@ -428,7 +421,7 @@ namespace kOS.Safe.Test.Execution
                     IsCalledFromRun = false
                 };
                 List<CodePart> commandParts = shared.ScriptHandler.Compile(new InterpreterPath(this),
-                    commandHistoryIndex, commandText, InterpreterName, options);
+                    commandFirstLine, commandText, InterpreterName, options);
                 if (commandParts == null) return;
                 ((CPU)shared.Cpu).GetInterpreterContext().AddParts(commandParts);
             }
@@ -457,7 +450,7 @@ namespace kOS.Safe.Test.Execution
         {
             shared.ScriptHandler.ClearContext(InterpreterName);
             commandHistory.Clear();
-            commandHistoryIndex = 0;
+            commandFirstLine = 0;
             base.Reset();
         }
 
@@ -553,7 +546,31 @@ namespace kOS.Safe.Test.Execution
     {
         public readonly List<Exception> Errors = new List<Exception>();
 
-        public void Log(Exception e) { Errors.Add(e); }
+        /// <summary>For each logged exception, the source line the game's logger would show
+        /// for an interpreter command (KSPLogger: top of the call trace), else null.</summary>
+        public readonly List<string> InterpreterSourceLines = new List<string>();
+        public SafeSharedObjects Shared { get; set; }
+
+        public void Log(Exception e)
+        {
+            Errors.Add(e);
+            InterpreterSourceLines.Add(InterpreterSourceLine());
+        }
+
+        private string InterpreterSourceLine()
+        {
+            try
+            {
+                List<int> trace = Shared.Cpu.GetCallTrace();
+                kOS.Safe.Compilation.Opcode opcode = Shared.Cpu.GetOpcodeAt(trace[0]);
+                var path = opcode.SourcePath as InternalPath;
+                return path == null ? null : path.Line(opcode.SourceLine);
+            }
+            catch (Exception ex) // as KSPLogger.TraceLog, which shows a bogus-location message
+            {
+                return "(lookup failed: " + ex.GetType().Name + ")";
+            }
+        }
         public void Log(string text) { }
         public void LogError(string s) { Errors.Add(new Exception(s)); }
         public void LogException(Exception exception) { Errors.Add(exception); }
