@@ -198,11 +198,23 @@ namespace kOS.Screen
             return style;
         }
 
+        /// <summary>
+        /// The window goes with its processor (P2-3): the telnet clients are detached with a
+        /// message (the session is disposed), the screen forgets this window's resize notifier,
+        /// and the skins cloned in <see cref="Awake"/> are destroyed. The textures are shared
+        /// (<see cref="Utilities.Utils.GetTextureWithErrorMsg"/>) and stay.
+        /// </summary>
         new public void OnDestroy()
         {
             LoseFocus();
             GameEvents.onHideUI.Remove(OnHideUI);
             GameEvents.onShowUI.Remove(OnShowUI);
+
+            session.Dispose();
+            if (shared != null && shared.Screen != null)
+                shared.Screen.RemoveResizeNotifier(NotifyOfScreenResize);
+            Utilities.Utils.DestroyCreated(ref customSkin);
+            Utilities.Utils.DestroyCreated(ref terminalLetterSkin);
 
             base.OnDestroy();
         }

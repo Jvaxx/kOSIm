@@ -46,9 +46,13 @@ namespace kOS.Safe.UserIO
     /// wins, whoever asked for it (the GUI, a script, a telnet client attaching or reporting
     /// its size). The owner calls <see cref="ScreenResized"/> from the screen's resize
     /// notifier, and every viewer of another size is then asked to take the screen's size.
+    /// <br/>
+    /// Lifecycle (P2-3): the window disposes the session when it is destroyed, with its
+    /// processor. Every viewer is then told to leave (a telnet client goes back to its welcome
+    /// menu, with a detach message), and a viewer attaching afterwards is told to leave at once.
     /// </summary>
     /// <typeparam name="TViewer">the window's telnet client type</typeparam>
-    public sealed class TerminalSession<TViewer> where TViewer : class, ITerminalViewer
+    public sealed class TerminalSession<TViewer> : IDisposable where TViewer : class, ITerminalViewer
     {
         /// <summary>How often the snapshot is retaken and the viewers are sent the changes.</summary>
         public static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(50); // = 1/20th second.
@@ -80,6 +84,9 @@ namespace kOS.Safe.UserIO
 
         public int ViewerCount { get { return viewers.Count; } }
 
+        /// <summary>True once <see cref="Dispose"/> has run: no viewer can attach any more.</summary>
+        public bool IsDisposed { get; private set; }
+
         /// <summary>A copy of the attached viewers, safe to use while viewers detach.</summary>
         public TViewer[] Viewers { get { return viewers.ToArray(); } }
 
@@ -98,6 +105,8 @@ namespace kOS.Safe.UserIO
         /// in this update</returns>
         public bool Update(DateTime now)
         {
+            if (IsDisposed)
+                return false;
             if (now > lastSnapshot + RefreshInterval)
             {
                 Snapshot = new ScreenSnapShot(Screen);
@@ -118,10 +127,16 @@ namespace kOS.Safe.UserIO
 
         /// <summary>
         /// Attach a viewer (a telnet client picking this processor): the screen takes the
-        /// viewer's size, then the viewer is sent the title and a full repaint.
+        /// viewer's size, then the viewer is sent the title and a full repaint. A disposed
+        /// session tells the viewer to leave instead, and leaves the screen alone.
         /// </summary>
         public void AttachViewer(TViewer viewer)
         {
+            if (IsDisposed)
+            {
+                viewer.Detach();
+                return;
+            }
             Screen.SetSize(viewer.ClientHeight, viewer.ClientWidth); // Reset the screen to match the telnet window.
             if (!viewers.Contains(viewer))
                 viewers.Add(viewer);
@@ -147,6 +162,17 @@ namespace kOS.Safe.UserIO
             {
                 DetachViewer(viewer);
             }
+        }
+
+        /// <summary>
+        /// End the session: tell every viewer to leave. Safe to call more than once.
+        /// </summary>
+        public void Dispose()
+        {
+            if (IsDisposed)
+                return;
+            IsDisposed = true;
+            DetachAllViewers();
         }
 
         /// <summary>

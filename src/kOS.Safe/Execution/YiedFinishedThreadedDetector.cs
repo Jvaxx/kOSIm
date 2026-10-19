@@ -39,6 +39,9 @@ namespace kOS.Safe.Execution
             if (childThreadEvent.WaitOne(0))
             {
                 childThread.Join();
+                // The thread is done with its event (P2-3, LIFE-03); Begin makes a new one.
+                childThreadEvent.Close();
+                childThreadEvent = null;
                 if (cancelled)
                 {
                     // The work is over and nobody wants it: no ThreadFinish(), no error.
@@ -100,6 +103,10 @@ namespace kOS.Safe.Execution
             IsFinished(); // Ended but not yet seen: discard it now.
             return false;
         }
+
+        /// <summary>True while a child thread's end-of-work event exists: from <see cref="Begin"/>
+        /// until the main thread has seen the thread end, which closes it.</summary>
+        internal bool HoldsThreadEvent { get { return childThreadEvent != null; } }
 
         /// <summary>True after <see cref="Cancel"/> until the main thread has seen the child thread end.</summary>
         public bool IsCancelledAndRunning { get { return cancelled && childThread != null; } }

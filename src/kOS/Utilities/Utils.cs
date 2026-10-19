@@ -303,16 +303,28 @@ namespace kOS.Utilities
                 );
         }
 
+        // The textures GetTextureWithErrorMsg loaded, by path: one per file for the whole game
+        // (P2-3, LIFE-01), as AssetManager does for fonts. Game thread only.
+        private static readonly Dictionary<string, Texture2D> loadedTextures = new Dictionary<string, Texture2D>();
+
         /// <summary>
         /// A wrapper around GameDatabase.Instance.GetTexture() that will
         /// log an error to the Unity player log if the texture is not found.<br/>
         /// (Without this wrapper GameDatabase.Instance.GetTexture() would just fail silently.)
+        /// <br/>
+        /// The texture is loaded once and shared by every caller (before P2-3 each call loaded a
+        /// new one, which nobody destroyed): callers must not change or destroy it. A failed
+        /// load is retried at the next call.
         /// </summary>
         /// <param name="path"></param>
         /// <param name="normalMap"></param>
         /// <returns>the texture if it worked, or null if it failed</returns>
        public static Texture2D GetTextureWithErrorMsg(string path, bool asNormalMap)
         {
+            Texture2D result;
+            if (loadedTextures.TryGetValue(path, out result) && result != null) // Unity's ==: not destroyed
+                return result;
+
             // this whole thing may not be necessary, but it will work if the file exists
             string myPath = Path.Combine(Path.GetFullPath(Path.Combine(Path.GetDirectoryName(typeof(Core).Assembly.Location), "../../")), path + ".dds");
 
@@ -320,13 +332,30 @@ namespace kOS.Utilities
             // Texture2D result = GameDatabase.Instance.GetTexture(path, asNormalMap);
 
             // I don't know what the hell KSP is doing, so use this instead
-            Texture2D result = LoadTextureDXT(myPath, TextureFormat.DXT5);
+            result = LoadTextureDXT(myPath, TextureFormat.DXT5);
 
             if (result == null)
+            {
                 SafeHouse.Logger.Log(string.Format(
                     "Can't find or load texture called: {0}.dds or {0}.png", myPath));
+                loadedTextures.Remove(path);
+            }
+            else
+                loadedTextures[path] = result;
 
             return result;
+        }
+
+        /// <summary>
+        /// Destroy a Unity object that its owner created (a cloned skin, a texture made with
+        /// <c>new</c>), once, and forget it. Never for shared ones, such as
+        /// <see cref="GetTextureWithErrorMsg"/>'s textures.
+        /// </summary>
+        public static void DestroyCreated<T>(ref T created) where T : UnityEngine.Object
+        {
+            if (created != null)
+                UnityEngine.Object.Destroy(created);
+            created = null;
         }
 
         // I don't know what the hell KSP is doing, so use this

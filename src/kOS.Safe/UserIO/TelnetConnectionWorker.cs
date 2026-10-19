@@ -65,6 +65,7 @@ namespace kOS.Safe.UserIO
 
         private int started;
         private int shutdownStarted;
+        private int eventClosed;
         private volatile bool isCancelled;
         private volatile bool writeFailed;
         private int stopReason; // TelnetStopReason, first reason wins
@@ -186,7 +187,21 @@ namespace kOS.Safe.UserIO
             DateTime deadline = DateTime.UtcNow + joinTimeout;
             bool readerDone = JoinUntil(readerThread, deadline);
             bool writerDone = JoinUntil(writerThread, deadline);
+            // Once neither thread can wait on it any more (P2-3, LIFE-03). A worker calling this
+            // is still running, and a thread that did not exit in time keeps it.
+            if (!readerThread.IsAlive && !writerThread.IsAlive && Interlocked.Exchange(ref eventClosed, 1) == 0)
+                cancelled.Close();
             return readerDone && writerDone;
+        }
+
+        /// <summary>True once <see cref="Shutdown"/> has closed the wait handle the writer sleeps on (tests).</summary>
+        internal bool IsEventClosed
+        {
+            get
+            {
+                try { cancelled.WaitOne(0); return false; }
+                catch (ObjectDisposedException) { return true; }
+            }
         }
 
         private static bool JoinUntil(Thread thread, DateTime deadline)

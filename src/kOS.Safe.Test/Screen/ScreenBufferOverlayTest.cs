@@ -208,5 +208,21 @@ namespace kOS.Safe.Test.Terminal
                 }
             }
         }
+
+        [Test]
+        public void ARemovedOverlayNoLongerFollowsTheScreenSize()
+        {
+            // P2-3, LIFE-03: RemoveSubBuffer also unregisters the resize notifier AddSubBuffer registered.
+            SubBuffer kept = Overlay(0, 1);
+            SubBuffer removed = Overlay(1, 1);
+            screen.AddSubBuffer(kept);
+            screen.AddSubBuffer(removed);
+
+            screen.RemoveSubBuffer(removed);
+            screen.SetSize(3, 7);
+
+            Assert.AreEqual(7, kept.ColumnCount);
+            Assert.AreEqual(4, removed.ColumnCount);
+        }
     }
 }

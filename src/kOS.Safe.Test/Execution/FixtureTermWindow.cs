@@ -42,8 +42,21 @@ namespace kOS.Safe.Test.Execution
             session = new TerminalSession<TelnetServerInputModel>(DateTime.Now) { Screen = screen };
             router = new TerminalInputRouter<TelnetServerInputModel>(this);
             // As TermWindow.AttachTo:
-            screen.AddResizeNotifier(sb => { session.ScreenResized(); return 0; });
+            resizeNotifier = sb => { session.ScreenResized(); return 0; };
+            screen.AddResizeNotifier(resizeNotifier);
             session.ChangeTitle(Title);
+        }
+
+        private readonly ScreenBuffer.ResizeNotifier resizeNotifier;
+
+        /// <summary>
+        /// As <c>TermWindow.OnDestroy</c> (with its processor): the session is disposed, which
+        /// detaches every client, and the screen forgets the window's resize notifier.
+        /// </summary>
+        public void Destroy()
+        {
+            session.Dispose();
+            screen.RemoveResizeNotifier(resizeNotifier);
         }
 
         public TerminalSession<TelnetServerInputModel> Session { get { return session; } }

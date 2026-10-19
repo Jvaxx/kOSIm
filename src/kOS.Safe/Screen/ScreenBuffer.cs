@@ -261,6 +261,7 @@ namespace kOS.Safe.Screen
         public void RemoveSubBuffer(SubBuffer subBuffer)
         {
             subBuffers.Remove(subBuffer);
+            RemoveResizeNotifier(subBuffer.NotifyOfParentResize); // registered by AddSubBuffer (P2-3, LIFE-03)
         }
 
         public List<IScreenBufferLine> GetBuffer()

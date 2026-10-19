@@ -29,6 +29,7 @@ namespace kOS.Screen
         private Color noControlColor = new Color(1, 0.5f, 0.5f, 0.4f);
         private Color slowControlColor = new Color(1, 0.95f, 0.95f, 0.9f);
         private Texture2D commDelayedTexture;
+        private Texture2D solidWhite; // made here; destroyed in OnDestroy (P2-3)
         public float extraDelay = 0f;
         public PopupMenu currentPopup;
         private MouseBlocking.Area popupMouseArea;
@@ -59,7 +60,7 @@ namespace kOS.Screen
             commDelayStyle.fontSize = 10;
             commDelayStyle.fontStyle = FontStyle.Bold;
             commDelayedTexture = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_commDelay", false);
-            var solidWhite = new Texture2D(1, 1);
+            solidWhite = new Texture2D(1, 1);
             solidWhite.SetPixel(0, 0, Color.white);
             commDelayStyle.normal.background = solidWhite;
 
@@ -81,6 +82,7 @@ namespace kOS.Screen
             GameEvents.onShowUI.Remove(OnShowUI);
 
             KOSMouseBlocking.Unregister(ref popupMouseArea);
+            Utilities.Utils.DestroyCreated(ref solidWhite);
             base.OnDestroy();
         }
 

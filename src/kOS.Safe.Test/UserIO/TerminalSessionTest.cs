@@ -537,5 +537,63 @@ namespace kOS.Safe.Test.UserIO
             Assert.AreEqual(1, b.DetachCount);
             Assert.AreEqual(0, session.ViewerCount);
         }
+
+        // Lifecycle (P2-3): the window disposes the session when it is destroyed.
+
+        [Test]
+        public void DisposingTellsEveryViewerToLeaveOnce()
+        {
+            RecordingViewer a = Attach("a", 40, 10);
+            RecordingViewer b = Attach("b", 40, 10);
+            bool detaching = false;
+            a.OnDetach = () =>
+            {
+                // As TelnetSingletonServer.DisconnectFromProcessor: calls the window back, once.
+                if (detaching) return;
+                detaching = true;
+                session.DetachViewer(a);
+                detaching = false;
+            };
+
+            session.Dispose();
+            session.Dispose();
+
+            Assert.IsTrue(session.IsDisposed);
+            Assert.AreEqual(2, a.DetachCount, "told once; the call back reaches the viewer again, which ignores it");
+            Assert.AreEqual(1, b.DetachCount);
+            Assert.AreEqual(0, session.ViewerCount);
+        }
+
+        [Test]
+        public void NothingIsSentAfterDisposing()
+        {
+            RecordingViewer a = Attach("a", 40, 10);
+            Refresh();
+            session.Dispose();
+            a.TakeOutput();
+
+            screen.Print("more");
+            screen.SetSize(5, 20);
+            session.ChangeTitle("changed");
+            session.ClearScreen();
+
+            Assert.IsFalse(Refresh(), "no refresh");
+            Assert.AreEqual("", a.TakeOutput());
+        }
+
+        [Test]
+        public void AViewerAttachingAfterDisposingIsToldToLeaveAndTheScreenKeepsItsSize()
+        {
+            session.Dispose();
+            var late = new RecordingViewer(80, 24);
+
+            session.AttachViewer(late);
+
+            Assert.AreEqual(1, late.DetachCount);
+            Assert.IsFalse(session.HasViewer(late));
+            Assert.AreEqual("", late.Output);
+            Assert.AreEqual(40, screen.ColumnCount);
+            Assert.AreEqual(10, screen.RowCount);
+        }
     }
 }

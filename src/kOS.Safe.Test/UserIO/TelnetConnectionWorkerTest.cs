@@ -210,6 +210,7 @@ namespace kOS.Safe.Test.UserIO
             CollectionAssert.IsEmpty(errors);
             CollectionAssert.AreEqual(Enumerable.Repeat(true, results.Length), results);
             Assert.IsTrue(worker.Shutdown(JoinTimeout));
+            Assert.IsTrue(worker.IsEventClosed, "P2-3, LIFE-03: closed once both threads are gone");
         }
 
         [Test, Timeout(20000)]
@@ -231,6 +232,7 @@ namespace kOS.Safe.Test.UserIO
             Assert.IsTrue(resultFromWriter.Value);
             Assert.IsTrue(worker.Shutdown(JoinTimeout));
             Assert.IsFalse(worker.WriterAlive);
+            Assert.IsTrue(worker.IsEventClosed, "closed by the call that saw the writer gone");
         }
 
         [Test, Timeout(20000)]
@@ -256,9 +258,11 @@ namespace kOS.Safe.Test.UserIO
             Assert.Less(watch.ElapsedMilliseconds, 2000);
             Assert.IsTrue(worker.WriterAlive);
             Assert.IsFalse(worker.ReaderAlive, "the reader still exits normally");
+            Assert.IsFalse(worker.IsEventClosed, "the stalled writer may still wait on it");
 
             release.Set();
             Assert.IsTrue(worker.Shutdown(JoinTimeout), "a later call can confirm the exit");
+            Assert.IsTrue(worker.IsEventClosed);
         }
 
         [Test, Timeout(20000)]

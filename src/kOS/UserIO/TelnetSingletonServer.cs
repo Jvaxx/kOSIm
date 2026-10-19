@@ -77,8 +77,14 @@ namespace kOS.UserIO
         private DateTime nextOutputOverflowLog = DateTime.MinValue;
         
         public kOSProcessor ConnectedProcessor { get; private set; }
+
+        // The window this server is attached to (game thread only), and whether it is attached,
+        // for the reader thread, which must not read Unity objects (P2-3; the old check compared
+        // ConnectedProcessor, a Unity object, there):
+        private kOS.Screen.TermWindow attachedWindow;
+        private volatile bool isAttached;
         
-        private volatile TelnetWelcomeMenu welcomeMenu; // read by the reader thread to flag resizes
+        private volatile TelnetWelcomeMenu welcomeMenu; // read by the reader thread to flag resizes, by reference only
         
         private volatile TerminalUnicodeMapper terminalMapper;
         
@@ -200,16 +206,29 @@ namespace kOS.UserIO
 
         /// <summary>
         /// Connect this TelnetSingletonServer to a CPU to start acting as its terminal.
+        /// A CPU that is gone by now (destroyed after the menu listed it) is refused, and the
+        /// welcome menu stays.
         /// </summary>
         /// <param name="processor">The kOSProcessor PartModule to attach to</param>
         public void ConnectToProcessor(kOSProcessor processor)
         {
+            kOS.Screen.TermWindow window = processor == null ? null : processor.GetWindow();
+            if (window == null)
+            {
+                Write("That CPU is no longer available." + (char)UnicodeCommand.STARTNEXTLINE);
+                if (welcomeMenu != null)
+                    welcomeMenu.NotifyResize(); // reprints the menu, with the current list
+                return;
+            }
             ConnectedProcessor = processor;
+            attachedWindow = window;
+            isAttached = true;
             if (welcomeMenu != null)
                 welcomeMenu.Detach(); // so it stops consuming input meant for the CPU this frame
             // Tell the GUI window that I am one of its telnets now (even when closed, it still does the heavy lifting).
-            // It resizes the terminal to match the telnet window, then sends the title and a full paint:
-            ConnectedProcessor.GetWindow().AttachTelnet(this);
+            // It resizes the terminal to match the telnet window, then sends the title and a full paint
+            // (or, if it is being destroyed, detaches me at once):
+            window.AttachTelnet(this);
         }
 
         void ITerminalViewer.Detach()
@@ -217,19 +236,27 @@ namespace kOS.UserIO
             DisconnectFromProcessor();
         }
 
+        /// <summary>
+        /// Leave the CPU's terminal, with a detach message, and go back to the welcome menu.
+        /// It works through the window this server attached to, by reference, so it also works
+        /// while that window and its processor are being destroyed (P2-3, LIFE-02).
+        /// </summary>
         public void DisconnectFromProcessor()
         {
-            if (ConnectedProcessor != null && !alreadyDisconnecting)
+            kOS.Screen.TermWindow window = attachedWindow;
+            if (!ReferenceEquals(window, null) && !alreadyDisconnecting)
             {
                 alreadyDisconnecting = true; // telnet tells window to disconnect, window tells telnet to disconnect.  This stops an infinite recursion.
-                string detachMessage = "Detaching from " + ConnectedProcessor.GetWindow().TitleText;
+                isAttached = false;
+                string detachMessage = "Detaching from " + window.TitleText;
                 SendTextRaw( (char)UnicodeCommand.TITLEBEGIN + detachMessage + (char)UnicodeCommand.TITLEEND );
                 SendTextRaw("\r\n{" + detachMessage + "}\r\n");
-                ConnectedProcessor.GetWindow().DetachTelnet(this);
+                window.DetachTelnet(this);
 
                 // Very important, else CPU parts that go away (from explosion, load distance, scene switch ,etc) refuse to be orphaned and won't garbage collect.
                 // That can cause subsequent reconnections from the TelnetWelcomeMenu to end up connecting you to the now dead CPU, with confusing results:
                 ConnectedProcessor = null;
+                attachedWindow = null;
                 alreadyDisconnecting = false;
 
                 // Disconnecting the CPU from this, so connect the welcome menu instead
@@ -341,7 +368,7 @@ namespace kOS.UserIO
         {
             inQueue.RequestRepaint();
             TelnetWelcomeMenu menu = welcomeMenu;
-            if (menu != null)
+            if (!ReferenceEquals(menu, null)) // not Unity's ==, which this thread must not call
                 menu.NotifyResize(); // only sets a flag; makes the menu reprint itself
 
             // Logging is rate-limited: a stalled client overflows repeatedly until it times out.
@@ -463,6 +490,11 @@ namespace kOS.UserIO
             // A key sequence left unfinished for a while was really separate keys (e.g. Escape):
             inputPipeline.FlushIfIdle(clock.Elapsed);
             ReportInputOverflow();
+
+            // The processor was destroyed without its window detaching this client (which the
+            // window's OnDestroy does): leave it now, with the detach message.
+            if (!ReferenceEquals(attachedWindow, null) && ConnectedProcessor == null)
+                DisconnectFromProcessor();
 
             if (welcomeMenu == null)
                 return;
@@ -670,9 +702,9 @@ namespace kOS.UserIO
             // Read before any typed text that is still waiting; only the latest size is kept.
             inQueue.EnqueueResize(newWidth, newHeight);
             TelnetWelcomeMenu menu = welcomeMenu;
-            if (menu != null)
+            if (!ReferenceEquals(menu, null)) // not Unity's ==, which this thread must not call
                 menu.NotifyResize(); // only sets a flag; the menu reprints on the game thread
-            if (ConnectedProcessor != null)
+            if (isAttached)
                 inQueue.RequestRepaint();
         }
 

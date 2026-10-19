@@ -42,6 +42,7 @@ namespace kOS.Screen
         private string longestString;
         private float minWidth;
         private GUIStyle listItemStyle;
+        private Texture2D hoverTexture; // made once, destroyed in OnDestroy (P2-3; it was made anew at every Summon)
         private GUIStyle listItemSelectedStyle;
         private GUIStyle listHeaderStyle;
 
@@ -108,6 +109,7 @@ namespace kOS.Screen
         public void OnDestroy()
         {
             KOSMouseBlocking.Unregister(ref mouseArea);
+            Utilities.Utils.DestroyCreated(ref hoverTexture);
         }
 
         public void OnGUI()
@@ -204,8 +206,12 @@ namespace kOS.Screen
             listItemStyle.margin.top = 0;
             listItemStyle.margin.bottom = 0;
             listItemStyle.normal.background = null;
-            listItemStyle.hover.background = new Texture2D(1, 1);
-            listItemStyle.hover.background.SetPixel(0, 0, Color.gray);
+            if (hoverTexture == null)
+            {
+                hoverTexture = new Texture2D(1, 1);
+                hoverTexture.SetPixel(0, 0, Color.gray);
+            }
+            listItemStyle.hover.background = hoverTexture;
             listItemStyle.hover.textColor = Color.black;
             listItemStyle.active.background = listItemStyle.hover.background;
             listItemStyle.active.textColor = Color.white;

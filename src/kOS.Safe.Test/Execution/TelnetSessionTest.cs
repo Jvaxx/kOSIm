@@ -157,5 +157,30 @@ namespace kOS.Safe.Test.Execution
             Assert.AreEqual("TITLE \"" + FixtureTermWindow.Title + "\"", toA.Last());
             Assert.AreEqual(sentToB, b.Output.Length);
         }
+
+        [Test]
+        public void DestroyingTheWindowSendsEveryClientBackToTheMenu()
+        {
+            TelnetServerInputModel first = window.AttachTelnet("XTERM");
+            TelnetServerInputModel second = window.AttachTelnet("XTERM");
+            host.Execute("print \"before\".");
+            int firstOutput = first.Output.Length;
+
+            window.Destroy(); // the processor goes (vessel unloaded or destroyed, scene change)
+
+            Assert.IsFalse(first.IsConnectedToProcessor);
+            Assert.IsFalse(second.IsConnectedToProcessor);
+            Assert.AreEqual(0, window.Session.ViewerCount);
+
+            // A size reported afterwards neither resizes the screen nor asks for a repaint:
+            SendSize(first, 100, 30);
+            char ch;
+            var keys = new System.Text.StringBuilder();
+            while (first.TryReadChar(false, out ch))
+                keys.Append(ch);
+            CollectionAssert.DoesNotContain(TelnetServerInputModel.DescribeKeys(keys.ToString()), "REQUESTREPAINT");
+            host.Screen.SetSize(12, 40);
+            Assert.AreEqual(firstOutput, first.Output.Length, "nothing sent after the window went");
+        }
     }
 }

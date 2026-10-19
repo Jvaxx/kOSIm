@@ -266,6 +266,8 @@ namespace kOS.Module
         // TODO - later refactor making this kOS.Safer so it can work on ITermWindow, which also means moving all of UserIO's classes too.
         public Screen.TermWindow GetWindow()
         {
+            if (shared == null)
+                return null; // not initialized yet (no window), or destroyed
             if (shared.Window != null)
                 return shared.Window;
             return GetComponent<Screen.TermWindow>();
@@ -769,6 +771,10 @@ namespace kOS.Module
 
             if (shared != null)
             {
+                // Telnet clients go back to their welcome menu with a detach message (P2-3,
+                // LIFE-02); the window's own OnDestroy does it too, whichever runs first:
+                if (shared.Window != null)
+                    shared.Window.DetachAllTelnets();
                 shared.Cpu.BreakExecution(false);
                 shared.Cpu.Dispose();
                 shared.DestroyObjects();
