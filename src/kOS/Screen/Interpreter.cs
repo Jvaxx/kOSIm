@@ -85,7 +85,7 @@ namespace kOS.Screen
 
         private void AddCommandHistoryEntry(string commandText)
         {
-            commandFirstLine = History.Add(commandText);
+            commandFirstLine = RecordCommand(commandText); // saved when it has a store
         }
 
         public string GetCommandHistoryAbsolute(int absoluteIndex)
@@ -151,8 +151,7 @@ namespace kOS.Screen
         public override void Reset()
         {
             Shared.ScriptHandler.ClearContext(InterpreterName);
-            History.Clear();
-            commandFirstLine = 0;
+            commandFirstLine = 0; // a reboot keeps the history (user decision, Phase 3 H3)
             base.Reset();
         }
 

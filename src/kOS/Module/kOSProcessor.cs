@@ -569,6 +569,22 @@ namespace kOS.Module
 
         private static Regex VolumeNameRemoveChars = new Regex("[/\\\\<>:\"|?*]*", RegexOptions.Compiled);
 
+        /// <summary>
+        /// This CPU's command history file (Phase 3, decision H3): under the save's folder,
+        /// not on a volume, keyed by the part's <c>persistentId</c> (and the module's index
+        /// for a second kOS module on one part). None outside the flight scene.
+        /// </summary>
+        private string CommandHistoryPath()
+        {
+            if (!HighLogic.LoadedSceneIsFlight || string.IsNullOrEmpty(HighLogic.SaveFolder) ||
+                part == null || part.persistentId == 0)
+                return null;
+            int index = part.Modules.GetModules<kOSProcessor>().IndexOf(this);
+            string name = part.persistentId.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                (index > 0 ? "-" + index.ToString(System.Globalization.CultureInfo.InvariantCulture) : "") + ".txt";
+            return System.IO.Path.Combine(KSPUtil.ApplicationRootPath, "saves", HighLogic.SaveFolder, "kOS", "history", name);
+        }
+
         public void InitObjects()
         {
             if (objectsInitialized)
@@ -587,7 +603,9 @@ namespace kOS.Module
             shared.KSPPart = part;
             shared.UpdateHandler = new UpdateHandler();
             shared.BindingMgr = new BindingManager(shared);
-            shared.Interpreter = new Screen.ConnectivityInterpreter(shared);
+            var interpreter = new Screen.ConnectivityInterpreter(shared);
+            interpreter.HistoryStore = new CommandHistoryFile(CommandHistoryPath); // read on first use
+            shared.Interpreter = interpreter;
             shared.Screen = shared.Interpreter;
             shared.ScriptHandler = new KSScript();
             shared.Logger = new KSPLogger(shared);

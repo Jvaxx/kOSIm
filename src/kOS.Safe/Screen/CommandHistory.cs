@@ -12,6 +12,8 @@ namespace kOS.Safe.Screen
     /// given the first one, so an error on a command's second line names the command's
     /// own second line (upstream numbered by command, which named the next command).
     /// A dropped command's lines read as <see cref="TRIMMED_LINE"/>.</para>
+    /// <para>A command typed with a leading space runs but is not recorded (decision H4):
+    /// only the newest such command keeps its lines, for its own error messages.</para>
     /// Main thread only (the interpreter's).
     /// </summary>
     public sealed class CommandHistory
@@ -30,6 +32,7 @@ namespace kOS.Safe.Screen
         private readonly int maxEntries;
         private readonly List<Entry> entries = new List<Entry>();
         private int nextLine = 1;
+        private Entry unrecorded; // the newest command typed with a leading space; Text null if none
         private int position; // index into entries of the recalled command; entries.Count = the draft
         private string draftText = string.Empty;
         private int draftCursor;
@@ -46,12 +49,25 @@ namespace kOS.Safe.Screen
 
         public int Count { get { return entries.Count; } }
 
+        /// <summary>Changes whenever the recorded commands change (to know when to save them).</summary>
+        public int Version { get; private set; }
+
+        /// <summary>The recorded commands, oldest first.</summary>
+        public IEnumerable<string> Commands
+        {
+            get
+            {
+                foreach (Entry entry in entries)
+                    yield return entry.Text;
+            }
+        }
+
         /// <summary>Whether a command is shown rather than the draft.</summary>
         public bool IsRecalling { get { return position < entries.Count; } }
 
         /// <summary>
-        /// Record an entered command and go back to an empty draft. An empty command and a
-        /// repeat of the newest one add no entry.
+        /// Record an entered command and go back to an empty draft. An empty command, a
+        /// repeat of the newest one and a command typed with a leading space add no entry.
         /// </summary>
         /// <returns>the interpreter line number of the command's first line, for the compiler</returns>
         public int Add(string commandText)
@@ -64,6 +80,12 @@ namespace kOS.Safe.Screen
             {
                 firstLine = nextLine; // compiles to nothing; a line no command owns
             }
+            else if (commandText[0] == ' ')
+            {
+                firstLine = nextLine;
+                unrecorded = new Entry { Text = commandText, FirstLine = firstLine };
+                nextLine += CountLines(commandText);
+            }
             else if (entries.Count > 0 && entries[entries.Count - 1].Text == commandText)
             {
                 firstLine = entries[entries.Count - 1].FirstLine;
@@ -75,9 +97,47 @@ namespace kOS.Safe.Screen
                 nextLine += CountLines(commandText);
                 if (entries.Count > maxEntries)
                     entries.RemoveRange(0, entries.Count - maxEntries);
+                ++Version;
             }
             position = entries.Count;
             return firstLine;
+        }
+
+        /// <summary>
+        /// Put saved commands (oldest first) before the ones recorded so far, within the
+        /// bound (the oldest are dropped). Empty commands and ones with a leading space are
+        /// skipped. They get new line numbers; the draft and the position are reset.
+        /// </summary>
+        public void Load(IEnumerable<string> savedCommands)
+        {
+            if (savedCommands == null) throw new ArgumentNullException("savedCommands");
+            var commands = new List<string>();
+            foreach (string text in savedCommands)
+            {
+                if (string.IsNullOrEmpty(text) || text[0] == ' ') continue;
+                if (commands.Count > 0 && commands[commands.Count - 1] == text) continue;
+                commands.Add(text);
+            }
+            foreach (Entry entry in entries)
+                commands.Add(entry.Text);
+            if (commands.Count > maxEntries)
+                commands.RemoveRange(0, commands.Count - maxEntries);
+            entries.Clear();
+            foreach (string text in commands)
+            {
+                entries.Add(new Entry { Text = text, FirstLine = nextLine });
+                nextLine += CountLines(text);
+            }
+            ++Version;
+            ResetNavigation();
+        }
+
+        /// <summary>Back to an empty draft at the newest end (a reboot keeps the commands).</summary>
+        public void ResetNavigation()
+        {
+            position = entries.Count;
+            draftText = string.Empty;
+            draftCursor = 0;
         }
 
         /// <summary>
@@ -160,6 +220,9 @@ namespace kOS.Safe.Screen
         /// <summary>The text of one interpreter line, by the numbers <see cref="Add"/> handed out.</summary>
         public string GetLine(int lineNumber)
         {
+            if (unrecorded.Text != null && lineNumber >= unrecorded.FirstLine &&
+                lineNumber < unrecorded.FirstLine + CountLines(unrecorded.Text))
+                return unrecorded.Text.Split('\n')[lineNumber - unrecorded.FirstLine];
             for (int i = entries.Count - 1; i >= 0; --i)
             {
                 Entry entry = entries[i];
@@ -173,10 +236,12 @@ namespace kOS.Safe.Screen
             return TRIMMED_LINE;
         }
 
-        /// <summary>Forget every command and the draft (a reboot). Line numbers restart at 1.</summary>
+        /// <summary>Forget every command and the draft. Line numbers restart at 1.</summary>
         public void Clear()
         {
             entries.Clear();
+            unrecorded = new Entry();
+            ++Version;
             nextLine = 1;
             position = 0;
             draftText = string.Empty;

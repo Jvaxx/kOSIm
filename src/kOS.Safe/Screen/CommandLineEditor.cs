@@ -15,6 +15,8 @@ namespace kOS.Safe.Screen
     /// keys, Delete and Tab take the match for editing (then act as usual; Tab types
     /// nothing); PageUp/PageDown scroll as usual. The line being edited is not touched
     /// until a match is taken.</para>
+    /// <para>With a <see cref="HistoryStore"/>, the history is read from it on first use
+    /// and saved to it after every command it records (decision H3); a reboot keeps it.</para>
     /// Main thread only (the interpreter's).
     /// </summary>
     public abstract class CommandLineEditor : TextEditor
@@ -35,8 +37,54 @@ namespace kOS.Safe.Screen
         private string lastQuery = string.Empty;
         private int matchIndex = -1; // into the history; -1 = no match yet
         private bool searchFailed;
+        private ICommandHistoryStore historyStore;
+        private bool historyLoaded = true; // nothing to load without a store
 
-        protected CommandHistory History { get { return history; } }
+        protected CommandHistory History
+        {
+            get
+            {
+                EnsureHistoryLoaded();
+                return history;
+            }
+        }
+
+        private void EnsureHistoryLoaded()
+        {
+            if (historyLoaded) return;
+            historyLoaded = true;
+            history.Load(historyStore.Load());
+        }
+
+        /// <summary>
+        /// Where the history is kept between game sessions; null (the default) keeps it in
+        /// memory only. Read on the history's first use, so the store can still find its
+        /// place (e.g. a part ID) when set.
+        /// </summary>
+        public ICommandHistoryStore HistoryStore
+        {
+            get { return historyStore; }
+            set
+            {
+                historyStore = value;
+                historyLoaded = value == null;
+            }
+        }
+
+        /// <summary>
+        /// Record an entered command (<see cref="CommandHistory.Add"/>) and save the history
+        /// when that changed it.
+        /// </summary>
+        /// <returns>the interpreter line number of the command's first line, for the compiler</returns>
+        protected int RecordCommand(string commandText)
+        {
+            CommandHistory commands = History;
+            int version = commands.Version;
+            int firstLine = commands.Add(commandText);
+            if (historyStore != null && commands.Version != version)
+                historyStore.Save(commands.Commands);
+            return firstLine;
+        }
 
         /// <summary>Whether the history search is shown on the input line.</summary>
         public bool IsSearchingHistory { get { return searching; } }
@@ -97,12 +145,13 @@ namespace kOS.Safe.Screen
         {
             string text;
             int cursor;
-            if (history.TryMove(deltaIndex, LineBuilder.ToString(), LineCursorIndex, out text, out cursor))
+            if (History.TryMove(deltaIndex, LineBuilder.ToString(), LineCursorIndex, out text, out cursor))
                 ReplaceLine(text, cursor);
         }
 
         private void StartSearch()
         {
+            EnsureHistoryLoaded(); // the search reads the history field from here on
             searching = true;
             query.Length = 0;
             matchIndex = -1;
@@ -235,6 +284,8 @@ namespace kOS.Safe.Screen
             matchIndex = -1;
             searchFailed = false;
             lastQuery = string.Empty;
+            if (historyLoaded)
+                history.ResetNavigation(); // a reboot keeps the commands (user decision)
             base.Reset();
         }
     }

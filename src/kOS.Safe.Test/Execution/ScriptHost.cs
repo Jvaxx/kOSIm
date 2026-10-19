@@ -380,7 +380,7 @@ namespace kOS.Safe.Test.Execution
         // As the game's Interpreter:
         private void AddCommandHistoryEntry(string commandText)
         {
-            commandFirstLine = History.Add(commandText);
+            commandFirstLine = RecordCommand(commandText); // saved when it has a store
         }
 
         public string GetCommandHistoryAbsolute(int absoluteIndex)
@@ -429,8 +429,7 @@ namespace kOS.Safe.Test.Execution
         public override void Reset()
         {
             shared.ScriptHandler.ClearContext(InterpreterName);
-            History.Clear();
-            commandFirstLine = 0;
+            commandFirstLine = 0; // a reboot keeps the history (user decision, Phase 3 H3)
             base.Reset();
         }
 
