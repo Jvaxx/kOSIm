@@ -16,7 +16,8 @@ namespace kOS.Safe.Screen
     /// <c>Waiting in a command</c> at the interpreter;</item>
     /// <item>then the communications: <c>Delay 2.4 s</c> while a command is sent with a
     /// signal delay (in place of <c>Ready</c>), <c>No connection</c> without a connection
-    /// to control.</item>
+    /// to control;</item>
+    /// <item>last, <c>New output</c> while output came with the view scrolled back (O2).</item>
     /// </list>
     /// Parts are joined with <c> | </c>.
     /// </summary>
@@ -36,6 +37,8 @@ namespace kOS.Safe.Screen
         /// <summary>Seconds left to send a command with a signal delay; NaN when none is being sent.</summary>
         public double DelaySecondsLeft = double.NaN;
         public bool Connected = true;
+        /// <summary>Output came while the view was scrolled away from the screen (O2).</summary>
+        public bool NewOutput;
 
         public string Text
         {
@@ -53,6 +56,8 @@ namespace kOS.Safe.Screen
                     parts.Add("Delay " + FormatSeconds(DelaySecondsLeft) + " s");
                 if (!Connected)
                     parts.Add("No connection");
+                if (NewOutput)
+                    parts.Add("New output");
                 return string.Join(SEPARATOR, parts.ToArray());
             }
         }

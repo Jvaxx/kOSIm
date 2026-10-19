@@ -35,6 +35,7 @@ namespace kOS.Safe.Screen
         private int topRow; // the screen's first line in the buffer
         private int viewOffset; // how many rows the view is above the screen (negative: below it)
         private int droppedRows; // scrollback lines dropped so far, so TopRow keeps counting
+        private bool newOutputOutOfView;
         private readonly List<IScreenBufferLine> buffer;
         private readonly List<SubBuffer> subBuffers;
 
@@ -86,6 +87,12 @@ namespace kOS.Safe.Screen
 
         /// <summary>How many rows the view is above the screen: 0 when it shows the screen.</summary>
         public int ViewOffset { get { return topRow - ViewTop; } }
+
+        /// <summary>
+        /// Output came while the view was away from the screen, and the view has not been
+        /// back since (Phase 3, O2): the terminal shows a "new output" marker.
+        /// </summary>
+        public bool HasNewOutputOutOfView { get { return newOutputOutOfView; } }
 
         /// <summary>Lines above the screen (at most <see cref="MAX_SCROLLBACK"/>).</summary>
         public int ScrollbackRows { get { return topRow; } }
@@ -166,9 +173,7 @@ namespace kOS.Safe.Screen
             if (belowScreen > 0)
             {
                 CursorRow -= belowScreen;
-                belowScreen = ScrollScreen(belowScreen);
-                if (viewOffset > 0)
-                    viewOffset += belowScreen; // a scrolled view stays where it was
+                ScrollScreen(belowScreen); // a scrolled view stays where it was
             }
             // Rows left below the screen are dropped; output would scroll over them.
             int pastBottom = buffer.Count - (topRow + RowCount);
@@ -187,9 +192,9 @@ namespace kOS.Safe.Screen
         }
 
         /// <summary>
-        /// Move the view (PageUp/PageDown) by <paramref name="deltaRows"/>, negative up into the
-        /// scrollback, without moving the screen where output goes (P2-4; before, this moved
-        /// the screen too, VIEW-01). The view stays within the buffer.
+        /// Move the view (PageUp/PageDown, the GUI's mouse wheel) by <paramref name="deltaRows"/>,
+        /// negative up into the scrollback, without moving the screen where output goes (P2-4;
+        /// before, this moved the screen too, VIEW-01). The view stays within the buffer.
         /// </summary>
         /// <returns>how many rows the view actually moved</returns>
         public virtual int ScrollVertical(int deltaRows)
@@ -197,13 +202,25 @@ namespace kOS.Safe.Screen
             int before = ViewTop;
             long target = Math.Max(0L, Math.Min((long)before + deltaRows, Math.Max(0, buffer.Count - RowCount)));
             viewOffset = topRow - (int)target;
+            if (viewOffset <= 0)
+                newOutputOutOfView = false; // back at the screen (or below it)
             return ViewTop - before;
         }
 
-        /// <summary>Bring the view back to the screen (output, typing at the prompt).</summary>
+        /// <summary>
+        /// Bring the view back to the screen (typing at the prompt). Output no longer does
+        /// (Phase 3, O2): a view scrolled back stays where it is.
+        /// </summary>
         protected void ReturnViewToScreen()
         {
             viewOffset = 0;
+            newOutputOutOfView = false;
+        }
+
+        private void NoteOutput()
+        {
+            if (viewOffset != 0)
+                newOutputOutOfView = true;
         }
 
         /// <summary>
@@ -239,7 +256,7 @@ namespace kOS.Safe.Screen
 
         public void MoveToNextLine()
         {
-            ReturnViewToScreen();
+            NoteOutput();
             if ((CursorRow + 1) >= RowCount)
             {
                 // scrolling up
@@ -267,7 +284,7 @@ namespace kOS.Safe.Screen
 
         public void Print(string textToPrint, bool addNewLine)
         {
-            ReturnViewToScreen();
+            NoteOutput();
             List<string> lines = SplitIntoLines(textToPrint);
             foreach (string line in lines)
             {
@@ -416,6 +433,7 @@ namespace kOS.Safe.Screen
 
             topRow = 0;
             viewOffset = 0;
+            newOutputOutOfView = false;
             CursorRow = 0;
             CursorColumn = 0;
         }
@@ -423,7 +441,9 @@ namespace kOS.Safe.Screen
         /// <summary>
         /// Move the screen (where output goes) by <paramref name="deltaRows"/> within the buffer,
         /// as output reaching the bottom does, then drop the scrollback beyond
-        /// <see cref="MAX_SCROLLBACK"/>. The view keeps its offset from the screen.
+        /// <see cref="MAX_SCROLLBACK"/>. A view scrolled back stays on the same lines (Phase 3,
+        /// O2; before, it kept its offset from the screen, and output returned it anyway), as
+        /// far as the dropped scrollback allows; a view on the screen moves with it.
         /// </summary>
         /// <returns>how many rows the screen actually moved</returns>
         protected int ScrollScreen(int deltaRows)
@@ -437,6 +457,8 @@ namespace kOS.Safe.Screen
                 deltaRows = (maxTopRow - topRow);
 
             topRow += deltaRows;
+            if (viewOffset > 0)
+                viewOffset += deltaRows;
 
             int excess = topRow - MAX_SCROLLBACK;
             if (excess > 0)
@@ -445,6 +467,8 @@ namespace kOS.Safe.Screen
                 topRow -= excess;
                 droppedRows = unchecked(droppedRows + excess);
             }
+            if (viewOffset > topRow)
+                viewOffset = topRow; // the view's lines were dropped: it shows the oldest left
 
             return deltaRows;
         }

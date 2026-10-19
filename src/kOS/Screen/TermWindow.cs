@@ -131,6 +131,8 @@ namespace kOS.Screen
         private bool reportedStatusFailure;
         private GUIStyle statusLabelStyle;
 
+        private readonly WheelScroll wheelScroll = new WheelScroll(); // O1
+
         /// <summary>The terminal's name (the GUI window's title; telnet clients also get the state after it).</summary>
         public string TitleText { get { return baseTitle; } }
 
@@ -878,6 +880,7 @@ namespace kOS.Screen
 
         void TerminalGui(int windowId)
         {
+            ScrollViewWithWheel();
             Color previousColor = GUI.color;
             GUISkin previousSkin = GUI.skin;
             try
@@ -895,6 +898,25 @@ namespace kOS.Screen
                 GUI.color = previousColor;
                 GUI.skin = previousSkin;
             }
+        }
+
+        /// <summary>
+        /// The mouse wheel over the characters moves the shared view, as PageUp/PageDown do
+        /// (Phase 3, O1), also while a program runs (those keys then wait in the type-ahead).
+        /// Hovering already locks the camera controls (INPUT-01), so the camera does not zoom.
+        /// </summary>
+        private void ScrollViewWithWheel()
+        {
+            Event current = Event.current;
+            if (current == null || current.type != EventType.ScrollWheel) return;
+            if (shared == null || shared.Screen == null) return;
+            // The character field, as its frame is drawn (window coordinates):
+            var field = new Rect(15, 20, WindowRect.width - 30, WindowRect.height - 55);
+            if (!field.Contains(current.mousePosition)) return;
+            int lines = wheelScroll.Lines(current.delta.y);
+            if (lines != 0)
+                shared.Screen.ScrollVertical(lines);
+            current.Use();
         }
 
         private static double RenderTimeSeconds()
@@ -1306,6 +1328,8 @@ namespace kOS.Screen
                 if (connectivity != null)
                     status.DelaySecondsLeft = connectivity.DelaySecondsLeft;
                 status.Connected = kOS.Communication.ConnectivityManager.HasConnectionToControl(shared.Vessel);
+                var screenBuffer = shared.Screen as ScreenBuffer;
+                status.NewOutput = screenBuffer != null && screenBuffer.HasNewOutputOutOfView;
             }
             return status.Text;
         }

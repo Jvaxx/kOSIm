@@ -161,9 +161,17 @@ namespace kOS.Safe.Test.Terminal
                 List<string> scrollback = AllLines(host.Screen).Take(host.Screen.ScrollbackRows).ToList();
                 PageUp(host);
 
+                int offset = host.Screen.ViewOffset;
+                string viewTop = View(host.Screen)[0];
+
                 host.Screen.PrintAt("AT", 0, 0); // what PRINT ... AT (0, 0) does
 
-                Assert.AreEqual(0, host.Screen.ViewOffset, "output brought the view back");
+                // Phase 3, O2: output no longer brings the view back (it did in P2-4).
+                Assert.AreEqual(offset, host.Screen.ViewOffset, "the view stays");
+                Assert.AreEqual(viewTop, View(host.Screen)[0]);
+                Assert.IsTrue(host.Screen.HasNewOutputOutOfView, "the marker shows");
+                host.Screen.ScrollVertical(100);
+                Assert.IsFalse(host.Screen.HasNewOutputOutOfView, "back at the screen");
                 Assert.AreEqual("ATne " + (30 - 10 + 1), View(host.Screen)[0], "row 0 is the screen's top row");
                 CollectionAssert.AreEqual(scrollback, AllLines(host.Screen).Take(scrollback.Count), "scrollback unchanged");
             }
@@ -215,6 +223,8 @@ namespace kOS.Safe.Test.Terminal
             Assert.AreEqual(viewTop, View(screen)[0], "same view: the screen moved down under it");
             Assert.AreEqual(16, screen.ViewOffset);
             screen.Print("after");
+            Assert.AreEqual(viewTop, View(screen)[0], "output leaves the view (O2)");
+            screen.ScrollVertical(100);
             Assert.AreEqual(0, screen.ViewOffset);
             List<string> view = View(screen);
             Assert.AreEqual("line 39", view[screen.CursorRowShow - 2], "output continues below the last line");
@@ -399,12 +409,16 @@ namespace kOS.Safe.Test.Terminal
         [Test]
         public void SeededSequencesNeverChangeTheScrollbackAndViewMovesNeverChangeTheScreen()
         {
+            int scrolledBackWrites = 0;
             foreach (int seed in new[] { 4401, 4402, 4403, 4404 })
-                RunSeed(seed);
+                scrolledBackWrites += RunSeed(seed);
+            Assert.Greater(scrolledBackWrites, 200, "writes with the view scrolled back were checked");
         }
 
-        private static void RunSeed(int seed)
+        /// <returns>how many writes were checked with the view scrolled back</returns>
+        private static int RunSeed(int seed)
         {
+            int scrolledBackWrites = 0;
             var random = new Random(seed);
             var screen = new ScreenBuffer();
             screen.SetSize(8, 20);
@@ -429,6 +443,7 @@ namespace kOS.Safe.Test.Terminal
 
                 // Writes never change the scrollback, apart from dropping its oldest lines:
                 int topBefore = screen.TopRow + screen.ViewOffset; // the screen's top, in TopRow's count
+                int viewTopBefore = screen.TopRow, offsetBefore = screen.ViewOffset;
                 List<string> before = AllLines(screen);
                 int scrollbackBefore = screen.ScrollbackRows;
                 if (kind < 75)
@@ -445,8 +460,13 @@ namespace kOS.Safe.Test.Terminal
                     screen.ClearScreen();
                     continue;
                 }
-                if (kind < 90)
-                    Assert.AreEqual(0, screen.ViewOffset, context + ": output shows the screen");
+                if (kind < 90 && offsetBefore == 0)
+                    Assert.AreEqual(0, screen.ViewOffset, context + ": a view on the screen follows the output");
+                if (kind < 90 && offsetBefore > 0 && screen.ViewOffset != screen.ScrollbackRows)
+                {
+                    Assert.AreEqual(viewTopBefore, screen.TopRow, context + ": a view scrolled back keeps its lines (O2)");
+                    ++scrolledBackWrites;
+                }
                 int topAfter = screen.TopRow + screen.ViewOffset;
                 int dropped = (topAfter - topBefore) - (screen.ScrollbackRows - scrollbackBefore);
                 Assert.GreaterOrEqual(dropped, 0, context);
@@ -461,6 +481,7 @@ namespace kOS.Safe.Test.Terminal
                 }
                 Assert.LessOrEqual(screen.ScrollbackRows, ScreenBuffer.MAX_SCROLLBACK, context);
             }
+            return scrolledBackWrites;
         }
     }
 }
