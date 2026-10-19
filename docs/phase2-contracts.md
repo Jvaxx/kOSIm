@@ -162,7 +162,7 @@ These stay, with the same signatures and behavior:
 
 ## 4. Proposed extraction order
 
-Each step is behavior-preserving unless marked, gets headless tests, keeps the renderer, and is checked in game (Proton) before the next.
+Each step is behavior-preserving unless marked, gets headless tests, keeps the renderer, and is checked in game (Proton). (User decision 2026-10-19: from P2-2 on, the in-game checks are collected into one Proton pass at the end of Phase 2 instead of one per step; each step's pending checks are listed in the handoff.)
 
 1. **P2-1 Input router to `kOS.Safe`. Done 2026-10-19** (`docs/testing-and-build.md`, "Terminal input router").
    - Move `ProcessOneInputChar`, `Type`, `SpecialKey`, `ProcessUnconsumedInput`, `ProcessTelnetInput`, `WipeAllTypeAhead` and the resize-escape state out of `TermWindow` into a `TerminalInputRouter`. It works through interfaces for the interpreter, the screen and the window actions (close, detach, repaint).
