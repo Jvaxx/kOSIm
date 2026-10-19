@@ -14,9 +14,8 @@ Phase 1 (correctness and safety) was completed earlier the same day ("Proton pas
 
 **Next actions, in order:**
 
-1. **User decision LIFE-04:** a disposed script GUI keeps one `GameObject` (window), one `Texture2D` and one `GUISkin` until power-off (window, texture) or a scene change (skin): +100 of each per 100 GUIs, measured in game. Destroying the window on dispose changes what a script still holding the GUI sees (it could no longer `SHOW` it). Options: destroy on dispose (and make later use a script error or a no-op), or leave it.
-2. **Phase 3** per the roadmap: start with safe paste/copy and command history (history is still unbounded: TERM-05). Plan it in the roadmap before coding.
-3. Minor, optional: POWER-01 (a CPU powering itself off with `DOEVENT("Toggle Power")` logs `KOSBadJumpException`; likely upstream, compare with an upstream build first); the GUI's "N telnet clients attached" label overlaps "Keyclicker"; checks not performed: vessel destruction/unload with telnet attached, Phase 1 pass leftovers (CTB focus modes, flight-results dialog).
+1. **Phase 3** per the roadmap: start with safe paste/copy and command history (history is still unbounded: TERM-05). Plan it in the roadmap before coding.
+2. Minor, optional: POWER-01 (a CPU powering itself off with `DOEVENT("Toggle Power")` logs `KOSBadJumpException`; likely upstream, compare with an upstream build first); the GUI's "N telnet clients attached" label overlaps "Keyclicker"; checks not performed: vessel destruction/unload with telnet attached, Phase 1 pass leftovers (CTB focus modes, flight-results dialog).
 
 ## Workspace state (2026-10-19)
 
@@ -31,6 +30,7 @@ Phase 1 (correctness and safety) was completed earlier the same day ("Proton pas
 - Local tests only; upstream workflows stay inactive under `.github/upstream-workflows/`. No push, no UI redesign, no compiler/VM rewrite.
 - Preserve character-grid semantics, KSM/save/craft compatibility, public mod APIs, safe telnet defaults, predictable flight-input ownership. Keep `docs/improvements-overview.md` unchanged.
 - User decisions: telnet limits are code constants (backlogs 262,144; 4,096 keys and 4 ms per client per update; type-ahead 4,096; 2,048 prompt keys; 100 ms sequence timeout); unrecognized key sequences stay typed as text; no SS3 decoding; prompt Ctrl-C cancels a running compile and waits for its thread; JSON format unchanged; INPUT-01 hover lock `kOSMouseOver` with no mod dependency (CTB check passed 2026-10-19: no integration); IO-04: links followed to read/write/list, a delete never enters a link and removes a link itself, never its target (under Wine: refused), images ≤ 16 MiB and ≤ 4096 px a side; `SWITCH`/`RENAME` attach check dropped; dev `settings.cfg` resolution: leave alone.
+- LIFE-04 (a disposed script GUI keeps its window, texture and skin until power-off or a scene change): left as is (user decision 2026-10-19).
 - Known edge case, not pursued: telnet two-client **1×1 NAWS runaway** (T4, memory grows by GBs). Upstream issue #3168 (`POPUPMENU:VALUE` from a string fails with an invalid cast) not addressed.
 
 ## Implemented state
