@@ -287,8 +287,8 @@ namespace kOS.Safe.UserIO
         /// (VIEW-03): full repaints come between refreshes (attach, resize, repaint request),
         /// often right after a resize, which the old snapshot predates: its rows have the old
         /// width (a narrower client would wrap them) and are not the screen's new rows. The
-        /// viewer's diff baseline is a copy made now, whose rows count as newer than every
-        /// change so far, so what the painted snapshot lacked would never be sent.
+        /// viewer's diff baseline is a copy of the screen made now, so what the painted
+        /// snapshot lacked would never be sent.
         /// </summary>
         /// <param name="viewer">which viewer to paint to.</param>
         private void RepaintFull(TViewer viewer)

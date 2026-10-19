@@ -126,81 +126,83 @@ namespace kOS.Safe.Screen
                 // if new row is an empty dummy, then pad it out so it gets properly diffed against the old row:
                 if (newRow.Length == 0)
                     newRow = new ScreenBufferLine(olderRow.Length);
-                // If the old row is a dummy pad or if the new row is newer than the old row, then it needs checking for diffs:
-                if (olderRow.Length == 0 || newRow.LastChangeTick > olderRow.LastChangeTick)
+                // Every row is checked by content (VIEW-05). Upstream skipped a row unless it
+                // changed after the older snapshot was copied, but a row can show other text
+                // without being edited: the input line's overlay moves down when text is
+                // printed above it (its rows keep their change time), an overlay moving away
+                // uncovers a base row, the view moves. Comparing costs about what the
+                // DeepCopy of every row after each diff already costs.
+                List<DiffChunk> diffs = new List<DiffChunk>();
+                
+                for (int newCol = 0 ; newCol < newRow.Length ; ++newCol)
                 {
-                    List<DiffChunk> diffs = new List<DiffChunk>();
-                    
-                    for (int newCol = 0 ; newCol < newRow.Length ; ++newCol)
+                    // Check if they differ, but in a way that treats ' ' and 0x00 as identical, and treats a shorter
+                    // old row as if it has been padded with spaces:
+                    bool oldRowTooShort = newCol >= olderRow.Length;
+                    char newChar = (newRow[newCol] == '\0' ? ' ' : newRow[newCol]);
+                    char oldChar = (oldRowTooShort ? ' ' : (olderRow[newCol] == '\0' ? ' ' : olderRow[newCol]));
+                    if (newChar != oldChar)
                     {
-                        // Check if they differ, but in a way that treats ' ' and 0x00 as identical, and treats a shorter
-                        // old row as if it has been padded with spaces:
-                        bool oldRowTooShort = newCol >= olderRow.Length;
-                        char newChar = (newRow[newCol] == '\0' ? ' ' : newRow[newCol]);
-                        char oldChar = (oldRowTooShort ? ' ' : (olderRow[newCol] == '\0' ? ' ' : olderRow[newCol]));
-                        if (newChar != oldChar)
+                        // Start a new diff chunk if there isn't one yet, or the diff is a long enough distance from the existing one:
+                        if (diffs.Count == 0 || diffs[diffs.Count-1].EndCol < newCol - JOIN_DIFF_DIST)
                         {
-                            // Start a new diff chunk if there isn't one yet, or the diff is a long enough distance from the existing one:
-                            if (diffs.Count == 0 || diffs[diffs.Count-1].EndCol < newCol - JOIN_DIFF_DIST)
+                            DiffChunk newChunk = new DiffChunk
                             {
-                                DiffChunk newChunk = new DiffChunk
-                                {
-                                    StartCol = newCol, 
-                                    EndCol = newCol
-                                };
-                                diffs.Add(newChunk);
-                            }
-                            else // stretch the existing diff chunk to here.
-                            {
-                                diffs[diffs.Count-1].EndCol = newCol;
-                            }
+                                StartCol = newCol, 
+                                EndCol = newCol
+                            };
+                            diffs.Add(newChunk);
+                        }
+                        else // stretch the existing diff chunk to here.
+                        {
+                            diffs[diffs.Count-1].EndCol = newCol;
                         }
                     }
-                    
-                    string newRowText = newRow.ToString();
-
-                    foreach (DiffChunk diff in diffs)
-                    {
-                        /* comment-out -----------------
-                        // If we're lucky enough that the current cursor happens to be right where we need it to
-                        // be, some of these are more efficient.  Else it does TELEPORTCURSOR's:
-                        
-                        // Just one char removed to the left of current cursor pos - do a backspace instead of the ugly work:
-                        if (trackCursorRow == newRowNum && (diff.EndCol == trackCursorColumn - 1 && diff.StartCol == diff.EndCol))
-                        {
-                            output.Append(String.Format("{0}{1}{2}", (char)0x08, newRowText.Substring(diff.StartCol,1), (char)0x08));
-                            trackCursorColumn = diff.EndCol;
-                            trackCursorRow = newRowNum;
-                        }
-                        else
-                        {
-                        --------------------------- */
-                            // If the change starts right where the cursor happens to be (i.e. when typing, one char
-                            // at current cursor position will typically be the only diff from one update to the next),
-                            // then don't bother moving the cursor first, else move it to the new pos:
-                            string moveString;
-                            if (trackCursorRow == newRowNum && diff.StartCol == trackCursorColumn)
-                                moveString = "";
-                            else
-                                moveString = String.Format("{0}{1}{2}",
-                                                           (char)UnicodeCommand.TELEPORTCURSOR,
-                                                           (char)diff.StartCol,
-                                                           (char)newRowNum);
-                            
-                            // content = the bit of string to print at this location, with nulls made into spaces so the 
-                            // telnet terminal will print correctly.
-                            string content = newRowText.Substring(diff.StartCol, diff.EndCol - diff.StartCol + 1).Replace('\0',' ');
-
-                            output.Append(String.Format("{0}{1}", moveString, content));
- 
-                            trackCursorColumn = diff.EndCol+1;
-                            trackCursorRow = newRowNum;
-                        /* comment-out -----------------
-                        }
-                        --------------------------- */
-                    }
-                    
                 }
+                
+                string newRowText = newRow.ToString();
+
+                foreach (DiffChunk diff in diffs)
+                {
+                    /* comment-out -----------------
+                    // If we're lucky enough that the current cursor happens to be right where we need it to
+                    // be, some of these are more efficient.  Else it does TELEPORTCURSOR's:
+                    
+                    // Just one char removed to the left of current cursor pos - do a backspace instead of the ugly work:
+                    if (trackCursorRow == newRowNum && (diff.EndCol == trackCursorColumn - 1 && diff.StartCol == diff.EndCol))
+                    {
+                        output.Append(String.Format("{0}{1}{2}", (char)0x08, newRowText.Substring(diff.StartCol,1), (char)0x08));
+                        trackCursorColumn = diff.EndCol;
+                        trackCursorRow = newRowNum;
+                    }
+                    else
+                    {
+                    --------------------------- */
+                        // If the change starts right where the cursor happens to be (i.e. when typing, one char
+                        // at current cursor position will typically be the only diff from one update to the next),
+                        // then don't bother moving the cursor first, else move it to the new pos:
+                        string moveString;
+                        if (trackCursorRow == newRowNum && diff.StartCol == trackCursorColumn)
+                            moveString = "";
+                        else
+                            moveString = String.Format("{0}{1}{2}",
+                                                       (char)UnicodeCommand.TELEPORTCURSOR,
+                                                       (char)diff.StartCol,
+                                                       (char)newRowNum);
+                        
+                        // content = the bit of string to print at this location, with nulls made into spaces so the 
+                        // telnet terminal will print correctly.
+                        string content = newRowText.Substring(diff.StartCol, diff.EndCol - diff.StartCol + 1).Replace('\0',' ');
+
+                        output.Append(String.Format("{0}{1}", moveString, content));
+ 
+                        trackCursorColumn = diff.EndCol+1;
+                        trackCursorRow = newRowNum;
+                    /* comment-out -----------------
+                    }
+                    --------------------------- */
+                }
+                
                     
             }
                     

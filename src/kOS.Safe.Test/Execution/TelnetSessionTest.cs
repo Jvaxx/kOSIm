@@ -182,5 +182,85 @@ namespace kOS.Safe.Test.Execution
             host.Screen.SetSize(12, 40);
             Assert.AreEqual(firstOutput, first.Output.Length, "nothing sent after the window went");
         }
+
+        // ---- VIEW-05: rows moved without being edited ----
+
+        private const string WrappedDraft = "print \"a long draft that wraps past the fifty column width of this terminal";
+
+        /// <summary>A 50x10 client with a draft at the prompt that wraps onto a second row.</summary>
+        private TelnetServerInputModel ClientTypingAWrappedDraft()
+        {
+            TelnetServerInputModel telnet = window.AttachTelnet("XTERM");
+            SendSize(telnet, 50, 10);
+            host.Update();
+            telnet.Send(WrappedDraft);
+            host.Update();
+            host.Update();
+            Assert.AreEqual(WrappedDraft, host.Screen.InputLine);
+            AssertShowsScreen(telnet);
+            return telnet;
+        }
+
+        /// <summary>
+        /// VIEW-05, found in the Phase 3 Proton pass (upstream): text printed while a wrapped
+        /// line is being typed moves the line down, but its rows were not edited, so the diff
+        /// (which skipped rows by change time) never sent them: the client kept the draft's
+        /// rows blank or stale until a full repaint (Ctrl-L).
+        /// </summary>
+        [Test]
+        public void TextPrintedAboveAWrappedDraftMovesItOnTheClientToo()
+        {
+            TelnetServerInputModel telnet = ClientTypingAWrappedDraft();
+
+            host.Screen.Print("printed meanwhile");
+            host.Update();
+            AssertShowsScreen(telnet);
+
+            host.Screen.Print("and a second line\nwith a third");
+            host.Update();
+            AssertShowsScreen(telnet);
+
+            telnet.Send("\".\r"); // the draft is intact and runs
+            host.RunUntilPrompt();
+            host.Update();
+            AssertShowsScreen(telnet);
+        }
+
+        /// <summary>VIEW-05 as seen in game: a WHEN trigger printing while the user types.</summary>
+        [Test]
+        public void ATriggerPrintingWhileAWrappedLineIsTypedReachesTheClient()
+        {
+            TelnetServerInputModel telnet = window.AttachTelnet("XTERM");
+            SendSize(telnet, 50, 10);
+            host.Update();
+            telnet.Send("set n to 0. when true then { set n to n + 1. if n < 300 return true. print \"trigger fired\". }\r");
+            host.Update(); // the command is typed and starts compiling
+            for (int i = 0; i < 2000 && !host.Screen.IsWaitingForCommand(); ++i)
+                host.Update(); // not RunUntilPrompt: that also waits for the trigger to finish
+            Assert.IsTrue(host.Screen.IsWaitingForCommand());
+            telnet.Send(WrappedDraft);
+            Func<bool> fired = () => Enumerable.Range(0, host.Screen.RowCount).Any(row => ScreenRow(row).TrimEnd() == "trigger fired");
+            int updates = 0;
+            while (host.Screen.InputLine != WrappedDraft && updates++ < 50)
+                host.Update();
+            Assert.IsFalse(fired(), "the whole draft is typed before the trigger fires (as in game)");
+            while (!fired() && updates++ < 1000)
+                host.Update();
+            Assert.IsTrue(fired(), "the trigger printed while the draft waited at the prompt");
+            host.Update();
+            Assert.AreEqual(WrappedDraft, host.Screen.InputLine);
+            AssertShowsScreen(telnet);
+        }
+
+        /// <summary>VIEW-05 as first seen: the GUI paste refusal printed above a wrapped draft.</summary>
+        [Test]
+        public void APasteRefusalAboveAWrappedDraftReachesTheClient()
+        {
+            TelnetServerInputModel telnet = ClientTypingAWrappedDraft();
+
+            Assert.AreEqual(GuiPasteResult.Refused, window.GuiPaste.Paste(new string('x', TerminalPaste.MAX_CHARS + 1)));
+            host.Update();
+            AssertShowsScreen(telnet);
+        }
     }
 }
