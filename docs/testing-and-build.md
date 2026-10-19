@@ -186,7 +186,7 @@ All as before.
 
 **Change (structure only, no intended behavior change):** `TermWindow`'s viewer fan-out moved unchanged into `kOS.Safe.UserIO.TerminalSession<TViewer>`: the attached telnet list and each client's diff baseline, the shared screen snapshot (retaken at most every 50 ms) and the refresh that sends each client the changes and the pending beeps, `NotifyOfScreenResize`'s telnet half (`ScreenResized`: clients of another size get `RESIZESCREEN` and a full repaint), the full repaint, the repaint request (`RepaintViewer`: size, screen and title), the title (`ChangeTitle`, `Title`) and the clear. A telnet client is an `ITerminalViewer` (`ClientWidth`/`ClientHeight`, the last-sent `ReverseScreen`/`VisualBeep`, `Write`, `Detach`); `TelnetSingletonServer` already had those members and implements `Detach` as `DisconnectFromProcessor`. Attaching (`AttachViewer`) now does what `TelnetSingletonServer.ConnectToProcessor` did through four window calls: give the screen the client's size, add it, send the title and a full repaint, in the same order. `TermWindow` keeps its public members (`TitleText`, `ClearScreen`, `NumTelnets`, `DetachAllTelnets`) as forwarders; the internal `SendTitleToTelnet`, `RepaintTelnet` and `ChangeTitle` are gone. The GUI window owns the session and draws its `Snapshot`; it is not a viewer, since it needs none of the streamed output (its own resize stays in `NotifyOfScreenResize`, and the beeps still pass to the GUI only in an update that refreshed the clients, after the input work, as before). Session and viewers are main-thread only, as before.
 
-Only difference, in a path that threw before: a client attaching before the window's first refresh (its first 50 ms) made `RepaintTelnetFull` throw on a null snapshot; the session takes a snapshot then.
+Only difference, in a path that threw before: a client attaching before the window's first refresh (its first 50 ms) made `RepaintTelnetFull` throw on a null snapshot; the session takes a snapshot then. (Superseded by VIEW-03 below: every full repaint now takes its own snapshot.)
 
 **Resize authority (D3), as implemented and tested:** one screen size; whichever request is applied last wins (GUI drag or font change, script, a client attaching, a client's NAWS read by the router). The main thread applies them in the order it reads them: within one update, telnet clients are drained in rotating order. After each change, every client whose reported size differs is asked to resize (and repainted); a client that ignores the request keeps its size and is asked again at the next change. A client's NAWS also queues a repaint request for it (the server's `ResizeRequested`), read after the resize.
 
@@ -199,6 +199,18 @@ Only difference, in a path that threw before: a client attaching before the wind
 Gate 1030/1030 (`minimum_tests` 1006 → 1030).
 
 **In game:** pending (see the handoff).
+
+### Full telnet repaint after a resize (VIEW-03, found in P2-2)
+
+**Defect (upstream, behavior kept by P2-2's move, found by its seeded client-model test):** a full repaint (attach, a resize request to a client of another size, Ctrl-L, a client's NAWS, the stalled-client repaint) painted the snapshot of the last refresh, up to 50 ms old. A snapshot holds the screen's row objects, so rows edited in place were current; but a resize replaces every row, and full repaints mostly come right after one. Two effects:
+- a client asked to take a narrower size, or attaching narrower than the screen was, was sent rows of the old width, which a real terminal wraps onto the next row;
+- the repaint's diff baseline is a copy made then, whose rows count as newer than every change so far, so rows changed after the resize and before the repaint were never sent until changed again.
+
+**Fix:** `TerminalSession.RepaintFull` paints a snapshot taken then. The GUI still draws the refresh snapshot. Cost: one snapshot per full repaint (per client on a resize).
+
+**Tests** (`UserIO/TerminalSessionTest`, 4; the client model now counts text written past a client's right edge, where a real terminal would wrap, and every "client shows the screen" check requires none): a client asked to narrow is sent rows that fit; a client attaching narrower than the screen is sent rows that fit; a repaint request after a resize shows the changes since the resize; seeded (5 seeds × 400 steps of output, `PRINT AT`, scrolling, resizes, client sizes with their repaint request, clears and repaint requests, three clients): after every refresh each client shows the screen and cursor. All four fail with the fix reverted. The equivalence oracle (`PreSessionTermWindowFanOut`) carries the same fix, marked, so it keeps checking everything else. Gate 1034/1034 (`minimum_tests` 1030 → 1034); full Release build 0 errors, 44 warnings (`kOS.dll 328c10a7…`, `kOS.Safe.dll 0f2c7c3f…`).
+
+**In game:** pending: attach a client narrower than the GUI terminal (e.g. a 40-column telnet to the default 50), and shrink the GUI terminal with a telnet client attached; no wrapped rows.
 
 ### Proton pass 2026-10-19 (Phase 1 fixes)
 

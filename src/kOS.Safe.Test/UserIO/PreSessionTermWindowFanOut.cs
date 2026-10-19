@@ -13,7 +13,9 @@ namespace kOS.Safe.Test.UserIO
     /// <c>RepaintTelnet</c>, <c>RepaintTelnetFull</c>, <c>ClearScreen</c>, the attach and
     /// detach methods, the router's repaint request, and <c>TelnetSingletonServer.ConnectToProcessor</c>'s
     /// order of calls. Copied unchanged apart from <c>DateTime.Now</c> becoming a parameter,
-    /// <c>shared.Screen</c> a field and the telnet server a <see cref="RecordingViewer"/>.
+    /// <c>shared.Screen</c> a field and the telnet server a <see cref="RecordingViewer"/>,
+    /// and one later fix applied to both: <c>RepaintTelnetFull</c> paints a snapshot taken
+    /// then, not <c>mostRecentScreen</c> (VIEW-03).
     /// </summary>
     internal sealed class PreSessionTermWindowFanOut
     {
@@ -172,6 +174,7 @@ namespace kOS.Safe.Test.UserIO
 
         private void RepaintTelnetFull(RecordingViewer telnet)
         {
+            IScreenSnapShot mostRecentScreen = new ScreenSnapShot(screen); // VIEW-03 (was the field)
             List<IScreenBufferLine> buffer = mostRecentScreen.Buffer;
 
             int rowsToPaint = Math.Min(screen.RowCount, buffer.Count);

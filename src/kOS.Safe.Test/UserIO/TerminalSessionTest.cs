@@ -74,13 +74,18 @@ namespace kOS.Safe.Test.UserIO
         /// <summary>The client shows exactly the screen as of the last refresh, cursor included.</summary>
         private void AssertShowsScreen(RecordingViewer viewer)
         {
-            IScreenSnapShot snapshot = session.Snapshot;
+            AssertShows(viewer, session.Snapshot);
+        }
+
+        private void AssertShows(RecordingViewer viewer, IScreenSnapShot snapshot)
+        {
             Assert.AreEqual(screen.ColumnCount, viewer.Model.Width, viewer + " width");
             Assert.AreEqual(screen.RowCount, viewer.Model.Height, viewer + " height");
             for (int row = 0; row < screen.RowCount; ++row)
                 Assert.AreEqual(ScreenRow(snapshot, row, screen.ColumnCount), viewer.Model.Row(row), viewer + " row " + row);
             Assert.AreEqual(snapshot.CursorRow, viewer.Model.CursorRow, viewer + " cursor row");
             Assert.AreEqual(snapshot.CursorColumn, viewer.Model.CursorColumn, viewer + " cursor column");
+            Assert.AreEqual(0, viewer.Model.WritesPastRightEdge, viewer + " was sent text past its right edge");
         }
 
         // ---- Resize authority (D3) ----
@@ -357,9 +362,125 @@ namespace kOS.Safe.Test.UserIO
             screen.Print("already here");
             RecordingViewer a = Attach("a", 40, 10); // TermWindow used to throw: no snapshot yet
 
-            Assert.IsNotNull(session.Snapshot);
+            AssertShows(a, new ScreenSnapShot(screen));
+        }
+
+        // ---- Full repaints after a resize, before the next refresh (VIEW-03) ----
+
+        private void PrintFullRows()
+        {
+            for (int row = 0; row < screen.RowCount - 1; ++row)
+                screen.Print(new string((char)('a' + row), screen.ColumnCount), false);
+        }
+
+        [Test]
+        public void AClientAskedToTakeANarrowerSizeIsSentRowsThatFit()
+        {
+            RecordingViewer a = Attach("a", 40, 10);
+            PrintFullRows();
+            Refresh();
+
+            screen.SetSize(10, 20); // e.g. the GUI's resize drag ends
+
+            Assert.AreEqual(0, a.Model.WritesPastRightEdge, "rows wider than the client wrap on a real terminal");
+            Refresh();
             AssertShowsScreen(a);
         }
+
+        [Test]
+        public void AClientAttachingNarrowerThanTheScreenIsSentRowsThatFit()
+        {
+            PrintFullRows();
+            Refresh();
+
+            RecordingViewer a = Attach("a", 25, 10);
+
+            Assert.AreEqual(0, a.Model.WritesPastRightEdge, "rows wider than the client wrap on a real terminal");
+            Refresh();
+            AssertShowsScreen(a);
+        }
+
+        [Test]
+        public void ARepaintRequestAfterAResizeShowsTheChangesSinceTheResize()
+        {
+            RecordingViewer a = Attach("a", 40, 10);
+            Refresh();
+
+            screen.SetSize(12, 40);
+            screen.PrintAt("after the resize", 2, 3);
+            session.RepaintViewer(a); // e.g. Ctrl-L, before the next refresh
+            Refresh();
+
+            AssertShowsScreen(a);
+        }
+
+        // ---- Seeded: what clients show ----
+
+        /// <summary>
+        /// Random output, cursor moves, scrolling, resizes and clears with three clients of
+        /// different sizes: after every refresh each client shows the screen.
+        /// </summary>
+        [Test]
+        public void SeededClientsShowTheScreenAfterEveryRefresh()
+        {
+            foreach (int seed in new[] { 2201, 2202, 2203, 2204, 2205 })
+            {
+                SetUp();
+                var random = new Random(seed);
+                RecordingViewer[] viewers = { Attach("a", 40, 10), Attach("b", 60, 15), Attach("c", 30, 8) };
+                Refresh();
+                for (int step = 0; step < 400; ++step)
+                {
+                    int op = random.Next(100);
+                    if (op < 40)
+                        screen.Print(RandomText(random), random.Next(3) > 0);
+                    else if (op < 55)
+                        screen.PrintAt(RandomText(random), random.Next(screen.RowCount), random.Next(screen.ColumnCount));
+                    else if (op < 60)
+                        screen.ScrollVertical(random.Next(-6, 7));
+                    else if (op < 64)
+                        screen.SetSize(random.Next(3, 30), random.Next(10, 90));
+                    else if (op < 67)
+                    {
+                        RecordingViewer viewer = viewers[random.Next(viewers.Length)];
+                        ReportSize(viewer, random.Next(10, 90), random.Next(3, 30));
+                    }
+                    else if (op < 69)
+                        session.ClearScreen();
+                    else if (op < 71)
+                        session.RepaintViewer(viewers[random.Next(viewers.Length)]);
+                    else
+                    {
+                        if (Refresh())
+                            foreach (RecordingViewer viewer in viewers)
+                                AssertShowsScreenAt(viewer, seed, step);
+                    }
+                }
+            }
+        }
+
+        private void AssertShowsScreenAt(RecordingViewer viewer, int seed, int step)
+        {
+            try
+            {
+                AssertShowsScreen(viewer);
+            }
+            catch (AssertionException e)
+            {
+                throw new AssertionException("seed " + seed + ", step " + step + ": " + e.Message);
+            }
+        }
+
+        private static string RandomText(Random random)
+        {
+            const string letters = "abcdefghijklmnopqrstuvwxyz0123456789 .:-";
+            int length = random.Next(0, 70);
+            var chars = new char[length];
+            for (int i = 0; i < length; ++i)
+                chars[i] = letters[random.Next(letters.Length)];
+            return new string(chars);
+        }
+
 
         [Test]
         public void AttachingTwiceKeepsOneEntryAndRepaints()

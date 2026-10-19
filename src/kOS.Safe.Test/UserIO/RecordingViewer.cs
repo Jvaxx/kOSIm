@@ -135,7 +135,8 @@ namespace kOS.Safe.Test.UserIO
     /// <summary>
     /// A minimal terminal that plays <see cref="UnicodeCommand"/> output the way the game's
     /// telnet mappers have a VT100/xterm client do it: text is written at the cursor and
-    /// clipped at the right edge (the session never relies on wrapping), STARTNEXTLINE is
+    /// clipped at the right edge, where a real terminal would wrap it, so such writes are
+    /// counted (<see cref="WritesPastRightEdge"/>; the session should never need them), STARTNEXTLINE is
     /// CR LF and scrolls at the bottom, CLEARSCREEN clears and homes, the scroll commands
     /// scroll the whole screen, RESIZESCREEN resizes keeping the top-left content (when
     /// <see cref="ObeysResize"/>, as xterm does), and NUL shows as a blank.
@@ -161,6 +162,9 @@ namespace kOS.Safe.Test.UserIO
         public bool VisualBeep { get; private set; }
         public int Beeps { get; private set; }
         public bool ObeysResize { get; set; }
+
+        /// <summary>Characters written past the right edge: a real terminal would have wrapped them.</summary>
+        public int WritesPastRightEdge { get; private set; }
 
         private ExpectNextChar expect = ExpectNextChar.NORMAL;
         private int pendingColumn;
@@ -240,6 +244,8 @@ namespace kOS.Safe.Test.UserIO
                         throw new InvalidOperationException("the session sent an unexpected command " + Enum.GetName(typeof(UnicodeCommand), (int)ch));
                     if (CursorColumn < Width)
                         rows[CursorRow][CursorColumn] = ch == '\0' ? ' ' : ch;
+                    else
+                        ++WritesPastRightEdge;
                     CursorColumn = Math.Min(CursorColumn + 1, Width);
                     break;
             }

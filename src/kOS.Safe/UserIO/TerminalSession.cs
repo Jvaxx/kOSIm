@@ -256,13 +256,19 @@ namespace kOS.Safe.UserIO
 
         /// <summary>
         /// Cover the case where the whole screen needs to be repainted from scratch.
+        /// <br/>
+        /// It paints the screen as it is now, not the last refresh's <see cref="Snapshot"/>
+        /// (VIEW-03): full repaints come between refreshes (attach, resize, repaint request),
+        /// often right after a resize, which the old snapshot predates: its rows have the old
+        /// width (a narrower client would wrap them) and are not the screen's new rows. The
+        /// viewer's diff baseline is a copy made now, whose rows count as newer than every
+        /// change so far, so what the painted snapshot lacked would never be sent.
         /// </summary>
         /// <param name="viewer">which viewer to paint to.</param>
         private void RepaintFull(TViewer viewer)
         {
-            if (Snapshot == null) // attached before the first refresh: TermWindow used to throw here.
-                Snapshot = new ScreenSnapShot(Screen);
-            List<IScreenBufferLine> buffer = Snapshot.Buffer; // just to keep the name shorter below:
+            IScreenSnapShot current = new ScreenSnapShot(Screen);
+            List<IScreenBufferLine> buffer = current.Buffer; // just to keep the name shorter below:
 
             // Sometimes the buffer is shorter than the terminal height if the resize JUST happened in the last Update():
             int rowsToPaint = Math.Min(Screen.RowCount, buffer.Count);
@@ -306,10 +312,10 @@ namespace kOS.Safe.UserIO
                                        (char)UnicodeCommand.TELEPORTCURSOR,
                                        // The next two are cast to char because, for example, a value of 76 should be
                                        // encoded as (char)76 (which is 'L'), rather than as '7' followed by '6':
-                                       (char)Snapshot.CursorColumn,
-                                       (char)Snapshot.CursorRow));
+                                       (char)current.CursorColumn,
+                                       (char)current.CursorRow));
 
-            previousScreens[viewer] = Snapshot.DeepCopy();
+            previousScreens[viewer] = current.DeepCopy();
         }
     }
 }

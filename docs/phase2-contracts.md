@@ -88,6 +88,7 @@ After a change, the other attached clients of a different size are sent a resize
 | LIFE-01 | Terminal, editor and script GUI textures and cloned skins are never destroyed. Each processor load leaks them until the scene is unloaded, at best. | `S/TermWindow.cs` `Awake`, `BuildPanelSkin`; `S/GUIWindow.cs`; `kOS/Utilities/Utils.cs` texture helpers | Native leak (needs in-game measurement) |
 | LIFE-02 | A processor destroyed with telnet clients attached never detaches them. The clients rely on Unity fake-null, with no detach message, and the `TermWindow`'s list is just dropped. | `DetachAllTelnets` unused; `kOSProcessor.OnDestroy` | Minor; works by accident |
 | LIFE-03 | `ManualResetEvent`s are not disposed; `RemoveSubBuffer` leaves its resize notifier registered. | `YiedFinishedThreadedDetector`, `TelnetConnectionWorker`; `ScreenBuffer.RemoveSubBuffer` | Minor |
+| VIEW-03 | (Found in P2-2; **fixed 2026-10-19**.) A full telnet repaint painted the last refresh's snapshot: after a resize, a narrower client got rows of the old width (wrapped by real terminals), and rows changed between the resize and the repaint were never sent. | Seeded client-model test; `docs/testing-and-build.md`, "Full telnet repaint after a resize (VIEW-03)". Upstream behavior. | Display corruption (telnet) |
 
 ## 3. Proposed contracts
 
