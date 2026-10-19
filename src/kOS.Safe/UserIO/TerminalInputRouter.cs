@@ -230,6 +230,25 @@ namespace kOS.Safe.UserIO
         }
 
         /// <summary>
+        /// Queue a prepared paste behind the type-ahead (Phase 3, P3-2): the prompt types it
+        /// within its per-update budget, a running script's <c>GETCHAR</c> reads it, and BREAK
+        /// wipes what is left. Its keys bypass <see cref="ProcessOneInputChar"/>, so a paste
+        /// cannot be taken as part of a resize combo. One key click.
+        /// </summary>
+        /// <returns>false when nothing was queued (refused, empty, or no screen)</returns>
+        public bool QueuePaste(TerminalPaste paste)
+        {
+            if (paste == null) throw new ArgumentNullException("paste");
+            IScreenBuffer screen = host.Screen;
+            if (screen == null || paste.IsTooLarge || paste.IsEmpty)
+                return false;
+            foreach (char key in paste.Keys)
+                screen.CharInputQueue.Enqueue(key);
+            host.KeyClick();
+            return true;
+        }
+
+        /// <summary>
         /// Throws away everything in the typeahead buffer and any state vars from multi-char combo command
         /// sequences we might be in the middle of.  Used when you want to fully flush and start input over.
         /// </summary>
@@ -267,7 +286,10 @@ namespace kOS.Safe.UserIO
             if (screen != null)
             {
                 IInterpreter interpreter = host.Interpreter;
-                if ((!forceQueue) && interpreter != null && interpreter.IsWaitingForCommand())
+                // A key that may be queued waits behind queued keys (a paste, telnet input), so
+                // it cannot jump ahead of them; the prompt feed itself does not queue.
+                bool behindTypeAhead = doQueuing && screen.CharInputQueue.Count > 0;
+                if ((!forceQueue) && !behindTypeAhead && interpreter != null && interpreter.IsWaitingForCommand())
                 {
                     interpreter.Type(ch);
                     accepted = true;
@@ -313,9 +335,10 @@ namespace kOS.Safe.UserIO
                 bool wasUsed = false;
                 IInterpreter interpreter = host.Interpreter;
 
+                bool behindTypeAhead = doQueuing && screen.CharInputQueue.Count > 0; // as in Type()
                 if ((!forceQueue) &&
                     interpreter != null &&
-                    (interpreter.IsWaitingForCommand() || rudeQueueSkipping))
+                    ((interpreter.IsWaitingForCommand() && !behindTypeAhead) || rudeQueueSkipping))
                 {
                     wasUsed = interpreter.SpecialKey(key);
                     accepted = true;

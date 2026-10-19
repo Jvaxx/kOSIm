@@ -130,6 +130,12 @@ namespace kOS.Safe.Test.Execution
             return router.ProcessOneInputChar(ch, whichTelnet, allowQueue, forceQueue);
         }
 
+        /// <summary>Paste clipboard text as the GUI does once confirmed (P3-3 calls the same router entry).</summary>
+        public bool QueuePaste(string text)
+        {
+            return router.QueuePaste(TerminalPaste.Prepare(text));
+        }
+
         IScreenBuffer ITerminalInputHost<TelnetServerInputModel>.Screen { get { return screen; } }
 
         IInterpreter ITerminalInputHost<TelnetServerInputModel>.Interpreter { get { return screen; } }
