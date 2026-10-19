@@ -1,6 +1,6 @@
 {
   "upstream_commit": "8f281a459b6ea0ba917c91bbbc117e68bb948199",
   "upstream_test_count": 302,
-  "minimum_tests": 1085,
+  "minimum_tests": 1099,
   "failures": []
 }

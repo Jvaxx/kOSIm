@@ -109,6 +109,12 @@ namespace kOS.Screen
         private readonly TerminalSession<TelnetSingletonServer> session;
         
         private readonly TerminalInputRouter<TelnetSingletonServer> inputRouter;
+
+        // Ctrl+V and Shift+Insert (P3-3); a paste that runs lines waits for the confirmation drawn here:
+        private readonly TerminalGuiPaste<TelnetSingletonServer> guiPaste;
+        private MouseBlocking.Area pasteConfirmationMouseArea;
+        private GUIStyle pastePreviewStyle;
+        private GUIStyle pasteHintStyle;
         
         public string TitleText { get { return session.Title; } }
 
@@ -127,6 +133,7 @@ namespace kOS.Screen
             WindowRect = new Rect(50, 60, 0, 0); // will get resized later in AttachTo().
             session = new TerminalSession<TelnetSingletonServer>(DateTime.Now);
             inputRouter = new TerminalInputRouter<TelnetSingletonServer>(this);
+            guiPaste = new TerminalGuiPaste<TelnetSingletonServer>(inputRouter, () => shared == null ? null : shared.Screen);
         }
 
         public bool ShowCursor { get; set; }
@@ -207,6 +214,8 @@ namespace kOS.Screen
         new public void OnDestroy()
         {
             LoseFocus();
+            guiPaste.Cancel();
+            KOSMouseBlocking.Unregister(ref pasteConfirmationMouseArea);
             GameEvents.onHideUI.Remove(OnHideUI);
             GameEvents.onShowUI.Remove(OnShowUI);
 
@@ -277,6 +286,7 @@ namespace kOS.Screen
         public override void Close()
         {
             // Diable GUI and release all locks
+            guiPaste.Cancel(); // a paste waiting for confirmation is dropped with the window
             base.Close();
         }
 
@@ -309,6 +319,8 @@ namespace kOS.Screen
 
         void OnGUI()
         {
+            if (!IsOpen || !IsPowered)
+                guiPaste.Cancel(); // nobody can answer the confirmation (IsOpen may be set without Close())
             if (!IsOpen) return;
 
             // Keep font/geometry preparation before GUI.Window, but contain its failures
@@ -335,6 +347,8 @@ namespace kOS.Screen
 
             WindowRect = GUI.Window(UniqueId, WindowRect, TerminalGui, TitleText);
             BlockMouseOver(WindowRect);
+            if (guiPaste.IsAwaitingConfirmation)
+                DrawPasteConfirmation();
             
             if (consumeEvent)
             {
@@ -442,11 +456,27 @@ namespace kOS.Screen
                 else
                     c = e.character;
 
+                if (guiPaste.IsAwaitingConfirmation)
+                {
+                    ProcessKeyWhileConfirmingPaste(e);
+                    return;
+                }
+
                 // command sequences
                 if (e.keyCode == KeyCode.C && e.control) // Ctrl+C
                 {
                     ProcessOneInputChar((char)UnicodeCommand.BREAK, null, true, true);
                     consumeEvent = true;
+                    return;
+                }
+
+                // Paste (P3-3). Not with Alt, which AltGr adds on Windows layouts that type with AltGr+V:
+                if ((e.keyCode == KeyCode.V && e.control && !e.alt) ||
+                    (e.keyCode == KeyCode.Insert && e.shift && !e.control && !e.alt))
+                {
+                    guiPaste.Paste(ReadClipboard);
+                    consumeEvent = true;
+                    cursorBlinkTime = 0.0f;
                     return;
                 }
                 // Command used to be Control-shift-X, now we don't care if shift is down aymore, to match the telnet expereince
@@ -511,6 +541,77 @@ namespace kOS.Screen
                     cursorBlinkTime = 0.0f;// Don't blink while the user is still actively typing.
                 }
             }
+        }
+
+        /// <summary>
+        /// While a paste waits for confirmation, the keyboard answers it and types nothing:
+        /// Enter runs the paste, Escape cancels it, and Ctrl+C cancels it and still sends BREAK.
+        /// </summary>
+        private void ProcessKeyWhileConfirmingPaste(Event e)
+        {
+            consumeEvent = true;
+            if (e.keyCode == KeyCode.C && e.control)
+            {
+                guiPaste.Cancel();
+                ProcessOneInputChar((char)UnicodeCommand.BREAK, null, true, true);
+            }
+            else if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter)
+            {
+                guiPaste.Confirm();
+            }
+            else if (e.keyCode == KeyCode.Escape)
+            {
+                guiPaste.Cancel();
+            }
+        }
+
+        private static string ReadClipboard()
+        {
+            return GUIUtility.systemCopyBuffer;
+        }
+
+        /// <summary>
+        /// The paste confirmation (P3-3), over the top of the terminal: what would run, the
+        /// first lines, and the two choices.
+        /// </summary>
+        private void DrawPasteConfirmation()
+        {
+            int dialogId = UniqueId + 10;
+            float width = Math.Max(200f, Math.Min(440f, WindowRect.width - 40f));
+            Rect where = new Rect(WindowRect.xMin + (WindowRect.width - width) / 2f, WindowRect.yMin + 45f, width, 0f);
+            Rect drawn = GUILayout.Window(dialogId, where, DrawPasteConfirmationContents, "Paste", GUILayout.Width(width));
+            GUI.BringWindowToFront(dialogId);
+            KOSMouseBlocking.Show(ref pasteConfirmationMouseArea, "TermWindowPaste" + UniqueId, drawn);
+        }
+
+        private void DrawPasteConfirmationContents(int windowId)
+        {
+            if (pastePreviewStyle == null)
+            {
+                // The pasted text is shown as it is, never as Unity rich text:
+                pastePreviewStyle = new GUIStyle(HighLogic.Skin.label) { richText = false, wordWrap = false, fontSize = 13 };
+                pastePreviewStyle.normal.textColor = textColor;
+                pasteHintStyle = new GUIStyle(HighLogic.Skin.label) { fontSize = 10 };
+            }
+            pastePreviewStyle.font = font; // the terminal's, which may change; null is the skin's
+            GUILayout.Label(guiPaste.Question);
+            GUILayout.Label(guiPaste.Preview, pastePreviewStyle);
+            GUILayout.Label("Enter runs it, Esc cancels.", pasteHintStyle);
+            GUILayout.BeginHorizontal();
+            bool answered = false;
+            if (GUILayout.Button(guiPaste.ConfirmLabel))
+            {
+                guiPaste.Confirm();
+                answered = true;
+            }
+            if (GUILayout.Button("Cancel"))
+            {
+                guiPaste.Cancel();
+                answered = true;
+            }
+            GUILayout.EndHorizontal();
+            if (answered && IsOpen && IsPowered)
+                GetFocus(); // a click on the confirmation may have counted as outside the terminal (INPUT-01)
         }
 
         private static bool IsSpecial(char c)

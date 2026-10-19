@@ -41,6 +41,7 @@ namespace kOS.Safe.Test.Execution
             screen = host.Screen;
             session = new TerminalSession<TelnetServerInputModel>(DateTime.Now) { Screen = screen };
             router = new TerminalInputRouter<TelnetServerInputModel>(this);
+            GuiPaste = new TerminalGuiPaste<TelnetServerInputModel>(router, () => screen);
             // As TermWindow.AttachTo:
             resizeNotifier = sb => { session.ScreenResized(); return 0; };
             screen.AddResizeNotifier(resizeNotifier);
@@ -130,7 +131,10 @@ namespace kOS.Safe.Test.Execution
             return router.ProcessOneInputChar(ch, whichTelnet, allowQueue, forceQueue);
         }
 
-        /// <summary>Paste clipboard text as the GUI does once confirmed (P3-3 calls the same router entry).</summary>
+        /// <summary>The GUI paste, as <c>TermWindow</c>'s (Ctrl+V, Shift+Insert and the confirmation call it).</summary>
+        public TerminalGuiPaste<TelnetServerInputModel> GuiPaste { get; private set; }
+
+        /// <summary>Queue clipboard text as a confirmed GUI paste does (the router entry <see cref="GuiPaste"/> uses).</summary>
         public bool QueuePaste(string text)
         {
             return router.QueuePaste(TerminalPaste.Prepare(text));

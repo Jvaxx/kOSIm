@@ -14,13 +14,13 @@ Phase 1 (correctness and safety) was completed earlier the same day ("Proton pas
 
 **Next actions, in order:**
 
-1. **Phase 3** started 2026-10-19: plan and user decisions for paste/copy/history in `docs/KOSIm-roadmap.md`, Phase 3 "Plan for items 1–2" (steps P3-1 history → P3-2 paste core → P3-3 GUI paste → P3-4 copy; one Proton pass after P3-4). **P3-1 (history) implemented and headless-tested** (draft kept, 500-entry bound, interpreter line numbers per line: an error on line 2 of a multiline command now shows that line; details `docs/testing-and-build.md`, "Command history (Phase 3, P3-1)"); not yet in game. **P3-2 (paste core) implemented and headless-tested** (`TerminalPaste`, `TerminalInputRouter.QueuePaste`; queued keys keep their order against typed keys; details "Paste core (Phase 3, P3-2)"). Next: P3-3 GUI paste (Ctrl+V/Shift+Insert, confirmation dialog for multiline, refusal message).
+1. **Phase 3** started 2026-10-19: plan and user decisions for paste/copy/history in `docs/KOSIm-roadmap.md`, Phase 3 "Plan for items 1–2" (steps P3-1 history → P3-2 paste core → P3-3 GUI paste → P3-4 copy; one Proton pass after P3-4). **P3-1 (history) implemented and headless-tested** (draft kept, 500-entry bound, interpreter line numbers per line: an error on line 2 of a multiline command now shows that line; details `docs/testing-and-build.md`, "Command history (Phase 3, P3-1)"); not yet in game. **P3-2 (paste core) implemented and headless-tested** (`TerminalPaste`, `TerminalInputRouter.QueuePaste`; queued keys keep their order against typed keys; details "Paste core (Phase 3, P3-2)"). **P3-3 (GUI paste) implemented and headless-tested** (`TerminalGuiPaste`; Ctrl+V/Shift+Insert, one line at once, a line break asks "Run N lines"/"Cancel" with Enter/Esc/Ctrl+C, over 65,536 refused with a terminal message; details "GUI paste (Phase 3, P3-3)"); not yet in game. Next: P3-4 copy (Ctrl+Shift+C visible rows, Ctrl+Shift+E last error), then the Proton pass for P3-1–P3-4.
 2. Minor, optional: POWER-01 (a CPU powering itself off with `DOEVENT("Toggle Power")` logs `KOSBadJumpException`; likely upstream, compare with an upstream build first); the GUI's "N telnet clients attached" label overlaps "Keyclicker"; checks not performed: vessel destruction/unload with telnet attached, Phase 1 pass leftovers (CTB focus modes, flight-results dialog).
 
 ## Workspace state (2026-10-19)
 
 - Branch `kosim/test-baseline` (check `git log`; the 2026-10-19 commits follow `df2c5f0e`: three fixes, Phase 2 docs, P2-1, P2-2, VIEW-03, P2-3, P2-4, VIEW-04 fix, pass record); local only, never pushed (origin is upstream <https://github.com/KSP-KOS/KOS>). Base: upstream `develop` at `8f281a45`.
-- Last results (P3-2): `bash .ci/test.sh` exit 0, **1085/1085**, 0 known failures, 0 skipped (`minimum_tests` 1085); `dotnet build kOS.sln -c Release --no-incremental` 0 errors, 44 existing warnings; build output `kOS.dll f9b524c2…`, `kOS.Safe.dll e6af59bd…` (not deployed).
+- Last results (P3-3): `bash .ci/test.sh` exit 0, **1099/1099**, 0 known failures, 0 skipped (`minimum_tests` 1099); `dotnet build kOS.sln -c Release --no-incremental` 0 errors, 44 existing warnings; build output `kOS.dll 940ed440…`, `kOS.Safe.dll 479b72d3…` (not deployed). Running one test fixture alone with `-run=` fails in `ScriptHost.Boot` for fixtures outside the `Execution` namespace (its `[SetUpFixture]` does not run); use the full gate.
 - **Deployed in the dev instance and checked in game: the P2-4 + VIEW-04 build** (`kOS.dll f093b918…`, `kOS.Safe.dll 713d06f3…`). The temporary diagnostic add-on `GameData/kOSIMDiag` was removed after the pass (source in the session scratchpad only; recreate if needed: a `KSPAddon(EveryScene)` logging `Resources.FindObjectsOfTypeAll` counts every 10 s). The save holds a quicksave `kosim-p24` from the pass. Game closed at the end of the session.
 
 ## Constraints and decisions (still binding)
@@ -39,7 +39,7 @@ Details, intentional behavior changes and limits per item: `docs/testing-and-bui
 
 | Item | Entry points | In game |
 | --- | --- | --- |
-| Local gate | `.ci/test.sh`, `.ci/known-test-failures.json` (empty; minimum 1060) | — |
+| Local gate | `.ci/test.sh`, `.ci/known-test-failures.json` (empty; minimum 1099) | — |
 | BUFFER-01/02/03/04 | `ScreenBuffer`, `ScreenSnapShotExtensions`, `RenderFaultRecovery`, `TermWindow` | 2026-10-12/15 |
 | EDIT-01/02 | `EditorDocument`, `KOSTextEditPopup`, `DelegateDialog` | 2026-10-15 |
 | IO-01/02/03 | raw I/O (`READRAW`/`WRITERAW`), `ArchiveFileWriter`; policy `docs/file-io-compatibility.md` | 2026-10-15 |
@@ -58,6 +58,7 @@ Details, intentional behavior changes and limits per item: `docs/testing-and-bui
 | P2-3 lifecycle (Phase 2) | `TerminalSession.Dispose`, `TelnetSingletonServer` (window by reference, `isAttached`), `TermWindow.OnDestroy`, `Utils.GetTextureWithErrorMsg` cache, `Utils.DestroyCreated` | 2026-10-19 |
 | P3-1 history (Phase 3) | `CommandHistory` (kOS.Safe), `Interpreter`/`FixtureInterpreter` history keys and line lookup, `TextEditor.ReplaceLine` | pending |
 | P3-2 paste core (Phase 3) | `TerminalPaste`, `TerminalInputRouter.QueuePaste` and wait-behind-type-ahead in `Type`/`SpecialKey`, `FixtureTermWindow.QueuePaste` | pending |
+| P3-3 GUI paste (Phase 3) | `TerminalGuiPaste` (kOS.Safe), `TermWindow` keys (`ProcessKeyWhileConfirmingPaste`), `DrawPasteConfirmation`, `FixtureTermWindow.GuiPaste` | pending |
 | P2-4 screen/view (Phase 2) | `ScreenBuffer` (view offset, `MAX_SCROLLBACK`, `ScrollScreen`, `ReturnViewToScreen`, `SetSize` keeps the bottom: VIEW-04), `TextEditor.ScreenCursorRow`, `ScreenSnapShot.TeleportRow` | 2026-10-19 |
 
 Test fixtures to keep in step with game code: `FixtureInterpreter` (game `Interpreter`), `FixtureTermWindow` (`TermWindow`'s `ITerminalInputHost` members, session calls and update order; the routing and session themselves are shared), `TelnetServerInputModel` (`TelnetSingletonServer` input sink and `ITerminalViewer`); `FixtureInterpreter` calls the shared `CommandHistory` as the game `Interpreter` does (keep the calls in step). `PreSessionTermWindowFanOut` is a frozen copy of the pre-P2-2 fan-out (oracle), not to be kept in step.
