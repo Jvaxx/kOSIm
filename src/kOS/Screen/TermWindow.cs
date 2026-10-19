@@ -115,6 +115,11 @@ namespace kOS.Screen
         private MouseBlocking.Area pasteConfirmationMouseArea;
         private GUIStyle pastePreviewStyle;
         private GUIStyle pasteHintStyle;
+
+        // Ctrl+Shift+C and Ctrl+Shift+E (P3-4) say what they did here, in place of the size, for a moment:
+        private string copyNotice;
+        private DateTime copyNoticeEnd;
+        private static readonly TimeSpan copyNoticeDuration = TimeSpan.FromSeconds(2);
         
         public string TitleText { get { return session.Title; } }
 
@@ -462,6 +467,21 @@ namespace kOS.Screen
                     return;
                 }
 
+                // Copy (P3-4): Ctrl+Shift+C the rows in view, Ctrl+Shift+E the last error. Before
+                // P3-4 they were Ctrl+C (BREAK) and Ctrl+E (end of line), with shift ignored.
+                if (e.keyCode == KeyCode.C && e.control && e.shift)
+                {
+                    CopyVisibleRows();
+                    consumeEvent = true;
+                    return;
+                }
+                if (e.keyCode == KeyCode.E && e.control && e.shift)
+                {
+                    CopyLastError();
+                    consumeEvent = true;
+                    return;
+                }
+
                 // command sequences
                 if (e.keyCode == KeyCode.C && e.control) // Ctrl+C
                 {
@@ -550,7 +570,7 @@ namespace kOS.Screen
         private void ProcessKeyWhileConfirmingPaste(Event e)
         {
             consumeEvent = true;
-            if (e.keyCode == KeyCode.C && e.control)
+            if (e.keyCode == KeyCode.C && e.control && !e.shift)
             {
                 guiPaste.Cancel();
                 ProcessOneInputChar((char)UnicodeCommand.BREAK, null, true, true);
@@ -568,6 +588,54 @@ namespace kOS.Screen
         private static string ReadClipboard()
         {
             return GUIUtility.systemCopyBuffer;
+        }
+
+        private void CopyVisibleRows()
+        {
+            if (shared == null || shared.Screen == null) return;
+            string text = TerminalCopy.VisibleText(shared.Screen);
+            if (text.Length == 0)
+            {
+                ShowCopyNotice("Nothing to copy");
+                return;
+            }
+            int lines = TerminalCopy.LineCount(text);
+            if (WriteClipboard(text))
+                ShowCopyNotice(string.Format("Copied {0} line{1}", lines, lines == 1 ? "" : "s"));
+        }
+
+        private void CopyLastError()
+        {
+            var logger = shared == null ? null : shared.Logger as kOS.Logger;
+            string text = logger == null ? null : logger.LastError.Text;
+            if (string.IsNullOrEmpty(text))
+            {
+                ShowCopyNotice("No error to copy");
+                return;
+            }
+            if (WriteClipboard(text))
+                ShowCopyNotice("Copied the last error");
+        }
+
+        private bool WriteClipboard(string text)
+        {
+            try
+            {
+                GUIUtility.systemCopyBuffer = text;
+                return true;
+            }
+            catch (Exception ex) when (!(ex is OutOfMemoryException || ex is ExitGUIException))
+            {
+                UnityEngine.Debug.LogException(ex, this);
+                ShowCopyNotice("Copy failed (see KSP.log)");
+                return false;
+            }
+        }
+
+        private void ShowCopyNotice(string notice)
+        {
+            copyNotice = notice;
+            copyNoticeEnd = DateTime.Now + copyNoticeDuration;
         }
 
         /// <summary>
@@ -1019,7 +1087,10 @@ namespace kOS.Screen
             else
                 GUI.Label(new Rect(15, 20, WindowRect.width-30, WindowRect.height-55), "", terminalFrameStyle);
 
-            GUI.Label(new Rect(WindowRect.width/2-40, WindowRect.height-12,100,10), screen.ColumnCount+"x"+screen.RowCount, customSkin.label);
+            if (copyNotice != null && DateTime.Now < copyNoticeEnd)
+                GUI.Label(new Rect(WindowRect.width/2-60, WindowRect.height-12, 140, 10), copyNotice, customSkin.label);
+            else
+                GUI.Label(new Rect(WindowRect.width/2-40, WindowRect.height-12,100,10), screen.ColumnCount+"x"+screen.RowCount, customSkin.label);
 
             if (!fontGotResized)
                 CheckResizeDrag(); // Has to occur before DragWindow or else DragWindow will consume the event and prevent drags from being seen by the resize icon.

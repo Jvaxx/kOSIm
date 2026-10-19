@@ -53,10 +53,19 @@ namespace kOS
 
         public override void Log(Exception e)
         {
-            base.Log(e);
+            string traceText;
+            LastError.Begin(); // the message and its location, as printed (P3-4)
+            try
+            {
+                base.Log(e);
 
-            string traceText = TraceLog();
-            LogToScreen(traceText);
+                traceText = TraceLog();
+                LogToScreen(traceText);
+            }
+            finally
+            {
+                LastError.End();
+            }
             var kosText = string.Format("{0} {1}", LOGGER_PREFIX, traceText);
             UnityEngine.Debug.Log(kosText);
             

@@ -3,6 +3,7 @@ using kOS.Safe;
 using System.Collections.Generic;
 using kOS.Suffixed;
 using kOS.Safe.Exceptions;
+using kOS.Safe.UserIO;
 using kOS.Safe.Utilities;
 
 namespace kOS
@@ -15,6 +16,15 @@ namespace kOS
         // to see help data about old exceptions other than just the current one, perhaps
         // in a help log window or something.  At the moment nothing uses it yet.
         protected List<Exception> ExceptionHistory = new List<Exception>();
+
+        private readonly PrintedErrorRecorder lastError = new PrintedErrorRecorder();
+
+        /// <summary>
+        /// The last error this logger printed on its terminal, as printed (P3-4): the GUI
+        /// terminal copies it with Ctrl+Shift+E. A subclass printing more for an error brackets
+        /// it with <see cref="PrintedErrorRecorder.Begin"/> and <see cref="PrintedErrorRecorder.End"/>.
+        /// </summary>
+        public PrintedErrorRecorder LastError { get { return lastError; } }
 
         protected Logger()
         {
@@ -83,6 +93,7 @@ namespace kOS
             if (Shared != null && Shared.Screen != null)
             {
                 Shared.Screen.Print(text);
+                lastError.Printed(text); // kept only while an error is being printed
             }
         }
         
