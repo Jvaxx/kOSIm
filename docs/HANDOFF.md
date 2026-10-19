@@ -14,7 +14,7 @@ Phase 1 (correctness and safety) was completed earlier the same day ("Proton pas
 
 **Next actions, in order:**
 
-1. **Phase 3** per the roadmap: start with safe paste/copy and command history (history is still unbounded: TERM-05). Plan it in the roadmap before coding.
+1. **Phase 3** per the roadmap: start with safe paste/copy (TERM-01) and command history (draft lost on Down: TERM-05; history also unbounded). Plan it in the roadmap before coding.
 2. Minor, optional: POWER-01 (a CPU powering itself off with `DOEVENT("Toggle Power")` logs `KOSBadJumpException`; likely upstream, compare with an upstream build first); the GUI's "N telnet clients attached" label overlaps "Keyclicker"; checks not performed: vessel destruction/unload with telnet attached, Phase 1 pass leftovers (CTB focus modes, flight-results dialog).
 
 ## Workspace state (2026-10-19)
