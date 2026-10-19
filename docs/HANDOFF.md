@@ -14,7 +14,7 @@ Phase 1 (correctness and safety) was completed earlier the same day ("Proton pas
 
 **Next actions, in order:**
 
-1. **Phase 3** per the roadmap: start with safe paste/copy (TERM-01) and command history (draft lost on Down: TERM-05; history also unbounded). Plan it in the roadmap before coding.
+1. **Phase 3** started 2026-10-19: plan and user decisions for paste/copy/history in `docs/KOSIm-roadmap.md`, Phase 3 "Plan for items 1–2" (steps P3-1 history → P3-2 paste core → P3-3 GUI paste → P3-4 copy; one Proton pass after P3-4). Next: P3-1.
 2. Minor, optional: POWER-01 (a CPU powering itself off with `DOEVENT("Toggle Power")` logs `KOSBadJumpException`; likely upstream, compare with an upstream build first); the GUI's "N telnet clients attached" label overlaps "Keyclicker"; checks not performed: vessel destruction/unload with telnet attached, Phase 1 pass leftovers (CTB focus modes, flight-results dialog).
 
 ## Workspace state (2026-10-19)
