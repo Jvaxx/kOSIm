@@ -8,10 +8,10 @@ namespace kOS.Safe.Screen
 {
     /// <summary>
     /// The terminal's character grid: a list of buffer lines holding the <b>screen</b>,
-    /// <see cref="RowCount"/> rows from the screen top (normally the buffer's last rows), where
+    /// <see cref="RowCount"/> rows from the screen top (the buffer's last rows), where
     /// all output goes (<c>PRINT</c>, <c>PRINT AT</c> row 0 = the screen's top row, the cursor,
-    /// the prompt), and above it the scrollback. (A screen made shorter keeps its top row, as
-    /// before P2-4, so lines can remain below it until output scrolls over them: VIEW-04.)
+    /// the prompt), and above it the scrollback. (A screen made shorter keeps its bottom, the
+    /// cursor's row: VIEW-04.)
     /// <br/>
     /// Screen and view (Phase 2, P2-4; decisions D1 and D2): what is displayed is a <b>view</b>,
     /// <see cref="RowCount"/> rows that PageUp/PageDown (<see cref="ScrollVertical"/>) move into
@@ -158,6 +158,22 @@ namespace kOS.Safe.Screen
             RowCount = rows;
             ColumnCount = columns;
             ResizeBuffer();
+
+            // A shorter screen keeps its bottom, as a terminal does: it moves down so the
+            // cursor's row stays on it, and the rows above go into the scrollback. Before,
+            // it kept its top and the cursor moved up onto older output (VIEW-04).
+            int belowScreen = ScreenCursorRow - (RowCount - 1);
+            if (belowScreen > 0)
+            {
+                CursorRow -= belowScreen;
+                belowScreen = ScrollScreen(belowScreen);
+                if (viewOffset > 0)
+                    viewOffset += belowScreen; // a scrolled view stays where it was
+            }
+            // Rows left below the screen are dropped; output would scroll over them.
+            int pastBottom = buffer.Count - (topRow + RowCount);
+            if (pastBottom > 0)
+                buffer.RemoveRange(topRow + RowCount, pastBottom);
 
             // Output must remain writable after shrinking. Do not clamp negative row
             // anchors: TextEditor uses them for input extending above the viewport.

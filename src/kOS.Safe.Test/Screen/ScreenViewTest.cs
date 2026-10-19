@@ -205,18 +205,89 @@ namespace kOS.Safe.Test.Terminal
         {
             ScreenBuffer screen = ScreenWithLines(10, 40, 40);
             screen.ScrollVertical(-12);
+            string viewTop = View(screen)[0];
             var notified = new List<int>();
             screen.AddResizeNotifier(sb => { notified.Add(sb.RowCount); return 0; });
 
             screen.SetSize(6, 30);
 
             CollectionAssert.AreEqual(new[] { 6 }, notified, "watchers see the screen's size");
-            Assert.AreEqual(12, screen.ViewOffset, "same view, as far as the new size allows");
+            Assert.AreEqual(viewTop, View(screen)[0], "same view: the screen moved down under it");
+            Assert.AreEqual(16, screen.ViewOffset);
             screen.Print("after");
             Assert.AreEqual(0, screen.ViewOffset);
-            // As before P2-4, a shorter screen keeps its top row, and the cursor moves up onto
-            // older output, which a write only partly covers (VIEW-04, not changed):
-            StringAssert.StartsWith("after", View(screen)[screen.CursorRowShow - 1]);
+            List<string> view = View(screen);
+            Assert.AreEqual("line 39", view[screen.CursorRowShow - 2], "output continues below the last line");
+            Assert.AreEqual("after", view[screen.CursorRowShow - 1]);
+        }
+
+        [Test]
+        public void AShorterScreenKeepsItsBottomAndTheTopGoesIntoTheScrollback()
+        {
+            // VIEW-04: before, a shorter screen kept its top row; the cursor moved up onto
+            // older output, rows stayed below the screen, and later output partly covered them.
+            ScreenBuffer screen = ScreenWithLines(10, 40, 40);
+            List<string> before = AllLines(screen);
+            int scrollback = screen.ScrollbackRows;
+
+            screen.SetSize(6, 40);
+
+            Assert.AreEqual(5, screen.CursorRowShow, "the cursor stays on the bottom row");
+            Assert.AreEqual(scrollback + 4, screen.ScrollbackRows, "the top rows went into the scrollback");
+            CollectionAssert.AreEqual(new[] { "line 35", "line 36", "line 37", "line 38", "line 39", "" }, View(screen));
+            CollectionAssert.AreEqual(before.Take(before.Count - 4), AllLines(screen).Take(before.Count - 4),
+                "no line lost");
+            screen.Print("a");
+            screen.Print("b");
+            CollectionAssert.AreEqual(new[] { "line 37", "line 38", "line 39", "a", "b", "" }, View(screen));
+        }
+
+        [Test]
+        public void AShorterScreenDropsRowsBelowTheCursorSoOutputNeverMeetsThem()
+        {
+            var screen = new ScreenBuffer();
+            screen.SetSize(10, 40);
+            screen.ClearScreen();
+            screen.Print("top");
+            screen.PrintAt("STALE", 8, 20); // past where the output below writes
+            screen.MoveCursor(1, 0);
+
+            screen.SetSize(5, 40);
+            Assert.AreEqual(1, screen.CursorRowShow, "the cursor already fits: no move");
+            Assert.AreEqual(0, screen.ScrollbackRows);
+            screen.SetSize(10, 40);
+            Assert.IsFalse(View(screen).Any(line => line.Contains("STALE")), "growing back shows no dropped row");
+
+            screen.PrintAt("STALE", 8, 20);
+            screen.MoveCursor(1, 0);
+            screen.SetSize(5, 40);
+            for (int i = 0; i < 12; ++i)
+                screen.Print("out " + i);
+            Assert.IsFalse(AllLines(screen).Any(line => line.Contains("STALE")),
+                "output scrolled over fresh rows, not the old row 8");
+        }
+
+        [Test]
+        public void AShorterScreenKeepsAWrappedCommandAtThePrompt()
+        {
+            using (var host = new ScriptHost(12, 20))
+            {
+                host.Boot();
+                for (int i = 0; i < 30; ++i)
+                    host.Screen.Print("line " + i);
+                host.Type("print \"ABCDEFGHIJ\" + \"KLMNOPQRST\".");
+                Assert.AreEqual(1, host.Screen.CursorRowShow - (host.Screen.AbsoluteCursorRow - host.Screen.TopRow),
+                    "the input cursor is on the command's second row");
+
+                host.Screen.SetSize(6, 20);
+
+                Assert.Less(host.Screen.CursorRowShow, 6, "the input cursor is on the screen");
+                Assert.AreEqual(host.Screen.RowCount - 1, host.Screen.CursorRowShow, "on its bottom row, as before");
+                host.Execute("");
+                List<string> view = View(host.Screen);
+                Assert.AreEqual("ABCDEFGHIJKLMNOPQRST", view.Last(row => row.Length > 0));
+                host.AssertNoErrors();
+            }
         }
 
         [Test]

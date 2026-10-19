@@ -117,7 +117,9 @@ namespace kOS.Safe.Test.Terminal
             });
             screen.SetSize(-1, 256);
             Assert.AreEqual(1, calls);
-            Assert.AreEqual(top - 1, screen.TopRow);
+            // The one-row screen first moves down two rows to keep the cursor's row (VIEW-04),
+            // then the notifier's -1 scrolls it up.
+            Assert.AreEqual(top + 2 - 1, screen.TopRow);
         }
 
         [Test]
