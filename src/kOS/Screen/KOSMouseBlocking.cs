@@ -58,7 +58,17 @@ namespace kOS.Screen
             }
         }
 
+        /// <summary>
+        /// KSP's <c>GameEvents</c> read each handler's target object when it is added, so a
+        /// static method cannot be added (NullReferenceException): this instance method forwards.
+        /// </summary>
+        private class GameEventHooks
+        {
+            public void SceneLoadRequested(GameScenes scene) { OnSceneLoadRequested(scene); }
+        }
+
         private static MouseBlocking instance;
+        private static GameEventHooks hooks;
         private static bool errorLogged;
 
         public static MouseBlocking Instance
@@ -69,7 +79,8 @@ namespace kOS.Screen
                 {
                     instance = new MouseBlocking(new KspMouseLockSink());
                     // GameEvents outlive scenes, so this is added once per game session:
-                    GameEvents.onGameSceneLoadRequested.Add(OnSceneLoadRequested);
+                    hooks = new GameEventHooks();
+                    GameEvents.onGameSceneLoadRequested.Add(hooks.SceneLoadRequested);
                 }
                 return instance;
             }

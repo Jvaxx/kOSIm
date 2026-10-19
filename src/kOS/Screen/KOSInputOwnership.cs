@@ -31,7 +31,19 @@ namespace kOS.Screen
             }
         }
 
+        /// <summary>
+        /// KSP's <c>GameEvents</c> read each handler's target object when it is added, so a
+        /// static method cannot be added (NullReferenceException): these instance methods forward.
+        /// </summary>
+        private class GameEventHooks
+        {
+            public void HideUI() { OnHideUI(); }
+            public void ShowUI() { OnShowUI(); }
+            public void SceneLoadRequested(GameScenes scene) { OnSceneLoadRequested(scene); }
+        }
+
         private static InputOwnership instance;
+        private static GameEventHooks hooks;
         private static bool uiHidden;
         private static int scriptedDepth;
         private static bool updateErrorLogged;
@@ -44,9 +56,10 @@ namespace kOS.Screen
                 {
                     instance = new InputOwnership(new KspLockSink());
                     // GameEvents outlive scenes, so these are added once per game session:
-                    GameEvents.onHideUI.Add(OnHideUI);
-                    GameEvents.onShowUI.Add(OnShowUI);
-                    GameEvents.onGameSceneLoadRequested.Add(OnSceneLoadRequested);
+                    hooks = new GameEventHooks();
+                    GameEvents.onHideUI.Add(hooks.HideUI);
+                    GameEvents.onShowUI.Add(hooks.ShowUI);
+                    GameEvents.onGameSceneLoadRequested.Add(hooks.SceneLoadRequested);
                 }
                 return instance;
             }
