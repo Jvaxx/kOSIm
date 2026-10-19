@@ -198,7 +198,7 @@ Only difference, in a path that threw before: a client attaching before the wind
 
 Gate 1030/1030 (`minimum_tests` 1006 → 1030).
 
-**In game:** pending (see the handoff).
+**In game 2026-10-19: passed**, see "Proton pass 2026-10-19 (end of Phase 2)".
 
 ### Full telnet repaint after a resize (VIEW-03, found in P2-2)
 
@@ -210,7 +210,7 @@ Gate 1030/1030 (`minimum_tests` 1006 → 1030).
 
 **Tests** (`UserIO/TerminalSessionTest`, 4; the client model now counts text written past a client's right edge, where a real terminal would wrap, and every "client shows the screen" check requires none): a client asked to narrow is sent rows that fit; a client attaching narrower than the screen is sent rows that fit; a repaint request after a resize shows the changes since the resize; seeded (5 seeds × 400 steps of output, `PRINT AT`, scrolling, resizes, client sizes with their repaint request, clears and repaint requests, three clients): after every refresh each client shows the screen and cursor. All four fail with the fix reverted. The equivalence oracle (`PreSessionTermWindowFanOut`) carries the same fix, marked, so it keeps checking everything else. Gate 1034/1034 (`minimum_tests` 1030 → 1034); full Release build 0 errors, 44 warnings (`kOS.dll 328c10a7…`, `kOS.Safe.dll 0f2c7c3f…`).
 
-**In game:** pending: attach a client narrower than the GUI terminal (e.g. a 40-column telnet to the default 50), and shrink the GUI terminal with a telnet client attached; no wrapped rows.
+**In game 2026-10-19: passed** ("Proton pass 2026-10-19 (end of Phase 2)"). Original list: attach a client narrower than the GUI terminal (e.g. a 40-column telnet to the default 50), and shrink the GUI terminal with a telnet client attached; no wrapped rows.
 
 ### Screen and view (Phase 2, P2-4)
 
@@ -224,7 +224,10 @@ Gate 1030/1030 (`minimum_tests` 1006 → 1030).
 - **Bounded scrollback (D2):** at most `ScreenBuffer.MAX_SCROLLBACK` = 2,000 lines above the screen; older ones are dropped as output scrolls. The screen is never trimmed. `TopRow` (used by snapshot diffs) now counts dropped lines too, so it still changes exactly by how far the display scrolled; it is the view's top. `PRINT AT` restores the cursor to the same line even when its output dropped scrollback.
 - **API notes:** `IScreenBuffer` is unchanged. `ScrollVertical` now moves the view (the only callers were PageUp/PageDown; a mod calling it no longer moves where output goes). New on `ScreenBuffer`: `MAX_SCROLLBACK`, `ViewOffset`, `ScrollbackRows`, and for subclasses `ScreenCursorRow`, `ScrollScreen`, `ReturnViewToScreen`, `DroppedRows`; `TextEditor` overrides `ScreenCursorRow` instead of `CursorRowShow`.
 
-**Not changed (recorded):** **VIEW-04:** a screen made shorter keeps its top row (upstream), so the cursor is clamped onto older output and the old bottom rows stay below the screen until output scrolls over them, partly overwriting them (decision needed if it should behave like a terminal and keep the bottom). Command history stays unbounded (Phase 3, TERM-05).
+**VIEW-04 (found in P2-4, fixed during the end-of-Phase-2 pass after the user saw it in game; intentional behavior change):** a screen made shorter used to keep its top row (upstream): the cursor was clamped onto older output, the old bottom rows stayed below the screen and reappeared when it grew, and later output scrolled over them, partly overwriting them (in game: `SZ 45x22ended.`). Now `SetSize` keeps the bottom, as a terminal does: the screen moves down so the cursor's row (the prompt's input cursor, `ScreenCursorRow`) stays on its bottom row, and the rows above go into the scrollback (PageUp shows them). A scrolled view stays on the same lines. Rows left below the screen (below the cursor) are dropped, so they no longer reappear when the screen grows. Growing is unchanged (blank rows added below). Resize watchers still run afterwards and their returned scroll still applies.
+Tests (3 new, 2 updated; gate 1060/1060, `minimum_tests` 1057 → 1060): `ScreenViewTest.AShorterScreenKeepsItsBottomAndTheTopGoesIntoTheScrollback`, `…DropsRowsBelowTheCursorSoOutputNeverMeetsThem`, `…KeepsAWrappedCommandAtThePrompt` (real prompt); `ResizingWhileScrolledKeepsTheViewAndWritesStillGoToTheScreen` now checks that the view stays on the same lines and output continues right below the last line; `ScreenBufferDimensionsTest.NotifiersSeeNormalizedDimensionsAndRetainScrollReturnContract` expects the shift plus the notifier's scroll. Mutations, each reverted: no shift (4 failures), no drop of the rows below (1), scrolled view not kept (1), shift by the output cursor instead of the input cursor (1). Full Release build 0 errors, 44 warnings (`kOS.dll f093b918…`, `kOS.Safe.dll 713d06f3…`). In game: see "Proton pass 2026-10-19 (end of Phase 2)".
+
+Command history stays unbounded (Phase 3, TERM-05).
 
 **Tests** (15 new; gate 1057/1057, `minimum_tests` 1042 → 1057):
 - `Screen/ScreenViewTest` (14), real screen and the real prompt (`ScriptHost`): the VIEW-01 case (30 lines on a 10-row screen, PageUp, `print "NEW OUTPUT".`: older output unchanged, command and output below it); PageUp/PageDown move only the view (cursor and write position unchanged, cursor shown 10 rows lower, input line stays on its line); typing, editing and history bring the view back, paging keys keep it; `PRINT AT` while scrolled writes to the screen's row 0 and leaves the scrollback alone; the view stops at the top and at the screen; cursor hidden outside the view (GUI) and kept at the edge (telnet); resize while scrolled keeps the view, watchers see the screen; `CLEARSCREEN` while scrolled; non-fixed overlays scroll with the view, fixed ones stay; the newest 2,000 lines are kept and `TopRow` keeps counting; a 160-row screen is never trimmed; `PRINT AT` restores the cursor across dropped scrollback; the prompt with a wrapped command at the limit; seeded (4 seeds × 3,000 steps of view moves, prints, `PRINT AT`, resizes and clears): view moves change neither content nor cursor, writes never change the scrollback except by dropping its oldest lines (a narrower screen cuts lines on the right), output shows the screen, the scrollback stays within the limit.
@@ -234,7 +237,7 @@ Gate 1030/1030 (`minimum_tests` 1006 → 1030).
 
 Full Release build: 0 errors, 44 existing warnings (`kOS.dll f083d0f3…`, `kOS.Safe.dll a49d6d99…`).
 
-**In game (pending, end-of-Phase-2 pass):** GUI and telnet at the prompt: fill the screen, PageUp/PageDown (view moves, both displays follow, cursor hidden in the GUI and at the edge in telnet), then type a command (view returns, command below the output, scrollback intact); `PRINT AT` dashboard while scrolled; a long `FROM` loop printing 3,000 lines then PageUp to the top (oldest kept line ≈ 2,000 back); RemoteTech progress bar not applicable (not installed): skip.
+**In game 2026-10-19: passed**, see "Proton pass 2026-10-19 (end of Phase 2)" (`PRINT AT` while scrolled is not reachable from the keyboard; RemoteTech progress bar not installed).
 
 ### Explicit lifecycle (Phase 2, P2-3)
 
@@ -258,7 +261,45 @@ Full Release build: 0 errors, 44 existing warnings (`kOS.dll f083d0f3…`, `kOS.
 
 Full Release build: 0 errors, 44 existing warnings. Game-side parts (`TelnetSingletonServer`, `TermWindow`, `kOSProcessor`, `Utils`, `GUIWindow`, `ListPickerDialog`) are compiled, not run.
 
-**In game (pending, end-of-Phase-2 pass):** telnet attached to a CPU when its vessel is destroyed, unloaded (switch away beyond load distance) and on a scene change (detach message, back to the menu, can pick another CPU); picking a CPU just destroyed; repeated vessel loads (revert to launch ×10): count `Texture2D` and `GUISkin` objects (`Resources.FindObjectsOfTypeAll`, with a temporary diagnostic build) before and after, to show the counts stay flat; terminal, editor, script GUI, popup menu, toolbar and list picker still drawn correctly; a failing and a cancelled `COMPILE` still report as before.
+**In game 2026-10-19: passed** (scene reloads, object counts, open/close), see "Proton pass 2026-10-19 (end of Phase 2)"; vessel destruction and unload not performed. Original list: telnet attached to a CPU when its vessel is destroyed, unloaded (switch away beyond load distance) and on a scene change (detach message, back to the menu, can pick another CPU); picking a CPU just destroyed; repeated vessel loads (revert to launch ×10): count `Texture2D` and `GUISkin` objects (`Resources.FindObjectsOfTypeAll`, with a temporary diagnostic build) before and after, to show the counts stay flat; terminal, editor, script GUI, popup menu, toolbar and list picker still drawn correctly; a failing and a cancelled `COMPILE` still report as before.
+
+### Proton pass 2026-10-19 (end of Phase 2)
+
+KSP 1.12.5.3190 (WindowsPlayer x64, Unity 2019.4.18f1), GE-Proton11-7-x86_64 via UMU 1.4.4, isolated dev prefix, save `kOSIM-dev`, `test-vessel` on the pad (two CPUs). Builds: the P2-4 commit `c8582b78` (`kOS.dll f083d0f3…`, `kOS.Safe.dll a49d6d99…`; backup of the P2-2 build before it: `kOS-GameData-backups/kOS-before-p2-4-20261019`), then `c8582b78` + the VIEW-04 fix (`kOS.dll f093b918…`, `kOS.Safe.dll 713d06f3…`; backup `kOS-before-view04-20261019`) for the VIEW-04, object-count and last GUI checks. A temporary diagnostic add-on (`GameData/kOSIMDiag/kOSIMDiag.dll`, scratch, never in the repository; removed after the pass) logged every 10 s the counts of `Texture2D`, `GUISkin`, `GameObject`, `Font` and of each kOS `MonoBehaviour` type (`Resources.FindObjectsOfTypeAll`). Logs: `dev-logs/Player.log.p24-pass-20261019-run1` (first build), `…-run2` (second).
+
+**Method.** Scripted telnet clients (scratch `kt.py`, now with per-client size, NAWS resize, page keys, title/OSC and bell tracking; up to two clients at once), a passive observer client during the user's GUI steps, screenshots (`grim`) of the GUI terminal, the diagnostic counts, and the user for GUI keyboard/mouse steps (reported deviations only). Scripts in the dev archive `Ships/Script/kosim-check/p24/` (`fill.ks`, `dash.ks`, `guis.ks`, `openclose.ks`; disposable). A named quicksave `kosim-p24` was written to the save for the reloads.
+
+**Passed:**
+
+| Item | Check | Result |
+| --- | --- | --- |
+| P2-2 telnet | attach from the menu with a 40×20 client (narrower than the GUI's 50) | attached; GUI took 40×20 (last resize wins) and shows the same rows |
+| | two clients (40×20 and 60×25), then a NAWS resize to 45×22 from the first | both repainted at 45×22, identical grids; `TERMINAL:WIDTH/HEIGHT` 45×22 |
+| | Ctrl-L on a client whose local screen was wiped | full repaint, identical to the other client |
+| | name tag set (`CORE:PART:TAG`) | both titles `test-vessel CPU: CompoMax (kt-tag)` |
+| | `PRINT CHAR(7)`; `TERMINAL:REVERSE`/`VISUALBEEP` | one bell on each client; reverse sent as `ESC[?5h` (visual beep has no VT100 code: dropped, upstream) |
+| | `CLEARSCREEN`; Ctrl-D on one client | both cleared; that client back at the menu, the other still attached |
+| VIEW-03 | GUI resized with a client attached (user drag, observer client) | no wrapped or stale rows reported |
+| P2-4 | 60 lines, PageUp/PageDown from either of two clients | view moves 10 rows, both clients and the GUI follow (identical); telnet cursor at the bottom edge; GUI draws no cursor (screenshot) |
+| | command typed while scrolled back (VIEW-01) | view back to the screen; command and output below the last output; scrollback unchanged (PageUp after) |
+| | 3,000 lines then PageUp to the top | 5.3 s; top after 201 PageUps is `L982` (2,000 lines above the 22-row screen, as expected); PageDown and typing back to the screen |
+| | user, GUI: fill, PageUp ×2, PageDown, a command while scrolled, resize, click outside (`t` toggles SAS) and back | as expected |
+| VIEW-04 fix | telnet: 40 lines, NAWS 25 → 15 rows, a command, PageUp, back to 25 | cursor kept on the bottom row with the newest lines; output continues cleanly; the top lines are in the scrollback; growing adds blank rows below |
+| | user, GUI: shrink by dragging, command, PageUp, grow | as expected (no deviation reported) |
+| P2-3 / LIFE-02 | clients on both CPUs, `KUNIVERSE:QUICKLOADFROM` (scene reload) | both clients back at the menu, the new CPUs listed, reattach works; no exception in `Player.log` |
+| P2-3 / LIFE-01 | 4 reloads with a client reattached each time | `Texture2D` 3492, `GUISkin` 7, `TermWindow` 2 after each (flat); `GameObject` +3 per reload, not kOS components (kOS component counts identical) |
+| | 50 × `Open Terminal`/`Close Terminal` from a script | +3 `Texture2D`, +1 `GameObject` in total (first draw), not per cycle |
+| | 300 script GUIs created, shown and disposed (`guis.ks`) | GUIs drawn and closed; see LIFE-04 below |
+
+**Findings:**
+
+- **VIEW-04 seen in game, then fixed** (see "Screen and view (Phase 2, P2-4)"): with the first build, shrinking (NAWS 25 → 22 rows, and the user's GUI drag) kept the top row, hid the bottom lines and later output overwrote one of them (`SZ 45x22ended.`). The user asked for a fix if small; fixed and rechecked in game.
+- **LIFE-04 measured:** each disposed script GUI keeps exactly one `GameObject` (its `GUIWindow`), one `Texture2D` and one `GUISkin` (+100 of each per 100 GUIs; RSS about +50 MB per 300). Power-off frees the window objects and textures but not the skins (300 kept); the next scene change frees the skins too (KSP unloads unused assets). Not fixed (decision pending, see `docs/phase2-contracts.md`).
+- **POWER-01 (minor, not pursued, likely upstream):** a CPU that runs `DOEVENT("Toggle Power")` on its own part from a command powers off but logs `KOSBadJumpException: Can't jump to instruction 96` (the program is removed during the call). No other effect seen.
+- Keys pressed while a command runs (telnet or GUI) are queued and applied at the prompt when it ends (upstream type-ahead), so a PageUp pressed during a program scrolls the view after the program; `PRINT AT` while scrolled is therefore not reachable from the keyboard (covered headless).
+- Known, unchanged: the welcome menu is laid out for 50+ columns and wraps on narrower clients; the GUI's "N telnet clients attached" label overlaps "Keyclicker" (layout, not investigated).
+
+**Not performed:** vessel destruction or unload with a client attached (the processor `OnDestroy` path was exercised by the reloads), picking a just-destroyed CPU, editor/list picker/popup open-close counts, a failing/cancelled `COMPILE` (unchanged code path since the Phase 1 pass), RemoteTech progress bar (not installed), two-client 1×1 NAWS (known T4).
 
 ### Proton pass 2026-10-19 (Phase 1 fixes)
 

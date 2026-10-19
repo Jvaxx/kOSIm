@@ -2,36 +2,27 @@
 
 ## Resume here
 
-**Phase 1 (correctness and safety) is complete: exit criterion met on 2026-10-19** after the Proton pass (results in `docs/testing-and-build.md`, "Proton pass 2026-10-19"; status in `docs/KOSIm-roadmap.md`, Phase 1 "Exit review"). The pass found and fixed three defects (one commit each):
+**Phase 2 (structural boundaries) is complete: exit criterion met on 2026-10-19** after the end-of-Phase-2 Proton pass (results: `docs/testing-and-build.md`, "Proton pass 2026-10-19 (end of Phase 2)"; status: `docs/KOSIm-roadmap.md`, Phase 2 "Exit review"). Contracts, findings and decisions D1–D4: `docs/phase2-contracts.md`. Per step (details in `docs/testing-and-build.md`):
 
-- **GAMEEVENTS-01** — `src/kOS/Screen/KOSInputOwnership.cs`, `KOSMouseBlocking.cs`: static handlers added to KSP `GameEvents` throw in KSP's `EvtDelegate` constructor; the first terminal's `TermWindow` broke. Now instance methods on a `GameEventHooks` object. Verified in game (no game-assembly headless coverage).
-- **EXEC-02** — `src/kOS.Safe/Execution/YiedFinishedThreadedDetector.cs`, `CPU.cs` (`IsYielding`): a failed `RUNPATH` compile reported an index error instead of its own. Regression: `CompileErrorTest.FailedRunpathCompileStillReportsOnce`. Verified in game.
-- **IO-04 link deletes under Wine** — `src/kOS.Safe/Persistence/LinkSafeDelete.cs`, `Archive.cs` (`CheckDeletable`), `VolumeManager.Move`: under Wine, deleting a link deletes its target (file links) or fails (directory links), and Wine shows a file link as its target. The user decided that a delete must remove the link and never its target. That can't be done under Wine, so there a delete or move of an entry that is or contains a link is **refused** before anything is deleted or copied. File links are detected through `wine_get_unix_file_name`. Windows and Mono behavior is unchanged. Headless tests simulate Wine (4 tests); the real Wine branch was checked with a scratch probe under GE-Proton11-7's Wine and in game.
-
-**Phase 2 (structural boundaries): all four steps implemented and headless-tested (2026-10-19); the end-of-Phase-2 Proton pass is next** (user decision: one in-game pass for P2-2 onward). Contracts, findings and decisions D1–D4: `docs/phase2-contracts.md`; per-step details and tests: `docs/testing-and-build.md` sections "Terminal session", "Full telnet repaint after a resize (VIEW-03)", "Explicit lifecycle (Phase 2, P2-3)", "Screen and view (Phase 2, P2-4)"; headless exit review: roadmap, Phase 2.
-
-- **P2-1** input router (`TerminalInputRouter`, `ITerminalInputHost`): checked in game.
+- **P2-1** input router (`TerminalInputRouter`, `ITerminalInputHost`).
 - **P2-2** `TerminalSession<TViewer>` owns telnet viewers, snapshot, refresh/repaint, resize (D3 last wins), title, clear; **VIEW-03** fixed (full repaint takes a fresh snapshot).
-- **P2-3** lifecycle: sessions disposable; telnet clients sent back to the menu with a message when their CPU goes (LIFE-02); kOS textures loaded once per path and owned skins/textures destroyed (LIFE-01); event handles closed, overlay notifiers removed (LIFE-03). **LIFE-04** (a disposed script GUI keeps its GameObject) recorded, not fixed.
-- **P2-4** screen/view: PageUp/PageDown move only a shared view (D1); output and input go to the screen (VIEW-01 fixed); scrollback bounded at 2,000 lines (D2); out-of-view cursor hidden in the GUI, at the edge for telnet. **VIEW-04** (a shrunk screen keeps its top row; upstream) recorded, not changed.
+- **P2-3** lifecycle: sessions disposable; telnet clients back to the menu when their CPU goes (LIFE-02); kOS textures loaded once per path, owned skins/textures destroyed (LIFE-01; in game the counts stay flat across reloads); event handles closed, overlay notifiers removed (LIFE-03).
+- **P2-4** screen/view: PageUp/PageDown move only a shared view (D1); output and input go to the screen (VIEW-01 fixed); scrollback bounded at 2,000 lines (D2); out-of-view cursor hidden in the GUI, at the edge for telnet.
+- **VIEW-04** (found in P2-4, seen by the user in game, fixed in the pass): a shorter screen keeps its bottom (the cursor's row), the top rows go into the scrollback, rows below the cursor are dropped (they no longer reappear on growing).
+
+Phase 1 (correctness and safety) was completed earlier the same day ("Proton pass 2026-10-19 (Phase 1 fixes)").
 
 **Next actions, in order:**
 
-1. **End-of-Phase-2 Proton pass** with the build deployed (see Workspace state). Checklist:
-   - GUI terminal unchanged otherwise: prompt, typing, history, `PRINT AT` dashboards, `CLEARSCREEN`, resize by dragging, fonts, beeps, reverse/visual-beep toggles, focus and flight-input release (P2-1 regressions).
-   - **P2-2/VIEW-03 (telnet):** attach from the menu (also a client narrower than 50 columns), NAWS resize with two clients (last wins), GUI resize with a client attached (no wrapped rows), Ctrl-L repaint, Ctrl-D detach, title change (name tag), `CLEARSCREEN`, beeps.
-   - **P2-3:** with a telnet client attached, (a) delete/explode the vessel's CPU part, (b) switch scene (to the Space Center): client gets "That CPU is no longer available." / is back at the menu, no exceptions in `Player.log`; reattach works. Open/close the terminal and a script `GUI` many times (and the editor, `LIST` picker): no `Player.log` errors, textures display (shared cache), memory steady. Optional: measure `Texture2D`/`GUISkin` counts before/after (needs a temporary diagnostic build).
-   - **P2-4:** fill the screen, PageUp/PageDown in the GUI with a telnet client attached (both follow; GUI cursor hidden, telnet cursor at the edge); type a command while scrolled (view returns, command and output below, scrollback intact); a `PRINT AT` dashboard loop while scrolled (view returns, dashboard on the screen); print 3,000 lines then PageUp to the top (about 2,000 lines back kept, no slowdown).
-   - Record KSP/Proton versions, results and unperformed checks in `docs/testing-and-build.md`; then close Phase 2 in the roadmap.
-2. Decisions for the user (Phase 2 leftovers): LIFE-04 (destroy a disposed script GUI's GameObject?), VIEW-04 (keep the bottom on shrink?).
-3. Phase 3 per roadmap (command history bound/draft is TERM-05 there).
-4. Optional minor checks from the Phase 1 pass's "Not performed" list (CTB focus modes, flight-results dialog, vessel destruction).
+1. **User decision LIFE-04:** a disposed script GUI keeps one `GameObject` (window), one `Texture2D` and one `GUISkin` until power-off (window, texture) or a scene change (skin): +100 of each per 100 GUIs, measured in game. Destroying the window on dispose changes what a script still holding the GUI sees (it could no longer `SHOW` it). Options: destroy on dispose (and make later use a script error or a no-op), or leave it.
+2. **Phase 3** per the roadmap: start with safe paste/copy and command history (history is still unbounded: TERM-05). Plan it in the roadmap before coding.
+3. Minor, optional: POWER-01 (a CPU powering itself off with `DOEVENT("Toggle Power")` logs `KOSBadJumpException`; likely upstream, compare with an upstream build first); the GUI's "N telnet clients attached" label overlaps "Keyclicker"; checks not performed: vessel destruction/unload with telnet attached, Phase 1 pass leftovers (CTB focus modes, flight-results dialog).
 
 ## Workspace state (2026-10-19)
 
-- Branch `kosim/test-baseline` (check `git log`; the 2026-10-19 commits follow `df2c5f0e`: three fixes, Phase 2 docs, P2-1, P2-2, VIEW-03, P2-3, P2-4); local only, never pushed (origin is upstream <https://github.com/KSP-KOS/KOS>). Base: upstream `develop` at `8f281a45`.
-- Last results: `bash .ci/test.sh` exit 0, **1057/1057**, 0 known failures, 0 skipped (`minimum_tests` 1057); `dotnet build kOS.sln -c Release --no-incremental` 0 errors, 44 existing warnings; build output `kOS.dll f083d0f3…`, `kOS.Safe.dll a49d6d99…`.
-- **Deployed in the dev instance: the P2-4 build** (`kOS.dll f083d0f3…`, `kOS.Safe.dll a49d6d99…`; P2-2 to P2-4), not yet run in game. Backup of the previous (P2-2) deployment: `kOS-before-p2-4-20261019`. The game may be running; check before redeploying.
+- Branch `kosim/test-baseline` (check `git log`; the 2026-10-19 commits follow `df2c5f0e`: three fixes, Phase 2 docs, P2-1, P2-2, VIEW-03, P2-3, P2-4, VIEW-04 fix, pass record); local only, never pushed (origin is upstream <https://github.com/KSP-KOS/KOS>). Base: upstream `develop` at `8f281a45`.
+- Last results: `bash .ci/test.sh` exit 0, **1060/1060**, 0 known failures, 0 skipped (`minimum_tests` 1060); `dotnet build kOS.sln -c Release --no-incremental` 0 errors, 44 existing warnings; build output `kOS.dll f093b918…`, `kOS.Safe.dll 713d06f3…`.
+- **Deployed in the dev instance and checked in game: the P2-4 + VIEW-04 build** (`kOS.dll f093b918…`, `kOS.Safe.dll 713d06f3…`). The temporary diagnostic add-on `GameData/kOSIMDiag` was removed after the pass (source in the session scratchpad only; recreate if needed: a `KSPAddon(EveryScene)` logging `Resources.FindObjectsOfTypeAll` counts every 10 s). The save holds a quicksave `kosim-p24` from the pass. Game closed at the end of the session.
 
 ## Constraints and decisions (still binding)
 
@@ -48,7 +39,7 @@ Details, intentional behavior changes and limits per item: `docs/testing-and-bui
 
 | Item | Entry points | In game |
 | --- | --- | --- |
-| Local gate | `.ci/test.sh`, `.ci/known-test-failures.json` (empty; minimum 1057) | — |
+| Local gate | `.ci/test.sh`, `.ci/known-test-failures.json` (empty; minimum 1060) | — |
 | BUFFER-01/02/03/04 | `ScreenBuffer`, `ScreenSnapShotExtensions`, `RenderFaultRecovery`, `TermWindow` | 2026-10-12/15 |
 | EDIT-01/02 | `EditorDocument`, `KOSTextEditPopup`, `DelegateDialog` | 2026-10-15 |
 | IO-01/02/03 | raw I/O (`READRAW`/`WRITERAW`), `ArchiveFileWriter`; policy `docs/file-io-compatibility.md` | 2026-10-15 |
@@ -62,10 +53,10 @@ Details, intentional behavior changes and limits per item: `docs/testing-and-bui
 | IO-04 hardening | `DirectoryContainment`, `ArchiveTextureFiles`, `LinkSafeDelete`, `Archive.CheckDeletable` | 2026-10-19 |
 | GAMEEVENTS-01, EXEC-02, Wine link refusal | see "Resume here" | 2026-10-19 |
 | P2-1 input router (Phase 2) | `TerminalInputRouter`, `ITerminalInputHost`, `TermWindow` forwarders | 2026-10-19 |
-| P2-2 terminal session (Phase 2) | `TerminalSession`, `ITerminalViewer` (`TelnetSingletonServer`), `TermWindow` forwarders | pending |
-| VIEW-03 (found in P2-2) | `TerminalSession.RepaintFull` | pending |
-| P2-3 lifecycle (Phase 2) | `TerminalSession.Dispose`, `TelnetSingletonServer` (window by reference, `isAttached`), `TermWindow.OnDestroy`, `Utils.GetTextureWithErrorMsg` cache, `Utils.DestroyCreated` | pending |
-| P2-4 screen/view (Phase 2) | `ScreenBuffer` (view offset, `MAX_SCROLLBACK`, `ScrollScreen`, `ReturnViewToScreen`), `TextEditor.ScreenCursorRow`, `ScreenSnapShot.TeleportRow` | pending |
+| P2-2 terminal session (Phase 2) | `TerminalSession`, `ITerminalViewer` (`TelnetSingletonServer`), `TermWindow` forwarders | 2026-10-19 |
+| VIEW-03 (found in P2-2) | `TerminalSession.RepaintFull` | 2026-10-19 |
+| P2-3 lifecycle (Phase 2) | `TerminalSession.Dispose`, `TelnetSingletonServer` (window by reference, `isAttached`), `TermWindow.OnDestroy`, `Utils.GetTextureWithErrorMsg` cache, `Utils.DestroyCreated` | 2026-10-19 |
+| P2-4 screen/view (Phase 2) | `ScreenBuffer` (view offset, `MAX_SCROLLBACK`, `ScrollScreen`, `ReturnViewToScreen`, `SetSize` keeps the bottom: VIEW-04), `TextEditor.ScreenCursorRow`, `ScreenSnapShot.TeleportRow` | 2026-10-19 |
 
 Test fixtures to keep in step with game code: `FixtureInterpreter` (game `Interpreter`), `FixtureTermWindow` (`TermWindow`'s `ITerminalInputHost` members, session calls and update order; the routing and session themselves are shared), `TelnetServerInputModel` (`TelnetSingletonServer` input sink and `ITerminalViewer`); `FixtureInterpreter` history keys copy the game `Interpreter`'s. `PreSessionTermWindowFanOut` is a frozen copy of the pre-P2-2 fan-out (oracle), not to be kept in step.
 
@@ -83,8 +74,8 @@ The gate builds `KOSHeadless`; run the full build last before deploying, and che
 
 - Instance `/home/jvz/Games/KSP-kOSIM-dev/` (setup notes in its `setup-notes.md`); launch with `launch-dev.sh` (`--check` for preflight). Live Unity log: `.proton-prefix/pfx/drive_c/users/steamuser/AppData/LocalLow/Squad/Kerbal Space Program/Player.log` (KSP.log is buffered). Save `kOSIM-dev`, vessel `test-vessel` on the pad: **two kOS CPUs** since 2026-10-19 (the second added to `persistent.sfs`; backup `persistent.sfs.before-2cpu-20261019`), boot file `/boot/kosim_boot.ks` on the first.
 - GameData: stock, kOS, ModuleManager 4.2.3, ClickThroughBlocker 2.1.10.23, ToolbarController 0.1.9.14, HarmonyKSP 2.2.1 (installed 2026-10-19, dev instance only). kOS `config.xml` (`GameData/kOS/Plugins/PluginData/kOS/`): telnet **enabled**, 127.0.0.1:5410, permanent listen permission.
-- Deploy: game closed (`pgrep -af 'KSP_x64|wineserver|umu'`) → `cp -a GameData/kOS kOS-GameData-backups/kOS-before-<commit>-<date>` → `rsync -a Resources/GameData/kOS/ …/GameData/kOS/` (no `--delete`) → verify hashes. Backups so far: `kOS-before-e943ecf4-20261012-194247`, `kOS-before-df2c5f0e-20261019-132530`, `kOS-before-linkdelete-20261019-141034`, `kOS-before-wine-filelink-20261019-143125`, `kOS-before-p2-1-20261019-145401`, `kOS-before-p2-2-20261019-152122` (holds the P2-1 build), `kOS-before-p2-4-20261019` (holds the P2-2 build).
-- Remote testing method (2026-10-19): scripted telnet client with a VT screen model (scratch `kt.py`; recreate: answer `DO TTYPE`/`SB TTYPE SEND` with `XTERM`, `DO NAWS` with a size, acknowledge each `WILL` once; Enter = CR, Ctrl-C = 0x03, Ctrl-D detaches; match output lines anchored, not the echoed command). Screenshots with `grim -g "2400,270 1920x1080"` (the game window on HDMI-A-2; check `hyprctl clients`), reading KSP's Alt+F12 *Input Locks* window for lock state. Compositor pointer warps do not reach the game, so mouse checks need the user. In test scripts avoid names of built-ins (`v`, `q`, …: `CLOBBERBUILTINS`).
-- Disposable archive content: `Ships/Script/kosim-check/` (`p2/` holds the 2026-10-19 scripts and fixtures, incl. symlinks `flink.txt`, `mvlink.txt`, `lnk`, `holder/…` into `kosim-link-target/` beside the game; the refusal checks keep them), `Ships/Script/boot/kosim_boot.ks`, `Ships/kosim-outside.png`.
-- Logs kept in `dev-logs/` (`*.checkpoint-*`, `*.gameevents-nre-20261019`, `*.pass-20261019-run*`). Wine behavior can be probed without the game: build a small `net48` exe and run it with GE-Proton's `files/bin/wine` and a throwaway `WINEPREFIX` in the scratchpad (never the game's prefix).
+- Deploy: game closed (`pgrep -af 'KSP_x64|wineserver|umu'`) → `cp -a GameData/kOS kOS-GameData-backups/kOS-before-<commit>-<date>` → `rsync -a Resources/GameData/kOS/ …/GameData/kOS/` (no `--delete`) → verify hashes. Backups so far: `kOS-before-e943ecf4-20261012-194247`, `kOS-before-df2c5f0e-20261019-132530`, `kOS-before-linkdelete-20261019-141034`, `kOS-before-wine-filelink-20261019-143125`, `kOS-before-p2-1-20261019-145401`, `kOS-before-p2-2-20261019-152122` (holds the P2-1 build), `kOS-before-p2-4-20261019` (holds the P2-2 build), `kOS-before-view04-20261019` (holds `c8582b78`).
+- Remote testing method (2026-10-19): scripted telnet client with a VT screen model (scratch `kt.py`; recreate: answer `DO TTYPE`/`SB TTYPE SEND` with `XTERM`, `DO NAWS` with a size, acknowledge each `WILL` once; Enter = CR, Ctrl-C = 0x03, Ctrl-D detaches, PageUp/PageDown = `ESC[5~`/`ESC[6~`, Ctrl-L repaints, a NAWS subnegotiation resizes; the title arrives as OSC 0/2; match output lines anchored, not the echoed command). Screenshots with `grim -g "2400,270 1920x1080"` (the game window on HDMI-A-2; check `hyprctl clients`), reading KSP's Alt+F12 *Input Locks* window for lock state. Compositor pointer warps do not reach the game, so mouse checks need the user. In test scripts avoid names of built-ins (`v`, `q`, …: `CLOBBERBUILTINS`).
+- Disposable archive content: `Ships/Script/kosim-check/` (`p24/` holds the end-of-Phase-2 scripts) (`p2/` holds the 2026-10-19 scripts and fixtures, incl. symlinks `flink.txt`, `mvlink.txt`, `lnk`, `holder/…` into `kosim-link-target/` beside the game; the refusal checks keep them), `Ships/Script/boot/kosim_boot.ks`, `Ships/kosim-outside.png`.
+- Logs kept in `dev-logs/` (`*.checkpoint-*`, `*.gameevents-nre-20261019`, `*.pass-20261019-run*`, `Player.log.p24-pass-20261019-run{1,2}`). Wine behavior can be probed without the game: build a small `net48` exe and run it with GE-Proton's `files/bin/wine` and a throwaway `WINEPREFIX` in the scratchpad (never the game's prefix).
 - Recorded minor findings (not pursued): telnet full repaint sends empty cells as NUL; GUI controls overlap at 20 columns; welcome header `INITIAL_UNSET` for an 80×24 client; editor saves archive text with CRLF under Proton (by design); kOS answers every `DO ECHO`/`DO SGA` with `WILL` (non-RFC 1143 clients loop).
