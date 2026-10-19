@@ -88,10 +88,6 @@ namespace kOS.Screen
         /// <summary>text color that changes depending on if the computer is on</summary>
         private Color currentTextColor;
 
-        /// <summary>Telnet repaints happen less often than Update()s.  Not every Update() has a telnet repaint happening.
-        /// This tells you whether there was one this update.</summary>
-        private bool telnetsGotRepainted;
-
         private Texture2D terminalImage;
         private Texture2D terminalFrameImage;
         private Texture2D terminalFrameActiveImage;
@@ -108,20 +104,17 @@ namespace kOS.Screen
         private SharedObjects shared;
         private KOSTextEditPopup popupEditor;
 
-        // data stored per telnet client attached:
-        private volatile List<TelnetSingletonServer> telnets; // support exists for more than one telnet client to be attached to the same terminal, thus this is a list.
-        private readonly Dictionary<TelnetSingletonServer, IScreenSnapShot> prevTelnetScreens;
+        // The attached telnet clients (more than one can share this terminal), the screen
+        // snapshot and what the clients are sent:
+        private readonly TerminalSession<TelnetSingletonServer> session;
         
         private readonly TerminalInputRouter<TelnetSingletonServer> inputRouter;
         
-        public string TitleText {get; private set;}
+        public string TitleText { get { return session.Title; } }
 
-        private IScreenSnapShot mostRecentScreen;
         private readonly RenderFaultRecovery renderFaultRecovery = new RenderFaultRecovery();
         private bool resizeFromFault;
         
-        private DateTime lastBufferGet = DateTime.Now;
-        private DateTime lastTelnetIncrementalRepaint = DateTime.Now;
         private GUISkin customSkin;
         
         private bool uiGloballyHidden = false;
@@ -132,8 +125,7 @@ namespace kOS.Screen
         {
             IsPowered = true;
             WindowRect = new Rect(50, 60, 0, 0); // will get resized later in AttachTo().
-            telnets = new List<TelnetSingletonServer>();
-            prevTelnetScreens = new Dictionary<TelnetSingletonServer, IScreenSnapShot>();
+            session = new TerminalSession<TelnetSingletonServer>(DateTime.Now);
             inputRouter = new TerminalInputRouter<TelnetSingletonServer>(this);
         }
 
@@ -327,7 +319,7 @@ namespace kOS.Screen
             GUI.color = color;
 
             // Should probably make "gui screen name for my CPU part" into some sort of utility method:
-            ChangeTitle(CalcualteTitle());
+            session.ChangeTitle(CalcualteTitle());
 
             WindowRect = GUI.Window(UniqueId, WindowRect, TerminalGui, TitleText);
             BlockMouseOver(WindowRect);
@@ -346,8 +338,8 @@ namespace kOS.Screen
                 // Holding onto a vessel instance that no longer exists?
                 Close();
             }
-            GetNewestBuffer();
-            TelnetOutputUpdate();
+            // The snapshot for the GUI, and the telnet clients' output, at most every 1/20th second:
+            bool telnetsGotRepainted = session.Update(DateTime.Now);
             ProcessTelnetInput(); // want to do this even when the terminal isn't actually displaying.
             ProcessUnconsumedInput(); // Moved here from OnGUI because it needs to run even when the GUI terminal is closed.
             if (telnetsGotRepainted)
@@ -418,24 +410,6 @@ namespace kOS.Screen
                 return soundMaker.BeginFileSound("beep");
             }
             return true;
-        }
-
-        void TelnetOutputUpdate()
-        {
-            DateTime newTime = DateTime.Now;
-            telnetsGotRepainted = false;
-            
-            // Throttle it back so the faster Update() rates don't cause pointlessly repeated work:
-            // Needs to be no faster than the fastest theoretical typist or script might change the view.
-            if (newTime > lastTelnetIncrementalRepaint + System.TimeSpan.FromMilliseconds(50)) // = 1/20th second.
-            {
-                lastTelnetIncrementalRepaint = newTime;
-                foreach (TelnetSingletonServer telnet in telnets)
-                {
-                    RepaintTelnet(telnet, false); // try the incremental differ update.
-                }
-                telnetsGotRepainted = true;
-            }
         }
 
         /// <summary>
@@ -577,7 +551,7 @@ namespace kOS.Screen
             // of input (if the detach signal Ctrl-D is sent).  Therefore we have to
             // make this temp copy to prorect against the C# error "Collection was Modified"
             // during the foreach loop:
-            inputRouter.ProcessClientInput(telnets.Where(telnet => telnet.ConnectedProcessor != null).ToArray());
+            inputRouter.ProcessClientInput(session.Viewers.Where(telnet => telnet.ConnectedProcessor != null).ToArray());
         }
 
         /// <summary>
@@ -661,7 +635,7 @@ namespace kOS.Screen
 
         bool ITerminalInputHost<TelnetSingletonServer>.IsClientAttached(TelnetSingletonServer client)
         {
-            return client.ConnectedProcessor != null && telnets.Contains(client);
+            return client.ConnectedProcessor != null && session.HasViewer(client);
         }
 
         bool ITerminalInputHost<TelnetSingletonServer>.TryReadClientChar(TelnetSingletonServer client, bool includeText, out char ch)
@@ -681,35 +655,13 @@ namespace kOS.Screen
 
         void ITerminalInputHost<TelnetSingletonServer>.RepaintClient(TelnetSingletonServer client)
         {
-            ResizeAndRepaintTelnet(client, shared.Screen.ColumnCount, shared.Screen.RowCount, true);
-            SendTitleToTelnet(client); // the title may have been in output a slow client never got
+            session.RepaintViewer(client);
         }
 
         void ITerminalInputHost<TelnetSingletonServer>.KeyClick()
         {
             if (IsOpen && keyClickEnabled)
                 shared.SoundMaker.BeginFileSound("click");
-        }
-
-        /// <summary>
-        /// Get the newest copy of the screen buffer once, for use in all calculations for a while.
-        /// This was added when telnet clients were added.  The execution cost of obtaining a buffer snapshot
-        /// from the ScreenBuffer class is non-trivial, and therefore shouldn't be done over and over
-        /// for each telnet client that needs it within the span of a short time.  This gets it
-        /// once for all of them to borrow.  All calls will re-use this copy for a while,
-        /// until the next terminal refresh (1/20th of a second, at the moment).
-        /// </summary>
-        void GetNewestBuffer()
-        {
-            DateTime newTime = DateTime.Now;
-            
-            // Throttle it back so the faster Update() rates don't cause pointlessly repeated work:
-            // Needs to be no faster than the fastest theoretical typist or script might change the view.
-            if (newTime > lastBufferGet + System.TimeSpan.FromMilliseconds(50)) // = 1/20th second.
-            {
-                mostRecentScreen = new ScreenSnapShot(shared.Screen);
-                lastBufferGet = newTime;
-            }
         }
 
         void TerminalGui(int windowId)
@@ -829,7 +781,7 @@ namespace kOS.Screen
             GUI.Label(new Rect(15, 20, WindowRect.width-30, WindowRect.height-55), "", terminalImageStyle);
             GUI.color = color;
 
-            if (telnets.Count > 0)
+            if (session.ViewerCount > 0)
                 DrawTelnetStatus();
 
             closeButtonRect = new Rect(WindowRect.width-75, WindowRect.height-30, 50, 25);
@@ -912,7 +864,7 @@ namespace kOS.Screen
 
                 // A quicksave can leave the snapshot null. Capture one snapshot for both
                 // row content and cursor coordinates; live coordinates may already differ.
-                IScreenSnapShot snapshot = mostRecentScreen;
+                IScreenSnapShot snapshot = session.Snapshot;
                 if (snapshot != null && snapshot.Buffer != null)
                 {
                     List<IScreenBufferLine> buffer = snapshot.Buffer;
@@ -975,7 +927,7 @@ namespace kOS.Screen
         /// </summary>
         protected void DrawTelnetStatus()
         {
-            int num = telnets.Count;
+            int num = session.ViewerCount;
             string message = String.Format( "{0} telnet client{1} attached", num, (num == 1 ? "" : "s"));
             GUI.DrawTexture(new Rect(10, WindowRect.height - 25, 25, 25), networkZigZagImage);
             GUI.Label(new Rect(40, WindowRect.height - 25, 160, 20), message);
@@ -1062,6 +1014,7 @@ namespace kOS.Screen
         {
             shared = sharedObj;
             shared.Window = this;
+            session.Screen = shared.Screen;
             
             shared.Screen.CharacterPixelWidth = 8; // will be overridden later when drawing the font.
             shared.Screen.CharacterPixelHeight = SafeHouse.Config.TerminalFontDefaultSize;
@@ -1072,7 +1025,7 @@ namespace kOS.Screen
 
             NotifyOfScreenResize(shared.Screen);
             shared.Screen.AddResizeNotifier(NotifyOfScreenResize);
-            ChangeTitle(CalcualteTitle());
+            session.ChangeTitle(CalcualteTitle());
 
             soundMaker.AttachTo(shared); // Attach the soundMaker also
         }
@@ -1087,183 +1040,41 @@ namespace kOS.Screen
                                 );
         }
         
+        /// <summary>
+        /// A telnet client picked this terminal: the screen takes the client's size, and the
+        /// client gets the title and a full repaint.
+        /// </summary>
         internal void AttachTelnet(TelnetSingletonServer server)
         {
-            telnets.AddUnique(server);
-            prevTelnetScreens[server] = null;
+            session.AttachViewer(server);
         }
 
         internal void DetachTelnet(TelnetSingletonServer server)
         {
-            server.DisconnectFromProcessor();
-            telnets.Remove(server);
-            prevTelnetScreens.Remove(server);
+            session.DetachViewer(server); // the server's DisconnectFromProcessor() comes back here; it guards that.
         }
         
         public void DetachAllTelnets()
         {
-            // Have to use a (shallow) copy of the list, because the act of detaching telnets
-            // will delete from the list while we're trying to iterate through it:
-            TelnetSingletonServer[] listSnapshot = telnets.ToArray();
-            
-            foreach (TelnetSingletonServer telnet in listSnapshot)
-            {
-                DetachTelnet(telnet);
-            }
+            session.DetachAllViewers();
         }
 
         internal int NotifyOfScreenResize(IScreenBuffer sb)
         {
             WindowRect = new Rect(WindowRect.xMin, WindowRect.yMin, sb.ColumnCount*sb.CharacterPixelWidth + 65, sb.RowCount*sb.CharacterPixelHeight + 100);
 
-            foreach (TelnetSingletonServer telnet in telnets)
-            {
-                ResizeAndRepaintTelnet(telnet, sb.ColumnCount, sb.RowCount, false);
-            }
+            session.ScreenResized(); // telnet clients of another size are asked to follow (decision D3)
             return 0;
-        }
-        
-        /// <summary>
-        /// Tell the telnet session to resize itself
-        /// </summary>
-        /// <param name="telnet">which telnet session to send to</param>
-        /// <param name="width">new width</param>
-        /// <param name="height">new height</param>
-        /// <param name="unconditional">if true, then send the resize message no matter what.  If false,
-        /// then only send it if we calculate that the size changed.</param>
-        private void ResizeAndRepaintTelnet(TelnetSingletonServer telnet, int width, int height, bool unconditional)
-        {
-            // Don't bother telling it to resize if its already the same size - this should stop resize spew looping:
-            if (unconditional || telnet.ClientWidth != width || telnet.ClientHeight != height)
-            {
-                string resizeCmd = new string( new [] {(char)UnicodeCommand.RESIZESCREEN, (char)width, (char)height} );
-                telnet.Write(resizeCmd);
-                RepaintTelnet(telnet, true);
-            }            
-        }
-        
-        internal void ChangeTitle(string newTitle)
-        {
-            if (TitleText != newTitle) // For once, a direct simple reference-equals is really what we want.  Immutable strings should make this work quickly.
-            {
-                TitleText = newTitle;
-                foreach (TelnetSingletonServer telnet in telnets)
-                    SendTitleToTelnet(telnet);
-            }
-        }
-
-        internal void SendTitleToTelnet(TelnetSingletonServer telnet)
-        {
-            // Make the telnet client learn about the new title:
-            string changeTitleCmd = String.Format("{0}{1}{2}",
-                                                  (char)UnicodeCommand.TITLEBEGIN,
-                                                  TitleText,
-                                                  (char)UnicodeCommand.TITLEEND);
-            telnet.Write(changeTitleCmd);
-        }
-
-        /// <summary>
-        /// Do the repaint of the telnet session.
-        /// </summary>
-        /// <param name="telnet">which telnet session to repaint</param>
-        /// <param name="fullSync">if true, then ignore the diffing algorithm and just redraw everything.</param>
-        internal void RepaintTelnet(TelnetSingletonServer telnet, bool fullSync)
-        {
-            if (fullSync || prevTelnetScreens[telnet] == null)
-            {
-                RepaintTelnetFull(telnet);
-                return;
-            }
-            
-            // If the state of the screen reverse, or the visual bell flags, has changed since last time,
-            // spit out the characters to change the state:
-            if (telnet.ReverseScreen != shared.Screen.ReverseScreen)
-            {
-                telnet.Write(shared.Screen.ReverseScreen ? ((char)UnicodeCommand.REVERSESCREENMODE) : ((char)UnicodeCommand.NORMALSCREENMODE));
-                telnet.ReverseScreen = shared.Screen.ReverseScreen;
-            }
-            if (telnet.VisualBeep != shared.Screen.VisualBeep)
-            {
-                telnet.Write(shared.Screen.VisualBeep ? ((char)UnicodeCommand.VISUALBEEPMODE) : ((char)UnicodeCommand.AUDIOBEEPMODE));
-                telnet.VisualBeep = shared.Screen.VisualBeep;
-            }            
-            string updateText = mostRecentScreen.DiffFrom(prevTelnetScreens[telnet]);
-            telnet.Write(updateText);
-            
-            prevTelnetScreens[telnet] = mostRecentScreen.DeepCopy();
-            for (int i = 0 ; i < shared.Screen.BeepsPending ; ++i)
-                telnet.Write((char)UnicodeCommand.BEEP); // The terminal's UnicodeMapper will convert this to ascii 0x07 if the right terminal type.
-        }
-        
-        /// <summary>
-        /// Cover the case where the whole screen needs to be repainted from scratch.
-        /// </summary>
-        /// <param name="telnet">which telnet to paint to.</param>
-        private void RepaintTelnetFull(TelnetSingletonServer telnet)
-        {   
-            List<IScreenBufferLine> buffer = mostRecentScreen.Buffer; // just to keep the name shorter below:
-
-            // Sometimes the buffer is shorter than the terminal height if the resize JUST happened in the last Update():
-            int rowsToPaint = Math.Min(shared.Screen.RowCount, buffer.Count);
-            
-            telnet.Write((char)UnicodeCommand.CLEARSCREEN);
-            // Restate the screen modes too: a full repaint also replaces output that a slow
-            // client never received (see TelnetOutputQueue).
-            telnet.Write(shared.Screen.ReverseScreen ? (char)UnicodeCommand.REVERSESCREENMODE : (char)UnicodeCommand.NORMALSCREENMODE);
-            telnet.ReverseScreen = shared.Screen.ReverseScreen;
-            telnet.Write(shared.Screen.VisualBeep ? (char)UnicodeCommand.VISUALBEEPMODE : (char)UnicodeCommand.AUDIOBEEPMODE);
-            telnet.VisualBeep = shared.Screen.VisualBeep;
-            for (int row = 0 ; row < rowsToPaint ; ++row)
-            {
-                IScreenBufferLine lineBuffer = buffer[row];
-                int columnOfLastContent = -1;
-                for (int col = 0 ; col < lineBuffer.Length ; ++col)
-                {
-                    char ch = lineBuffer[col];
-                    switch (ch)
-                    {
-                        case (char)0x0000: // The buffer pads null chars into the 'dead' space of the screen past the last printed char.
-                            break;
-                        case (char)0x0009: // tab chars - really shouldn't be in the buffer.
-                            break;
-                        default:
-                            columnOfLastContent = col;
-                            break;
-                    }
-                }
-                if (columnOfLastContent >= 0) // skip for empty lines
-                {
-                    string line = lineBuffer.ToString().Substring(0, columnOfLastContent+1);
-                    telnet.Write(line);
-                }
-                if (row < rowsToPaint-1) //don't write the eoln for the lastmost line.
-                    telnet.Write((char)UnicodeCommand.STARTNEXTLINE);
-            }
-
-            // ensure cursor locatiom (in case it's not at the bottom):
-            telnet.Write(String.Format("{0}{1}{2}",
-                                       (char)UnicodeCommand.TELEPORTCURSOR,
-                                       // The next two are cast to char because, for example, a value of 76 should be
-                                       // encoded as (char)76 (which is 'L'), rather than as '7' followed by '6':
-                                       (char)mostRecentScreen.CursorColumn,
-                                       (char)mostRecentScreen.CursorRow));
-
-            prevTelnetScreens[telnet] = mostRecentScreen.DeepCopy();
         }
         
         public void ClearScreen()
         {
-            shared.Screen.ClearScreen();
-            foreach (TelnetSingletonServer telnet in telnets)
-            {
-                telnet.Write((char)UnicodeCommand.CLEARSCREEN);
-                prevTelnetScreens[telnet] = ScreenSnapShot.EmptyScreen(shared.Screen);
-            }
+            session.ClearScreen();
         }
 
         public int NumTelnets()
         {
-            return telnets.Count;
+            return session.ViewerCount;
         }
         
         private int HowManyRowsFit()

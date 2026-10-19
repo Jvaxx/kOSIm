@@ -10,13 +10,13 @@
 
 **Next actions, in order:**
 
-1. **Phase 2 in progress.** Preparation (2026-10-19) is in `docs/phase2-contracts.md`: current map, findings VIEW-01/02 and LIFE-01/02/03, contracts, extraction order, and user decisions D1–D4 (shared view offset; scrollback 2,000 lines; last resize wins; GUI Ctrl-D/X keep sending Enter). **P2-1 done:** `TermWindow` input routing is now `kOS.Safe.UserIO.TerminalInputRouter<TClient>` behind `ITerminalInputHost`, and `FixtureTermWindow` runs the real router. Tested headless and in game, with no behavior change. **Next: P2-2.** A `TerminalSession` with an `ITerminalViewer` per GUI window or telnet client takes over `TermWindow`'s telnet list, resize notifications, diff/full repaint, title and clear fan-out. Add resize-authority tests (D3, last change wins) with fake viewers.
+1. **Phase 2 in progress.** Preparation (2026-10-19) is in `docs/phase2-contracts.md`: current map, findings VIEW-01/02 and LIFE-01/02/03, contracts, extraction order, and user decisions D1–D4 (shared view offset; scrollback 2,000 lines; last resize wins; GUI Ctrl-D/X keep sending Enter). **P2-1 done:** `TermWindow` input routing is now `kOS.Safe.UserIO.TerminalInputRouter<TClient>` behind `ITerminalInputHost`, and `FixtureTermWindow` runs the real router. Tested headless and in game, with no behavior change. **P2-2 implemented and headless-tested (2026-10-19), in-game check pending:** `kOS.Safe.UserIO.TerminalSession<TViewer>` owns the telnet list, the shared snapshot, refreshes, full repaints, resize requests (D3), title and clear; `TelnetSingletonServer` is an `ITerminalViewer`; the GUI window owns the session and is not a viewer. Equivalent to the old code on 40 seeded sequences (byte-identical client output). Details: `docs/testing-and-build.md`, "Terminal session". **Next:** deploy and check in game (telnet attach/resize/Ctrl-L/Ctrl-D/title/clear/beeps, GUI unchanged), then P2-3.
 2. Optional minor checks from the pass's "Not performed" list (e.g. CTB focus modes, flight-results dialog, vessel destruction, two-client telnet).
 
 ## Workspace state (2026-10-19)
 
-- Branch `kosim/test-baseline` (check `git log`; the 2026-10-19 commits follow `df2c5f0e`: three fixes, Phase 2 docs, P2-1); local only, never pushed (origin is upstream <https://github.com/KSP-KOS/KOS>). Base: upstream `develop` at `8f281a45`.
-- Last results: `bash .ci/test.sh` exit 0, **1006/1006**, 0 known failures, 0 skipped (`minimum_tests` 1006); `dotnet build kOS.sln -c Release --no-incremental` 0 errors, 44 existing warnings.
+- Branch `kosim/test-baseline` (check `git log`; the 2026-10-19 commits follow `df2c5f0e`: three fixes, Phase 2 docs, P2-1, P2-2); local only, never pushed (origin is upstream <https://github.com/KSP-KOS/KOS>). Base: upstream `develop` at `8f281a45`.
+- Last results: `bash .ci/test.sh` exit 0, **1030/1030**, 0 known failures, 0 skipped (`minimum_tests` 1030); `dotnet build kOS.sln -c Release --no-incremental` 0 errors, 44 existing warnings.
 - **Deployed in the dev instance: the P2-1 build** (`kOS.dll 05e2ef26…`, `kOS.Safe.dll c10494b3…`). The game may still be running; check before redeploying.
 
 ## Constraints and decisions (still binding)
@@ -48,8 +48,9 @@ Details, intentional behavior changes and limits per item: `docs/testing-and-bui
 | IO-04 hardening | `DirectoryContainment`, `ArchiveTextureFiles`, `LinkSafeDelete`, `Archive.CheckDeletable` | 2026-10-19 |
 | GAMEEVENTS-01, EXEC-02, Wine link refusal | see "Resume here" | 2026-10-19 |
 | P2-1 input router (Phase 2) | `TerminalInputRouter`, `ITerminalInputHost`, `TermWindow` forwarders | 2026-10-19 |
+| P2-2 terminal session (Phase 2) | `TerminalSession`, `ITerminalViewer` (`TelnetSingletonServer`), `TermWindow` forwarders | pending |
 
-Test fixtures to keep in step with game code: `FixtureInterpreter` (game `Interpreter`), `FixtureTermWindow` (`TermWindow`'s `ITerminalInputHost` members; the routing itself is shared), `TelnetServerInputModel` (`TelnetSingletonServer` input sink).
+Test fixtures to keep in step with game code: `FixtureInterpreter` (game `Interpreter`), `FixtureTermWindow` (`TermWindow`'s `ITerminalInputHost` members, session calls and update order; the routing and session themselves are shared), `TelnetServerInputModel` (`TelnetSingletonServer` input sink and `ITerminalViewer`). `PreSessionTermWindowFanOut` is a frozen copy of the pre-P2-2 fan-out (oracle), not to be kept in step.
 
 ## Commands
 

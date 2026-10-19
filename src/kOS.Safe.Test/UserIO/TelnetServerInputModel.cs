@@ -10,11 +10,15 @@ namespace kOS.Safe.Test.UserIO
     /// The input half of the game's <c>kOS.UserIO.TelnetSingletonServer</c> (game assembly,
     /// not loadable headlessly): the real parser and dispatcher feeding the real
     /// <see cref="TelnetInputPipeline"/> and <see cref="TelnetInputQueue"/>. Keep the sink
-    /// methods in step with the server's <c>ITelnetInputSink</c> implementation; output,
-    /// negotiation replies, logging and the welcome menu are left out.
+    /// methods in step with the server's <c>ITelnetInputSink</c> implementation. As an
+    /// <see cref="ITerminalViewer"/> it records the output it is sent, unmapped, and plays it
+    /// on a <see cref="ViewerScreenModel"/>; the output queue and mapper, negotiation
+    /// replies, logging and the welcome menu are left out.
     /// </summary>
-    internal sealed class TelnetServerInputModel : ITelnetInputSink
+    internal sealed class TelnetServerInputModel : ITelnetInputSink, ITerminalViewer
     {
+        private readonly StringBuilder output = new StringBuilder();
+
         private readonly TelnetInputParser parser = new TelnetInputParser();
         private readonly TelnetInputDispatcher dispatcher = new TelnetInputDispatcher();
 
@@ -26,6 +30,7 @@ namespace kOS.Safe.Test.UserIO
             ClientHeight = 24;
             ClientTerminalType = "INITIAL_UNSET";
             IsConnectedToProcessor = true;
+            Model = new ViewerScreenModel(ClientWidth, ClientHeight);
         }
 
         public TelnetInputQueue Queue { get; private set; }
@@ -34,6 +39,31 @@ namespace kOS.Safe.Test.UserIO
         public int ClientHeight { get; private set; }
         public string ClientTerminalType { get; private set; }
         public bool IsConnectedToProcessor { get; set; }
+        public bool ReverseScreen { get; set; }
+        public bool VisualBeep { get; set; }
+
+        /// <summary>Everything the terminal window sent this client.</summary>
+        public string Output { get { return output.ToString(); } }
+
+        /// <summary>The client's display, as that output draws it.</summary>
+        public ViewerScreenModel Model { get; private set; }
+
+        public void Write(char ch)
+        {
+            Write(ch.ToString());
+        }
+
+        public void Write(string str)
+        {
+            output.Append(str);
+            Model.Apply(str);
+        }
+
+        /// <summary>The server's <c>DisconnectFromProcessor</c>, without the goodbye output.</summary>
+        void ITerminalViewer.Detach()
+        {
+            IsConnectedToProcessor = false;
+        }
 
         /// <summary>The game-thread clock the pipeline's sequence timeout uses.</summary>
         public TimeSpan Now { get; set; }

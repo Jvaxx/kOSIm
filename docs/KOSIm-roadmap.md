@@ -200,7 +200,7 @@ Editor document model
 
 ### Decisions to document before major changes
 
-**Preparation (2026-10-19):** the current map, findings (VIEW-01/02, INPUT-02, LIFE-01/02/03), proposed contracts for each point below and the proposed extraction order (P2-1 input router … P2-4 screen/viewport split) are in [phase2-contracts.md](phase2-contracts.md). User decisions D1–D4 recorded there (shared view, 2,000-line scrollback, last resize wins, GUI Ctrl-D/X stay Enter). P2-1 (input router) implemented and checked in game 2026-10-19; next P2-2.
+**Preparation (2026-10-19):** the current map, findings (VIEW-01/02, INPUT-02, LIFE-01/02/03), proposed contracts for each point below and the proposed extraction order (P2-1 input router … P2-4 screen/viewport split) are in [phase2-contracts.md](phase2-contracts.md). User decisions D1–D4 recorded there (shared view, 2,000-line scrollback, last resize wins, GUI Ctrl-D/X stay Enter). P2-1 (input router) implemented and checked in game 2026-10-19; P2-2 (`TerminalSession`, viewer fan-out) implemented and headless-tested 2026-10-19, in-game check pending.
 
 - **Screen versus viewport:** reading old output must not redirect new writes or break `PRINT AT`, `CLEARSCREEN`, cursor access, or resize watchers.
 - **Resize authority:** define what happens when GUI and multiple telnet viewers request different sizes.

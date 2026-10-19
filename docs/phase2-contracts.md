@@ -1,6 +1,6 @@
 # Phase 2 preparation — current terminal map and proposed contracts
 
-Status: **preparation done 2026-10-19; user decisions D1–D4 made the same day (see "Decisions" below). P2-1 implemented and checked in game 2026-10-19; P2-2 onward not started.** The map below describes the code before P2-1; since P2-1, `TermWindow`'s routing lives in `TerminalInputRouter` (unchanged behavior). This document fulfils the roadmap's "Decisions to document before major changes" for Phase 2. It records how the terminal works today (verified against the code at commit `5651bf95`), the findings this mapping turned up, the contracts proposed for each decision area, and a proposed order for the first extractions. Decisions marked **open** need the user's choice before the step that depends on them.
+Status: **preparation done 2026-10-19; user decisions D1–D4 made the same day (see "Decisions" below). P2-1 implemented and checked in game 2026-10-19; P2-2 implemented and headless-tested 2026-10-19 (in-game check pending); P2-3 onward not started.** The map below describes the code before P2-1; since P2-1, `TermWindow`'s routing lives in `TerminalInputRouter`, and since P2-2 its telnet list, snapshot and output fan-out live in `TerminalSession` (unchanged behavior). This document fulfils the roadmap's "Decisions to document before major changes" for Phase 2. It records how the terminal works today (verified against the code at commit `5651bf95`), the findings this mapping turned up, the contracts proposed for each decision area, and a proposed order for the first extractions. Decisions marked **open** need the user's choice before the step that depends on them.
 
 File references are to `src/`; `S/` = `kOS/Screen/`, `SS/` = `kOS.Safe/Screen/`, `SU/` = `kOS.Safe/UserIO/`, `U/` = `kOS/UserIO/`.
 
@@ -8,7 +8,7 @@ File references are to `src/`; `S/` = `kOS/Screen/`, `SS/` = `kOS.Safe/Screen/`,
 
 - **D1 viewport:** one shared view offset per terminal (GUI and all telnet clients).
 - **D2 scrollback:** bounded at 2,000 lines (code constant; oldest dropped, the screen never trimmed).
-- **D3 resize authority:** last change wins: requests applied on the main thread in arrival order, other viewers asked to resize (today's behavior, to be made explicit and tested).
+- **D3 resize authority:** last change wins: requests applied on the main thread in arrival order, other viewers asked to resize (today's behavior, to be made explicit and tested). As implemented (P2-2): "arrival order" is the order the main thread reads them; within one update telnet clients are drained in rotating order.
 - **D4 GUI Ctrl-D/Ctrl-X:** keep sending Enter (upstream behavior); documented, not changed. INPUT-02 is closed as intended behavior; the misleading `ProcessOneInputChar` comment may be corrected in P2-1.
 
 ## 1. Current map
@@ -168,10 +168,11 @@ Each step is behavior-preserving unless marked, gets headless tests, keeps the r
    - `TermWindow`'s public overloads forward to it.
    - The test fixture `FixtureTermWindow`, which today **duplicates** this code, is replaced by the real router.
    - No behavior change.
-2. **P2-2 Viewer fan-out to a `TerminalSession`.**
-   - An `ITerminalViewer` (GUI window, each telnet client) replaces `TermWindow`'s telnet list. The resize notifications, diff and full repaint, title and clear fan-out move into the session.
-   - Resize-authority tests use fake viewers (the D3 contract).
-   - No behavior change (D3: last change wins).
+2. **P2-2 Viewer fan-out to a `TerminalSession`. Done 2026-10-19, headless** (`docs/testing-and-build.md`, "Terminal session").
+   - An `ITerminalViewer` (each telnet client) replaces `TermWindow`'s telnet list. The resize notifications, diff and full repaint, title and clear fan-out move into the session, with the shared snapshot.
+   - As built, the GUI window owns the session and draws its snapshot; it is not an `ITerminalViewer`, since it needs none of the streamed output.
+   - Resize-authority tests use fake viewers (the D3 contract), plus NAWS end to end through the fixture.
+   - No behavior change (D3: last change wins), checked against a copy of the old code on seeded sequences.
 3. **P2-3 Explicit lifecycle.** Implements the §3.5 ownership table:
    - `TerminalSession.Dispose` (detach telnets with a message: LIFE-02);
    - the window destroys its textures and skins (LIFE-01; in game, measure with repeated vessel loads);

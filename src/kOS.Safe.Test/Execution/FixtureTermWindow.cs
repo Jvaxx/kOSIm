@@ -8,20 +8,23 @@ using kOS.Safe.UserIO;
 namespace kOS.Safe.Test.Execution
 {
     /// <summary>
-    /// The game's <c>kOS.Screen.TermWindow</c> (Unity, not loadable headlessly) as an input
-    /// host: the real <see cref="TerminalInputRouter{TClient}"/> for telnet clients modeled
-    /// by <see cref="TelnetServerInputModel"/>, over the real prompt of a
-    /// <see cref="ScriptHost"/>. Only the GUI, sounds and telnet output are left out: a
-    /// repaint request and a window close are counted. Keep the host members in step with
-    /// <c>TermWindow</c>'s <c>ITerminalInputHost</c> implementation.
+    /// The game's <c>kOS.Screen.TermWindow</c> (Unity, not loadable headlessly) without its
+    /// GUI: the real <see cref="TerminalInputRouter{TClient}"/> and
+    /// <see cref="TerminalSession{TViewer}"/> for telnet clients modeled by
+    /// <see cref="TelnetServerInputModel"/>, over the real prompt and screen of a
+    /// <see cref="ScriptHost"/>. The GUI and sounds are left out: a window close is counted,
+    /// and so is a repaint request (which is also carried out). Keep the host members, the
+    /// session calls and <see cref="Update"/> in step with <c>TermWindow</c>.
     /// <br/>
     /// The limits default to the game's and can be changed to measure their effect.
     /// </summary>
     internal sealed class FixtureTermWindow : ITerminalInputHost<TelnetServerInputModel>
     {
         private readonly FixtureInterpreter screen; // the game's shared.Screen and shared.Interpreter
-        private readonly List<TelnetServerInputModel> telnets = new List<TelnetServerInputModel>();
+        private readonly TerminalSession<TelnetServerInputModel> session;
         private readonly TerminalInputRouter<TelnetServerInputModel> router;
+
+        public const string Title = "fixture CPU";
 
         public readonly Dictionary<TelnetServerInputModel, int> RepaintRequests = new Dictionary<TelnetServerInputModel, int>();
         public int CloseRequests { get; private set; }
@@ -36,8 +39,14 @@ namespace kOS.Safe.Test.Execution
         public FixtureTermWindow(ScriptHost host)
         {
             screen = host.Screen;
+            session = new TerminalSession<TelnetServerInputModel>(DateTime.Now) { Screen = screen };
             router = new TerminalInputRouter<TelnetServerInputModel>(this);
+            // As TermWindow.AttachTo:
+            screen.AddResizeNotifier(sb => { session.ScreenResized(); return 0; });
+            session.ChangeTitle(Title);
         }
+
+        public TerminalSession<TelnetServerInputModel> Session { get { return session; } }
 
         public int TelnetCharsPerUpdate
         {
@@ -69,25 +78,38 @@ namespace kOS.Safe.Test.Execution
         {
             var telnet = new TelnetServerInputModel();
             ((ITelnetInputSink)telnet).TerminalTypeReceived(terminalType);
-            telnets.Add(telnet);
             RepaintRequests[telnet] = 0;
+            session.AttachViewer(telnet); // TelnetSingletonServer.ConnectToProcessor
             return telnet;
         }
 
-        public bool IsAttached(TelnetServerInputModel telnet) { return telnets.Contains(telnet); }
+        public bool IsAttached(TelnetServerInputModel telnet) { return session.HasViewer(telnet); }
 
         /// <summary>Everything not yet given to the prompt: telnet backlogs and the type-ahead.</summary>
-        public int PendingInput { get { return TypeAhead.Count + telnets.Sum(t => t.Queue.Count); } }
+        public int PendingInput { get { return TypeAhead.Count + session.Viewers.Sum(t => t.Queue.Count); } }
 
-        /// <summary>The terminal window's per-frame input work, telnet server's included.</summary>
+        /// <summary>
+        /// The terminal window's per-frame work apart from the GUI (the telnet server's input
+        /// work included): the session's refresh, then the input.
+        /// </summary>
         public void Update()
         {
-            foreach (TelnetServerInputModel telnet in telnets.ToArray())
+            Update(DateTime.Now);
+        }
+
+        /// <returns>whether the clients were sent the screen's changes</returns>
+        public bool Update(DateTime now)
+        {
+            foreach (TelnetServerInputModel telnet in session.Viewers)
                 telnet.MainThreadUpdate();
-            LastTelnetKeys = router.ProcessClientInput(telnets.Where(telnet => telnet.IsConnectedToProcessor).ToArray());
+            bool refreshed = session.Update(now);
+            LastTelnetKeys = router.ProcessClientInput(session.Viewers.Where(telnet => telnet.IsConnectedToProcessor).ToArray());
             LastPromptKeys = router.ProcessUnconsumedInput();
             MaxTelnetKeysPerUpdate = Math.Max(MaxTelnetKeysPerUpdate, LastTelnetKeys);
             MaxPromptKeysPerUpdate = Math.Max(MaxPromptKeysPerUpdate, LastPromptKeys);
+            if (refreshed)
+                screen.BeepsPending = 0; // TermWindow hands them to the GUI
+            return refreshed;
         }
 
         public bool ProcessOneInputChar(char ch, TelnetServerInputModel whichTelnet, bool allowQueue, bool forceQueue)
@@ -103,7 +125,7 @@ namespace kOS.Safe.Test.Execution
 
         bool ITerminalInputHost<TelnetServerInputModel>.IsClientAttached(TelnetServerInputModel client)
         {
-            return client.IsConnectedToProcessor && telnets.Contains(client);
+            return client.IsConnectedToProcessor && session.HasViewer(client);
         }
 
         bool ITerminalInputHost<TelnetServerInputModel>.TryReadClientChar(TelnetServerInputModel client, bool includeText, out char ch)
@@ -118,13 +140,13 @@ namespace kOS.Safe.Test.Execution
 
         void ITerminalInputHost<TelnetServerInputModel>.DetachClient(TelnetServerInputModel client)
         {
-            client.IsConnectedToProcessor = false;
-            telnets.Remove(client);
+            session.DetachViewer(client);
         }
 
         void ITerminalInputHost<TelnetServerInputModel>.RepaintClient(TelnetServerInputModel client)
         {
             ++RepaintRequests[client];
+            session.RepaintViewer(client);
         }
 
         void ITerminalInputHost<TelnetServerInputModel>.KeyClick() { ++KeyClicks; }

@@ -28,7 +28,7 @@ namespace kOS.UserIO
     /// and resizes are never held behind typed text, and output a stalled client could not take
     /// is replaced by a full repaint.
     /// </remarks>
-    public class TelnetSingletonServer : ITelnetConnectionHandler, ITelnetInputSink
+    public class TelnetSingletonServer : ITelnetConnectionHandler, ITelnetInputSink, ITerminalViewer
     {
         private const double HUNG_CHECK_INTERVAL = 10; // Seconds that a keep alive must have failed to give a response before assuming telnet client is dead.
         private const int WORKER_JOIN_TIMEOUT_MS = 1000; // How long StopListening waits for the worker threads.
@@ -207,10 +207,14 @@ namespace kOS.UserIO
             ConnectedProcessor = processor;
             if (welcomeMenu != null)
                 welcomeMenu.Detach(); // so it stops consuming input meant for the CPU this frame
-            ConnectedProcessor.GetScreen().SetSize(ClientHeight, ClientWidth); // Reset the GUI terminal to match the telnet window.
-            ConnectedProcessor.GetWindow().AttachTelnet(this); // Tell the GUI window that I am one of its telnets now (even when closed, it still does the heavy lifting).
-            ConnectedProcessor.GetWindow().SendTitleToTelnet(this);
-            ConnectedProcessor.GetWindow().RepaintTelnet(this, true); // Need to start with a full paint of the terminal.
+            // Tell the GUI window that I am one of its telnets now (even when closed, it still does the heavy lifting).
+            // It resizes the terminal to match the telnet window, then sends the title and a full paint:
+            ConnectedProcessor.GetWindow().AttachTelnet(this);
+        }
+
+        void ITerminalViewer.Detach()
+        {
+            DisconnectFromProcessor();
         }
 
         public void DisconnectFromProcessor()
