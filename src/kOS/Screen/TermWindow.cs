@@ -15,7 +15,7 @@ using kOS.Safe.Utilities;
 namespace kOS.Screen
 {
     // Blockotronix 550 Computor Monitor
-    public class TermWindow : KOSManagedWindow , ITermWindow
+    public class TermWindow : KOSManagedWindow , ITermWindow, ITerminalInputHost<TelnetSingletonServer>
     {
         public const string CONTROL_LOCKOUT = "kOSTerminal";
 
@@ -112,8 +112,7 @@ namespace kOS.Screen
         private volatile List<TelnetSingletonServer> telnets; // support exists for more than one telnet client to be attached to the same terminal, thus this is a list.
         private readonly Dictionary<TelnetSingletonServer, IScreenSnapShot> prevTelnetScreens;
         
-        private ExpectNextChar inputExpected = ExpectNextChar.NORMAL;
-        private int pendingWidth; // width to come from a resize combo.
+        private readonly TerminalInputRouter<TelnetSingletonServer> inputRouter;
         
         public string TitleText {get; private set;}
 
@@ -123,7 +122,6 @@ namespace kOS.Screen
         
         private DateTime lastBufferGet = DateTime.Now;
         private DateTime lastTelnetIncrementalRepaint = DateTime.Now;
-        private int nextTelnetToDrain; // telnets take turns at going first in ProcessTelnetInput()
         private GUISkin customSkin;
         
         private bool uiGloballyHidden = false;
@@ -136,6 +134,7 @@ namespace kOS.Screen
             WindowRect = new Rect(50, 60, 0, 0); // will get resized later in AttachTo().
             telnets = new List<TelnetSingletonServer>();
             prevTelnetScreens = new Dictionary<TelnetSingletonServer, IScreenSnapShot>();
+            inputRouter = new TerminalInputRouter<TelnetSingletonServer>(this);
         }
 
         public bool ShowCursor { get; set; }
@@ -578,36 +577,13 @@ namespace kOS.Screen
             // of input (if the detach signal Ctrl-D is sent).  Therefore we have to
             // make this temp copy to prorect against the C# error "Collection was Modified"
             // during the foreach loop:
-            TelnetSingletonServer[] tempTelnetList = telnets.Where(telnet => telnet.ConnectedProcessor != null).ToArray();
-            var sources = new TerminalInputPump.KeySource[tempTelnetList.Length];
-            for (int i = 0; i < tempTelnetList.Length; ++i)
-            {
-                TelnetSingletonServer telnet = tempTelnetList[i];
-                sources[i] = (bool includeText, out char ch) =>
-                {
-                    // Stop reading from a telnet that got detached part way through:
-                    if (telnet.ConnectedProcessor == null || !telnets.Contains(telnet))
-                    {
-                        ch = '\0';
-                        return false;
-                    }
-                    return telnet.TryReadChar(includeText, out ch);
-                };
-            }
-            TerminalInputPump.DrainTelnets(sources, ref nextTelnetToDrain,
-                () => shared.Screen.CharInputQueue.Count, TerminalInputPump.TYPE_AHEAD_LIMIT,
-                () => new InputBudget(TerminalInputPump.TELNET_CHARS_PER_UPDATE, TerminalInputPump.TimePerUpdate),
-                (index, ch) => ProcessOneInputChar(ch, tempTelnetList[index], true, true));
+            inputRouter.ProcessClientInput(telnets.Where(telnet => telnet.ConnectedProcessor != null).ToArray());
         }
 
         /// <summary>
         /// Respond to one single input character in Unicode, using the pretend
-        /// virtual Unicode terminal keycodes described in the UnicodeCommand enum.
-        /// To keep things simple, all key input is coerced into single Unicode chars
-        /// even if the actual keypress takes multiple characters to express in its
-        /// native form (i.e. ESC [ A means left-arrow on a VT100 terminal.  If
-        /// a telnet is talking via VT100 codes, that ESC [ A will get converted into
-        /// a single UnicdeCommand.LEFTCURSORONE character before being sent here.)
+        /// virtual Unicode terminal keycodes described in the UnicodeCommand enum
+        /// (see <see cref="TerminalInputRouter{TClient}.ProcessOneInputChar"/>, which does the work).
         /// <br/>
         /// This method is public because it is also how other mods should send input
         /// to the terminal if they want some other source to send simulated keystrokes.
@@ -624,83 +600,7 @@ namespace kOS.Screen
         /// <returns>True if the input got consuemed or enqueued.  If the input was blocked and not ignored, it returns false.</returns>
         public bool ProcessOneInputChar(char ch, TelnetSingletonServer whichTelnet, bool allowQueue, bool forceQueue)
         {
-            // Weird exceptions for multi-char data combos that would have been begun on previous calls to this method:
-            switch (inputExpected)
-            {
-                case ExpectNextChar.RESIZEWIDTH:
-                    pendingWidth = ch;
-                    inputExpected = ExpectNextChar.RESIZEHEIGHT;
-                    return true;
-                case ExpectNextChar.RESIZEHEIGHT:
-                    int height = ch;
-                    shared.Screen.SetSize(height, pendingWidth);
-                    inputExpected = ExpectNextChar.NORMAL;
-                    return true;
-                default:
-                    break;
-            }
-
-            if (! IsSpecial(ch))
-            {
-                 return Type(ch, allowQueue, forceQueue);
-            }
-            else
-            {
-                switch(ch)
-                {
-                    // WARNING: CHARACTERS IN THIS SECTION ARE BYPASSING THE QUEUE.  BUT THEY ARE
-                    // WEIRD ASYNC THINGS THAT PROBABLY SHOULD:
-
-                    // A few conversions from UnicodeCommand into those parts of ASCII that it 
-                    // maps directly into nicely, otherwise just pass it through to SpecialKey():
-
-                    case (char)UnicodeCommand.DELETELEFT:
-                    case (char)8:
-                        Type((char)8, allowQueue, forceQueue);
-                        break;
-                    case (char)UnicodeCommand.STARTNEXTLINE:
-                    case '\r':
-                        Type('\r', allowQueue, forceQueue);
-                        break;
-                    case '\t':
-                        Type('\t', allowQueue, forceQueue);
-                        break;
-                    case (char)UnicodeCommand.RESIZESCREEN:
-                        inputExpected = ExpectNextChar.RESIZEWIDTH;
-                        break; // next expected char is the width.
-                        
-                    // Finish session:  If GUI, then close window.  If Telnet, then detatch from the session:
-                    
-                    case (char)0x0004/*control-D*/: // How users of unix shells are used to doing this.
-                    case (char)0x0018/*control-X*/: // How kOS did it in the past in the GUI window.
-                        if (shared.Interpreter.IsAtStartOfCommand())
-                        {
-                            if (whichTelnet == null)
-                                Close();
-                            else
-                                DetachTelnet(whichTelnet);
-                        }
-                        break;
-                        
-                    // User asking for redraw (Unity already requires that we continually redraw the GUI Terminal, so this is only meaningful for telnet):
-                    
-                    case (char)UnicodeCommand.REQUESTREPAINT:
-                        if (whichTelnet != null)
-                        {
-                            ResizeAndRepaintTelnet(whichTelnet, shared.Screen.ColumnCount, shared.Screen.RowCount, true);
-                            SendTitleToTelnet(whichTelnet); // the title may have been in output a slow client never got
-                        }
-                        break;
-                        
-                    // Typical case is to just let SpecialKey do the work:
-                    
-                    default:
-                        return SpecialKey(ch, allowQueue, forceQueue);
-                }
-                return true;
-            }
-
-            // else ignore it - unimplemented char.
+            return inputRouter.ProcessOneInputChar(ch, whichTelnet, allowQueue, forceQueue);
         }
 
         /// <summary>
@@ -736,126 +636,61 @@ namespace kOS.Screen
         }
 
         /// <summary>
-        /// Type a normal unicode char (not a magic control char) to the terminal,
-        /// or if the interpreter is busy queue it for later if flags allow.
-        /// </summary>
-        /// <param name="ch">char to type</param>
-        /// <param name="doQueuing">true if you want to queue the char when the interpreter isn't at the prompt
-        /// accepting input yet (i.e. the prev command is still running.) if false it will just do nothing in
-        /// that case.</param>
-        /// <param name="forceQueue">true if you want to queue the char even when the interpreter could have accepted
-        /// it.  (never have this true if doQueueing is false.)</param>
-        /// <returns>true if the char got either used or queued.  False means calling the method had no effect.
-        /// This can only return false when doQueuing is false.</returns>
-        bool Type(char ch, bool doQueuing = true, bool forceQueue = true)
-        {
-            bool accepted = false;
-            if (shared != null)
-            {
-                if ((!forceQueue) && shared.Interpreter != null && shared.Interpreter.IsWaitingForCommand())
-                {
-                    shared.Interpreter.Type(ch);
-                    accepted = true;
-                }
-                else if (doQueuing)
-                {
-                    shared.Screen.CharInputQueue.Enqueue(ch);
-                    accepted = true;
-                }
-                if (IsOpen && keyClickEnabled && doQueuing)
-                    shared.SoundMaker.BeginFileSound("click");
-            }
-            return accepted;
-        }
-
-        /// <summary>
-        /// Type a special control char to the terminal,
-        /// or if the interpreter is busy queue it for later if flags allow.
-        /// </summary>
-        /// <param name="ch">char to type</param>
-        /// <param name="doQueuing">true if you want to queue the char when the interpreter isn't at the prompt
-        /// accepting input yet (i.e. the prev command is still running.) if false it will just do nothing in
-        /// that case. (*EXCEPTION* The BREAK char will bypass the queue and happen right away.)</param>
-        /// <param name="forceQueue">true if you want to queue the char even when the interpreter could have accepted
-        /// it.  (never have this true if doQueueing is false.)</param>
-        /// <returns>true if the char got either used or queued.  False means calling the method had no effect.
-        /// This can only return false when doQueuing is false.</returns>
-        bool SpecialKey(char key, bool doQueuing = true, bool forceQueue = true)
-        {
-            bool accepted = false;
-
-            // Force async out of order processing right now for interrupt keys:
-            bool rudeQueueSkipping = (key == (char)UnicodeCommand.BREAK);
-            if (rudeQueueSkipping)
-            {
-                forceQueue = false;
-                WipeAllTypeAhead();
-            }
-
-            if (shared != null)
-            {
-                bool wasUsed = false;
-
-                if ((!forceQueue) &&
-                    shared.Interpreter != null && 
-                    (shared.Interpreter.IsWaitingForCommand() || rudeQueueSkipping))
-                {
-                    wasUsed = shared.Interpreter.SpecialKey(key);
-                    accepted = true;
-                }
-                else if (doQueuing)
-                {
-                    shared.Screen.CharInputQueue.Enqueue(key);
-                    wasUsed = true;
-                    accepted = true;
-                }
-                if (IsOpen && keyClickEnabled && wasUsed && doQueuing)
-                    shared.SoundMaker.BeginFileSound("click");
-            }
-            return accepted;
-        }
-
-        /// <summary>
-        /// When the input queue is not empty and the program or command is done such that
-        /// the input cursor is now all the way back to the interpreter awaiting new input,
-        /// send that queue out to the interpreter.  This allows you to type the next command
-        /// blindly while waiting for the previous one to finish.
-        /// This is how people used to terminals would expect things to work.
+        /// When the input queue is not empty and the interpreter is back at the prompt,
+        /// type the queued keys there (see <see cref="TerminalInputRouter{TClient}.ProcessUnconsumedInput"/>).
         /// </summary>
         void ProcessUnconsumedInput()
         {
-            if (!shared.Processor.HasBooted)
-            {
-                return; // Fix race condition (Github issue #2925) where Update() calls this before FixedUpdate() has set up the CPU.
-            }
-            if (shared != null && shared.Interpreter != null && shared.Interpreter.IsWaitingForCommand())
-            {
-                // Setting doQueuing to false here just as an
-                // additional safety measure.  Hypothetically it
-                // should never re-queue this input because we're
-                // in the condition where it will consume it right
-                // away.  But just in case there's some error in
-                // that logic, we want to avoid an infinite loop here
-                // (which could happen if we kept re-queuing the
-                // chars every time we processed one in this loop.)
-                // The budget keeps a long pasted line from stalling one frame; the rest
-                // is typed in the following frames.
-                TerminalInputPump.FeedPrompt(shared.Screen.CharInputQueue, () => shared.Interpreter.IsWaitingForCommand(),
-                    key => ProcessOneInputChar(key, null, false, false),
-                    new InputBudget(TerminalInputPump.PROMPT_CHARS_PER_UPDATE, TerminalInputPump.TimePerUpdate));
-            }
+            inputRouter.ProcessUnconsumedInput();
         }
 
-        /// <summary>
-        /// Throws away everything in the typeahead buffer and any state vars from multi-char combo command
-        /// sequences we might be in the middle of.  Used when you want to fully flush and start input over.
-        /// </summary>
-        void WipeAllTypeAhead()
+        IScreenBuffer ITerminalInputHost<TelnetSingletonServer>.Screen
         {
-            shared.Screen.CharInputQueue.Clear();
-            inputExpected = ExpectNextChar.NORMAL;
+            get { return shared == null ? null : shared.Screen; }
         }
-        
+
+        IInterpreter ITerminalInputHost<TelnetSingletonServer>.Interpreter
+        {
+            get { return shared == null ? null : shared.Interpreter; }
+        }
+
+        bool ITerminalInputHost<TelnetSingletonServer>.HasBooted
+        {
+            get { return shared.Processor.HasBooted; }
+        }
+
+        bool ITerminalInputHost<TelnetSingletonServer>.IsClientAttached(TelnetSingletonServer client)
+        {
+            return client.ConnectedProcessor != null && telnets.Contains(client);
+        }
+
+        bool ITerminalInputHost<TelnetSingletonServer>.TryReadClientChar(TelnetSingletonServer client, bool includeText, out char ch)
+        {
+            return client.TryReadChar(includeText, out ch);
+        }
+
+        void ITerminalInputHost<TelnetSingletonServer>.CloseWindow()
+        {
+            Close();
+        }
+
+        void ITerminalInputHost<TelnetSingletonServer>.DetachClient(TelnetSingletonServer client)
+        {
+            DetachTelnet(client);
+        }
+
+        void ITerminalInputHost<TelnetSingletonServer>.RepaintClient(TelnetSingletonServer client)
+        {
+            ResizeAndRepaintTelnet(client, shared.Screen.ColumnCount, shared.Screen.RowCount, true);
+            SendTitleToTelnet(client); // the title may have been in output a slow client never got
+        }
+
+        void ITerminalInputHost<TelnetSingletonServer>.KeyClick()
+        {
+            if (IsOpen && keyClickEnabled)
+                shared.SoundMaker.BeginFileSound("click");
+        }
+
         /// <summary>
         /// Get the newest copy of the screen buffer once, for use in all calculations for a while.
         /// This was added when telnet clients were added.  The execution cost of obtaining a buffer snapshot

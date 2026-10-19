@@ -164,6 +164,24 @@ Earlier full builds succeeded against stripped KSP 1.12.5 references stored outs
 
 Initial terminal fixtures cover default dimensions, addressed writes, cell overwrites, newline/wrap behavior, scrollback/clamping after a clear, clear/reset, grid growth, notifier registration/removal, fixed overlays, deep-copy snapshots, and empty snapshots. They use real models, not the integration-test screen stub. Overlay regressions now cover partial/full clipping above and below, overlays spanning both boundaries, extreme integer positions, fixed versus scrollback-relative placement, disabled/empty/wiped/shortened overlays, layer order, row-reference preservation, and long command input across width changes. A seed-3100 reference test exercises 200 compositions with resize and scroll. Dimension regressions now cover zero/negative/excessive requests, effective no-op identity/timestamps/notifications, normalized callbacks, safe writing after shrinking, negative long-input anchors, overlay width propagation, script suffix bounds, and 100 seeded resize requests (seed 3104). Cursor reads now have 23 headless regressions; actual Unity GUI group/color cleanup, fault recovery, and lifecycle checks still require runtime validation.
 
+### Terminal input router (Phase 2, P2-1)
+
+**Change (structure only, no intended behavior change):** `TermWindow`'s input routing moved unchanged into `kOS.Safe.UserIO.TerminalInputRouter<TClient>`. It covers `ProcessOneInputChar` (the prompt, type-ahead, BREAK, Ctrl-D/Ctrl-X, `REQUESTREPAINT` and the `RESIZESCREEN` combo), the telnet drain (formerly `ProcessTelnetInput`), the prompt feed (`ProcessUnconsumedInput`, with the #2925 boot guard) and `WipeAllTypeAhead`. The window-specific actions go through `ITerminalInputHost<TClient>`, which `TermWindow` implements explicitly: screen, interpreter, `HasBooted`, client attached/read, close window, detach and repaint client, key click. `TermWindow`'s three public `ProcessOneInputChar` overloads keep their signatures (kOSPropMonitor binary) and forward to the router. The public `ExpectNextChar` enum is unchanged. The test fixture `FixtureTermWindow` no longer copies the routing: it implements the host interface over the real router, so the telnet prompt and paste tests now run game code.
+
+**Tests:** `UserIO/TerminalInputRouterTest` (10): a key typed straight at a waiting prompt; a forced key queued until the next update; keys dropped by a busy prompt when they may not be queued; clicks only for keys that may be queued; the resize combo; Ctrl-D/Ctrl-X at the start of a command (window close, client detach) and with typed text (nothing); a repaint request reaching only its client; the boot guard; BREAK clearing the type-ahead. Mutations, reverted: Ctrl-D ignoring typed text (1 failure), a click with queuing off (2), no boot guard (1). Gate 1006/1006, `minimum_tests` 996 → 1006; full Release build 0 errors, 44 warnings (`kOS.dll 05e2ef26…`, `kOS.Safe.dll c10494b3…`).
+
+**In game 2026-10-19** (KSP 1.12.5.3190, GE-Proton11-7):
+- Telnet:
+  - typing at the prompt;
+  - type-ahead during `wait 3.`;
+  - Ctrl-C during `wait 100.`;
+  - `GETCHAR` from a running command;
+  - Ctrl-L repaint;
+  - Ctrl-D with typed text (kept attached) and at an empty prompt (back to the menu).
+- GUI (user): a command, Ctrl-C during `wait 5.`, history and cursor keys with key clicks.
+
+All as before.
+
 ### Proton pass 2026-10-19 (Phase 1 fixes)
 
 KSP 1.12.5.3190 (WindowsPlayer x64), GE-Proton11-7-x86_64 via UMU 1.4.4, isolated dev prefix, save `kOSIM-dev`, `test-vessel` on the pad. **A second CPU was added to the save** (a copy of the radial kOS part, `persistentId 80427999`, no boot file; backup `saves/kOSIM-dev/persistent.sfs.before-2cpu-20261019`), for the two-disk checks. Builds: `df2c5f0e` first (exposed GAMEEVENTS-01), then `df2c5f0e` + GAMEEVENTS-01 (`kOS.dll 18f7ba00…`, `kOS.Safe.dll ec0a66d5…`) for most checks, then the final build with EXEC-02 (`kOS.dll c54a276a…`, `kOS.Safe.dll 3f97f5bb…`) for the last check. The deployed GameData from before is backed up in `kOS-GameData-backups/kOS-before-df2c5f0e-20261019-132530` (it holds `e943ecf4`). Logs: `dev-logs/{Player,KSP}.log.gameevents-nre-20261019`, `…pass-20261019-run2`.

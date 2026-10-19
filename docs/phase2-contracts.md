@@ -1,6 +1,6 @@
 # Phase 2 preparation — current terminal map and proposed contracts
 
-Status: **preparation only (2026-10-19); nothing here is implemented. User decisions D1–D4 made the same day (see "Decisions" below).** This document fulfils the roadmap's "Decisions to document before major changes" for Phase 2. It records how the terminal works today (verified against the code at commit `5651bf95`), the findings this mapping turned up, the contracts proposed for each decision area, and a proposed order for the first extractions. Decisions marked **open** need the user's choice before the step that depends on them.
+Status: **preparation done 2026-10-19; user decisions D1–D4 made the same day (see "Decisions" below). P2-1 implemented and checked in game 2026-10-19; P2-2 onward not started.** The map below describes the code before P2-1; since P2-1, `TermWindow`'s routing lives in `TerminalInputRouter` (unchanged behavior). This document fulfils the roadmap's "Decisions to document before major changes" for Phase 2. It records how the terminal works today (verified against the code at commit `5651bf95`), the findings this mapping turned up, the contracts proposed for each decision area, and a proposed order for the first extractions. Decisions marked **open** need the user's choice before the step that depends on them.
 
 File references are to `src/`; `S/` = `kOS/Screen/`, `SS/` = `kOS.Safe/Screen/`, `SU/` = `kOS.Safe/UserIO/`, `U/` = `kOS/UserIO/`.
 
@@ -163,7 +163,7 @@ These stay, with the same signatures and behavior:
 
 Each step is behavior-preserving unless marked, gets headless tests, keeps the renderer, and is checked in game (Proton) before the next.
 
-1. **P2-1 Input router to `kOS.Safe`.**
+1. **P2-1 Input router to `kOS.Safe`. Done 2026-10-19** (`docs/testing-and-build.md`, "Terminal input router").
    - Move `ProcessOneInputChar`, `Type`, `SpecialKey`, `ProcessUnconsumedInput`, `ProcessTelnetInput`, `WipeAllTypeAhead` and the resize-escape state out of `TermWindow` into a `TerminalInputRouter`. It works through interfaces for the interpreter, the screen and the window actions (close, detach, repaint).
    - `TermWindow`'s public overloads forward to it.
    - The test fixture `FixtureTermWindow`, which today **duplicates** this code, is replaced by the real router.

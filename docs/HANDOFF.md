@@ -10,14 +10,14 @@
 
 **Next actions, in order:**
 
-1. **Phase 2 preparation done (2026-10-19, documentation only): `docs/phase2-contracts.md`.** It holds the current terminal map, new findings (VIEW-01: PageUp then a command overwrites scrollback, reproduced headlessly; VIEW-02 unbounded scrollback; INPUT-02 GUI Ctrl-D/X send Enter, kept by decision; LIFE-01/02/03 cleanup gaps), proposed contracts and the extraction order P2-1…P2-4. User decisions D1–D4 are recorded there (shared view offset; scrollback 2,000 lines; last resize wins; GUI Ctrl-D/X keep sending Enter). Next: implement **P2-1** (move `TermWindow` input routing into a `kOS.Safe` `TerminalInputRouter`, replacing the duplicated `FixtureTermWindow`; no behavior change).
+1. **Phase 2 in progress.** Preparation (2026-10-19) is in `docs/phase2-contracts.md`: current map, findings VIEW-01/02 and LIFE-01/02/03, contracts, extraction order, and user decisions D1–D4 (shared view offset; scrollback 2,000 lines; last resize wins; GUI Ctrl-D/X keep sending Enter). **P2-1 done:** `TermWindow` input routing is now `kOS.Safe.UserIO.TerminalInputRouter<TClient>` behind `ITerminalInputHost`, and `FixtureTermWindow` runs the real router. Tested headless and in game, with no behavior change. **Next: P2-2.** A `TerminalSession` with an `ITerminalViewer` per GUI window or telnet client takes over `TermWindow`'s telnet list, resize notifications, diff/full repaint, title and clear fan-out. Add resize-authority tests (D3, last change wins) with fake viewers.
 2. Optional minor checks from the pass's "Not performed" list (e.g. CTB focus modes, flight-results dialog, vessel destruction, two-client telnet).
 
 ## Workspace state (2026-10-19)
 
-- Branch `kosim/test-baseline` (check `git log`; the three 2026-10-19 fix commits follow `df2c5f0e`); local only, never pushed (origin is upstream <https://github.com/KSP-KOS/KOS>). Base: upstream `develop` at `8f281a45`.
-- Last results: `bash .ci/test.sh` exit 0, **996/996**, 0 known failures, 0 skipped (`minimum_tests` 996); `dotnet build kOS.sln -c Release --no-incremental` 0 errors, 44 existing warnings.
-- **Deployed in the dev instance: the build of the link-delete commit** (`kOS.dll b61668f1…`, `kOS.Safe.dll f674a24d…`). The game may still be running; check before redeploying.
+- Branch `kosim/test-baseline` (check `git log`; the 2026-10-19 commits follow `df2c5f0e`: three fixes, Phase 2 docs, P2-1); local only, never pushed (origin is upstream <https://github.com/KSP-KOS/KOS>). Base: upstream `develop` at `8f281a45`.
+- Last results: `bash .ci/test.sh` exit 0, **1006/1006**, 0 known failures, 0 skipped (`minimum_tests` 1006); `dotnet build kOS.sln -c Release --no-incremental` 0 errors, 44 existing warnings.
+- **Deployed in the dev instance: the P2-1 build** (`kOS.dll 05e2ef26…`, `kOS.Safe.dll c10494b3…`). The game may still be running; check before redeploying.
 
 ## Constraints and decisions (still binding)
 
@@ -34,7 +34,7 @@ Details, intentional behavior changes and limits per item: `docs/testing-and-bui
 
 | Item | Entry points | In game |
 | --- | --- | --- |
-| Local gate | `.ci/test.sh`, `.ci/known-test-failures.json` (empty; minimum 996) | — |
+| Local gate | `.ci/test.sh`, `.ci/known-test-failures.json` (empty; minimum 1006) | — |
 | BUFFER-01/02/03/04 | `ScreenBuffer`, `ScreenSnapShotExtensions`, `RenderFaultRecovery`, `TermWindow` | 2026-10-12/15 |
 | EDIT-01/02 | `EditorDocument`, `KOSTextEditPopup`, `DelegateDialog` | 2026-10-15 |
 | IO-01/02/03 | raw I/O (`READRAW`/`WRITERAW`), `ArchiveFileWriter`; policy `docs/file-io-compatibility.md` | 2026-10-15 |
@@ -47,8 +47,9 @@ Details, intentional behavior changes and limits per item: `docs/testing-and-bui
 | IO-05, PATH-01, MOVE-01 | `VolumeArguments`, `VolumeManager` endpoint overloads, `PathValue.OwnVolume`, `CheckNotMovedOntoItself` | 2026-10-19 |
 | IO-04 hardening | `DirectoryContainment`, `ArchiveTextureFiles`, `LinkSafeDelete`, `Archive.CheckDeletable` | 2026-10-19 |
 | GAMEEVENTS-01, EXEC-02, Wine link refusal | see "Resume here" | 2026-10-19 |
+| P2-1 input router (Phase 2) | `TerminalInputRouter`, `ITerminalInputHost`, `TermWindow` forwarders | 2026-10-19 |
 
-Test fixtures to keep in step with game code: `FixtureInterpreter` (game `Interpreter`), `FixtureTermWindow` (`TermWindow` input routing), `TelnetServerInputModel` (`TelnetSingletonServer` input sink).
+Test fixtures to keep in step with game code: `FixtureInterpreter` (game `Interpreter`), `FixtureTermWindow` (`TermWindow`'s `ITerminalInputHost` members; the routing itself is shared), `TelnetServerInputModel` (`TelnetSingletonServer` input sink).
 
 ## Commands
 
@@ -64,7 +65,7 @@ The gate builds `KOSHeadless`; run the full build last before deploying, and che
 
 - Instance `/home/jvz/Games/KSP-kOSIM-dev/` (setup notes in its `setup-notes.md`); launch with `launch-dev.sh` (`--check` for preflight). Live Unity log: `.proton-prefix/pfx/drive_c/users/steamuser/AppData/LocalLow/Squad/Kerbal Space Program/Player.log` (KSP.log is buffered). Save `kOSIM-dev`, vessel `test-vessel` on the pad: **two kOS CPUs** since 2026-10-19 (the second added to `persistent.sfs`; backup `persistent.sfs.before-2cpu-20261019`), boot file `/boot/kosim_boot.ks` on the first.
 - GameData: stock, kOS, ModuleManager 4.2.3, ClickThroughBlocker 2.1.10.23, ToolbarController 0.1.9.14, HarmonyKSP 2.2.1 (installed 2026-10-19, dev instance only). kOS `config.xml` (`GameData/kOS/Plugins/PluginData/kOS/`): telnet **enabled**, 127.0.0.1:5410, permanent listen permission.
-- Deploy: game closed (`pgrep -af 'KSP_x64|wineserver|umu'`) → `cp -a GameData/kOS kOS-GameData-backups/kOS-before-<commit>-<date>` → `rsync -a Resources/GameData/kOS/ …/GameData/kOS/` (no `--delete`) → verify hashes. Backups so far: `kOS-before-e943ecf4-20261012-194247`, `kOS-before-df2c5f0e-20261019-132530`, `kOS-before-linkdelete-20261019-141034`, `kOS-before-wine-filelink-20261019-143125`.
+- Deploy: game closed (`pgrep -af 'KSP_x64|wineserver|umu'`) → `cp -a GameData/kOS kOS-GameData-backups/kOS-before-<commit>-<date>` → `rsync -a Resources/GameData/kOS/ …/GameData/kOS/` (no `--delete`) → verify hashes. Backups so far: `kOS-before-e943ecf4-20261012-194247`, `kOS-before-df2c5f0e-20261019-132530`, `kOS-before-linkdelete-20261019-141034`, `kOS-before-wine-filelink-20261019-143125`, `kOS-before-p2-1-20261019-145401`.
 - Remote testing method (2026-10-19): scripted telnet client with a VT screen model (scratch `kt.py`; recreate: answer `DO TTYPE`/`SB TTYPE SEND` with `XTERM`, `DO NAWS` with a size, acknowledge each `WILL` once; Enter = CR, Ctrl-C = 0x03, Ctrl-D detaches; match output lines anchored, not the echoed command). Screenshots with `grim -g "2400,270 1920x1080"` (the game window on HDMI-A-2; check `hyprctl clients`), reading KSP's Alt+F12 *Input Locks* window for lock state. Compositor pointer warps do not reach the game, so mouse checks need the user. In test scripts avoid names of built-ins (`v`, `q`, …: `CLOBBERBUILTINS`).
 - Disposable archive content: `Ships/Script/kosim-check/` (`p2/` holds the 2026-10-19 scripts and fixtures, incl. symlinks `flink.txt`, `mvlink.txt`, `lnk`, `holder/…` into `kosim-link-target/` beside the game; the refusal checks keep them), `Ships/Script/boot/kosim_boot.ks`, `Ships/kosim-outside.png`.
 - Logs kept in `dev-logs/` (`*.checkpoint-*`, `*.gameevents-nre-20261019`, `*.pass-20261019-run*`). Wine behavior can be probed without the game: build a small `net48` exe and run it with GE-Proton's `files/bin/wine` and a throwaway `WINEPREFIX` in the scratchpad (never the game's prefix).
