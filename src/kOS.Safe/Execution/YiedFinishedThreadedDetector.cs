@@ -68,10 +68,12 @@ namespace kOS.Safe.Execution
                     // throwing will be caught and logged exactly the same as any other error
                     // in normal code.  It's important to break execution to ensure the
                     // instruction pointer skips the current opcode that throws the exception.
-                    shared.Cpu.BreakExecution(false);
+                    // Taken and cleared first: the break cancels every yield, this one included,
+                    // and Cancel() must then see it as already over.
                     Exception error = childException;
                     childException = null;
                     childThread = null;
+                    shared.Cpu.BreakExecution(false);
                     // Rethrow with the stack trace from where it was first thrown, on the child
                     // thread or in ThreadFinish():
                     ExceptionDispatchInfo.Capture(error).Throw();

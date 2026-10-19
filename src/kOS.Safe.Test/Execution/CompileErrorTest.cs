@@ -71,11 +71,14 @@ namespace kOS.Safe.Test.Execution
         [Test]
         public void FailedRunpathCompileStillReportsOnce()
         {
-            // RUNPATH yields from a program context and was not affected; pin that.
+            // RUNPATH yields from a program context. Its failed compile breaks execution,
+            // which ends every yield before the error is rethrown: the error reported must
+            // still be the compile error (in game it was hidden by an index error, 2026-10-19).
             using (var host = BootWithBrokenFile())
             {
                 host.Execute("runpath(\"0:/exec01/broken.ks\").");
                 Assert.AreEqual(1, host.Errors.Count);
+                Assert.IsInstanceOf<kOS.Safe.Exceptions.KOSParseException>(host.Errors[0], host.Errors[0].ToString());
                 for (int i = 0; i < 200; ++i)
                     host.Update();
                 Assert.AreEqual(1, host.Errors.Count);

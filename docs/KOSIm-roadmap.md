@@ -105,7 +105,8 @@ Ship small, independently reviewable changes with regression tests rather than b
 - Review `NET-03` (implemented and headless-tested): telnet keys split across socket reads now decode as one key (stateful `TerminalInputDecoder`, 100 ms timeout for a lone Escape), and blank lines in pastes keep their Enter. Both telnet queues are bounded (262,144 characters each). Interrupts, resizes and repaint requests overtake waiting text; an interrupt discards the text typed before it. A full input backlog discards further text with a notice until it drains to half; a stalled client's unsent output is replaced by a full repaint. Telnet input and prompt typing are limited per update (4,096 and 2,048 keys, 4 ms), clients take turns. 92 headless tests, including the recordings replayed to keys, end-to-end paste and interrupt tests on the real prompt, and 13 mutations. Headless proxy: the worst update for a 6,000-character pasted line fell from about 370–400 ms to about 5 ms. The game adapters are compiled, not run; real clients, frame time and stalled clients under Proton are deferred. Limits are code constants (user decision).
 - `PROMPT-01` (fixture-found by the paste tests): a command wrapped at the bottom of the screen overwrote the last output row, and a line taller than the screen made Enter throw. `TextEditor` now adds the rows before scrolling. 5 headless tests. Not checked in game.
 - `IO-05` (2026-10-15): path functions keep a volume or file object's own volume (and relative paths the current volume) instead of looking its name up again; see the exit review below.
-- Prompt-level Ctrl-C (found here, fixed 2026-10-15 in its own task, decision 4): Ctrl-C now ends a `WAIT` typed at the prompt; a running `COMPILE` (or `RUNPATH` compile) is cancelled, the prompt waits for its thread and its result is discarded. Headless-verified (`PromptBreakTest`), committed; Proton check deferred by the user. See `docs/testing-and-build.md`, "Ctrl-C at the prompt (decision 4)".
+- Prompt-level Ctrl-C (found here, fixed 2026-10-15 in its own task, decision 4): Ctrl-C now ends a `WAIT` typed at the prompt; a running `COMPILE` (or `RUNPATH` compile) is cancelled, the prompt waits for its thread and its result is discarded. Headless-verified (`PromptBreakTest`), committed; passed in game 2026-10-19. See `docs/testing-and-build.md`, "Ctrl-C at the prompt (decision 4)".
+- 2026-10-19 Proton pass of the Phase 1 fixes: see the exit review below.
 
 ### Priorities
 
@@ -154,7 +155,7 @@ Every P0/P1 finding in `docs/improvements-overview.md` was checked against the c
 
 **Fixed and headless-tested; Proton-checked at the `e943ecf4` checkpoint** (details there; listed unperformed checks still apply): `EDIT-01/02`, `BUFFER-01`–`04`, `IO-01/02/03`, `NET-01/02/03`, plus the fixture-found `FMT-01`, `EXEC-01`, `PROMPT-01`.
 
-**Fixed and headless-tested; in-game checks deferred by the user:** prompt-level Ctrl-C (decision 4), `INPUT-01` keyboard/locks, `PANEL-02`, `WIDGET-01`, `WIDGET-02`, `IO-05`, `IO-04` hardening, `INPUT-01` mouse half step 1 (policy only; the Unity side is untested).
+**Fixed and headless-tested; in-game checked 2026-10-19 (see the pass below):** prompt-level Ctrl-C (decision 4), `INPUT-01` keyboard/locks, `PANEL-02`, `WIDGET-01`, `WIDGET-02`, `IO-05`, `IO-04` hardening, `INPUT-01` mouse half step 1 (policy only; the Unity side is untested).
 
 **Still open in Phase 1 scope:**
 
@@ -166,7 +167,9 @@ Every P0/P1 finding in `docs/improvements-overview.md` was checked against the c
 
 **Test items:** `TEST-01` is resolved by policy (local gate `.ci/test.sh` with a result checker and minimum count; no hosted CI). `TEST-02` is largely covered (real `ScreenBuffer` overlay/cursor/dimension suites, the real CPU and prompt in `ScriptHost`, long-input and paste tests); history-model tests come with `TERM-05`.
 
-**Exit criterion status: not met.** All Phase 1 code items are done; remaining is the in-game verification of the fixes listed as deferred above (now including `IO-05`, `IO-04` and the `INPUT-01` mouse half, whose CTB check decides step 2 and #2659).
+**In-game pass (2026-10-19, Proton; `docs/testing-and-build.md`, "Proton pass 2026-10-19"):** Ctrl-C, `MOVE-01`, `IO-05`/`PATH-01` (two CPUs), `IO-04` images and containment, `WIDGET-01`/`02`, `PANEL-02`, and the `INPUT-01` keyboard and mouse checks without ClickThroughBlocker passed. The pass found and fixed two defects: GAMEEVENTS-01 (the INPUT-01 game adapters added static handlers to KSP `GameEvents`, which throws; the first terminal broke) and EXEC-02 (a failed `RUNPATH` compile reported an index error instead of its own, a regression from EXEC-01 + decision 4). Found, not fixed: under Wine, deleting an archive **file link deletes its target** and deleting a directory link fails with "access denied" (user decision pending).
+
+**Exit criterion status: nearly met.** Remaining: the IO-04 link-delete decision; name-tag checks (#2759 and the in-flight lock) and ClickThroughBlocker checks (#2659, INPUT-01 step 2), which need ModuleManager and CTB in the dev instance; the minor unperformed checks listed in the pass.
 
 ### Exit criterion
 

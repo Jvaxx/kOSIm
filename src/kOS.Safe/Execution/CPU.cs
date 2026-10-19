@@ -601,6 +601,9 @@ namespace kOS.Safe.Execution
             // as we do so.  (also, those deletions are why foreach() isn't used here):
             for (int i = yields.Count - 1; i >= 0; --i)
             {
+                // A check can end other yields too (a failed RUNPATH compile breaks execution):
+                if (i >= yields.Count)
+                    continue;
                 YieldFinishedWithPriority yielder = yields[i];
                 // A yield blockage that is blocking mainline code while
                 // we are in a trigger isn't relevant.  Only check the ones
@@ -617,11 +620,12 @@ namespace kOS.Safe.Execution
                     {
                         // A yield whose check failed is over: drop it so its error is reported
                         // once, instead of on every update with the CPU stuck behind it (EXEC-01).
-                        yields.RemoveAt(i);
+                        // Removed by reference: the failed check may already have ended it.
+                        yields.Remove(yielder);
                         throw;
                     }
                     if (finished)
-                        yields.RemoveAt(i);
+                        yields.Remove(yielder);
                     else
                         ++numStillBlocking;
                 }
