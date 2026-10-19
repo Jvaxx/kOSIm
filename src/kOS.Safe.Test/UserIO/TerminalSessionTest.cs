@@ -83,7 +83,8 @@ namespace kOS.Safe.Test.UserIO
             Assert.AreEqual(screen.RowCount, viewer.Model.Height, viewer + " height");
             for (int row = 0; row < screen.RowCount; ++row)
                 Assert.AreEqual(ScreenRow(snapshot, row, screen.ColumnCount), viewer.Model.Row(row), viewer + " row " + row);
-            Assert.AreEqual(snapshot.CursorRow, viewer.Model.CursorRow, viewer + " cursor row");
+            // A cursor outside the view (scrolled away from it) waits at the nearest edge (P2-4):
+            Assert.AreEqual(ScreenSnapShot.TeleportRow(snapshot.CursorRow, snapshot.RowCount), viewer.Model.CursorRow, viewer + " cursor row");
             Assert.AreEqual(snapshot.CursorColumn, viewer.Model.CursorColumn, viewer + " cursor column");
             Assert.AreEqual(0, viewer.Model.WritesPastRightEdge, viewer + " was sent text past its right edge");
         }
@@ -254,6 +255,32 @@ namespace kOS.Safe.Test.UserIO
             screen.ScrollVertical(-5); // PageUp
             Refresh();
             CollectionAssert.Contains(Commands(a.Output), "SCROLLSCREENDOWNONE");
+            AssertShowsScreen(a);
+        }
+
+        [Test]
+        public void AClientFollowsOutputPastTheScrollbackLimit()
+        {
+            // P2-4: dropped scrollback must not look like a scroll back to the diff (TopRow keeps counting).
+            RecordingViewer a = Attach("a", 40, 10);
+            Refresh();
+            for (int i = 0; i < ScreenBuffer.MAX_SCROLLBACK + 300; ++i)
+            {
+                screen.Print("line " + i);
+                if (i % 3 == 0)
+                {
+                    Refresh();
+                    if (i > ScreenBuffer.MAX_SCROLLBACK)
+                        AssertShowsScreen(a);
+                }
+            }
+            Assert.AreEqual(ScreenBuffer.MAX_SCROLLBACK, screen.ScrollbackRows);
+
+            screen.ScrollVertical(-25); // PageUp ×2.5 into the kept scrollback, then back
+            Refresh();
+            AssertShowsScreen(a);
+            screen.Print("back");
+            Refresh();
             AssertShowsScreen(a);
         }
 

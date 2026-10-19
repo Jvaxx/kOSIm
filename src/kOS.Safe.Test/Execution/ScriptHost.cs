@@ -225,8 +225,8 @@ namespace kOS.Safe.Test.Execution
         /// All output rows, scrollback included, with trailing blanks trimmed and trailing
         /// empty rows dropped. The viewport and input line are restored afterward.
         /// <br/>
-        /// The prompt's input line is hidden while reading: it overlays the cursor row, which
-        /// is viewport-relative, so scrolling back would draw it over older output.
+        /// The prompt's input line is hidden while reading: it overlays the cursor's row, so
+        /// typed text would show up in the transcript.
         /// </summary>
         public string Transcript()
         {
@@ -310,8 +310,8 @@ namespace kOS.Safe.Test.Execution
     /// <summary>
     /// A copy of the game's <c>kOS.Screen.Interpreter</c> (game assembly, not loadable
     /// headlessly) on the real <see cref="TextEditor"/>: the same Enter handling, command
-    /// history for error messages, input lock and cursor-preserving <c>PRINT AT</c>. History
-    /// navigation keys are left out. Keep it in step with
+    /// history for error messages and the history keys, input lock and cursor-preserving
+    /// <c>PRINT AT</c>. Keep it in step with
     /// <c>src/kOS/Screen/Interpreter.cs</c>; only window and logger access differ.
     /// </summary>
     internal sealed class FixtureInterpreter : TextEditor, IInterpreter
@@ -370,7 +370,37 @@ namespace kOS.Safe.Test.Execution
                 EndLine(string.Empty, false); // as the game's Interpreter: no compile of the emptied line
             }
             if (locked) return false;
-            return base.SpecialKey(key);
+            switch (key)
+            {
+                case (char)UnicodeCommand.UPCURSORONE:
+                    ShowCommandHistoryEntry(-1);
+                    break;
+                case (char)UnicodeCommand.DOWNCURSORONE:
+                    ShowCommandHistoryEntry(1);
+                    break;
+                default:
+                    return base.SpecialKey(key);
+            }
+            return true;
+        }
+
+        // As the game's Interpreter.ShowCommandHistoryEntry:
+        private void ShowCommandHistoryEntry(int deltaIndex)
+        {
+            if (commandHistory.Count > 0)
+            {
+                int newHistoryIndex = commandHistoryIndex + deltaIndex;
+                if (newHistoryIndex >= 0 && newHistoryIndex < commandHistory.Count)
+                {
+                    commandHistoryIndex = newHistoryIndex;
+                    LineBuilder = new StringBuilder();
+                    LineBuilder.Append(commandHistory[commandHistoryIndex]);
+                    LineCursorIndex = LineBuilder.Length;
+                    MarkRowsDirty(LineSubBuffer.PositionRow, LineSubBuffer.RowCount);
+                    LineSubBuffer.Wipe();
+                    UpdateLineSubBuffer();
+                }
+            }
         }
 
         private void AddCommandHistoryEntry(string commandText)

@@ -339,7 +339,7 @@ namespace kOS.Safe.UserIO
                                        // The next two are cast to char because, for example, a value of 76 should be
                                        // encoded as (char)76 (which is 'L'), rather than as '7' followed by '6':
                                        (char)current.CursorColumn,
-                                       (char)current.CursorRow));
+                                       (char)ScreenSnapShot.TeleportRow(current.CursorRow, current.RowCount)));
 
             previousScreens[viewer] = current.DeepCopy();
         }

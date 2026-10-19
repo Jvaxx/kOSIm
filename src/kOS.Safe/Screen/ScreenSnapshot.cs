@@ -205,14 +205,26 @@ namespace kOS.Safe.Screen
             }
                     
             // Now set the cursor back to the right spot one more time, unless it's already there:
-            if (trackCursorRow != CursorRow || trackCursorColumn != CursorColumn)
+            int cursorRow = TeleportRow(CursorRow, RowCount);
+            if (trackCursorRow != cursorRow || trackCursorColumn != CursorColumn)
             {
                 output.Append(String.Format("{0}{1}{2}",
                                             (char)UnicodeCommand.TELEPORTCURSOR,
                                             (char)CursorColumn,
-                                            (char)CursorRow));
+                                            (char)cursorRow));
             }
             return output.ToString();
+        }
+
+        /// <summary>
+        /// The row a viewer's cursor is sent to: the cursor's row, kept within the
+        /// <paramref name="rowCount"/> displayed rows. The cursor is outside them while the view
+        /// is scrolled away from it (P2-4); a telnet terminal always shows a cursor, so it waits
+        /// at the nearest edge.
+        /// </summary>
+        public static int TeleportRow(int cursorRow, int rowCount)
+        {
+            return Math.Max(0, Math.Min(cursorRow, rowCount - 1));
         }
         
         private class DiffChunk

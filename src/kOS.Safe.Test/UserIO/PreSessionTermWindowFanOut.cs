@@ -14,8 +14,9 @@ namespace kOS.Safe.Test.UserIO
     /// detach methods, the router's repaint request, and <c>TelnetSingletonServer.ConnectToProcessor</c>'s
     /// order of calls. Copied unchanged apart from <c>DateTime.Now</c> becoming a parameter,
     /// <c>shared.Screen</c> a field and the telnet server a <see cref="RecordingViewer"/>,
-    /// and one later fix applied to both: <c>RepaintTelnetFull</c> paints a snapshot taken
-    /// then, not <c>mostRecentScreen</c> (VIEW-03).
+    /// and two later fixes applied to both: <c>RepaintTelnetFull</c> paints a snapshot taken
+    /// then, not <c>mostRecentScreen</c> (VIEW-03), and the cursor it sends is kept within the
+    /// displayed rows (P2-4: the cursor is outside them while the view is scrolled away).
     /// </summary>
     internal sealed class PreSessionTermWindowFanOut
     {
@@ -214,7 +215,7 @@ namespace kOS.Safe.Test.UserIO
             telnet.Write(String.Format("{0}{1}{2}",
                                        (char)UnicodeCommand.TELEPORTCURSOR,
                                        (char)mostRecentScreen.CursorColumn,
-                                       (char)mostRecentScreen.CursorRow));
+                                       (char)ScreenSnapShot.TeleportRow(mostRecentScreen.CursorRow, mostRecentScreen.RowCount))); // P2-4 (was the raw row)
 
             prevTelnetScreens[telnet] = mostRecentScreen.DeepCopy();
         }

@@ -13,7 +13,7 @@ namespace kOS.Safe.Screen
         private int cursorRowBuffer;
         
         public override int CursorColumnShow { get { return cursorColumnBuffer; } }
-        public override int CursorRowShow { get { return CursorRow + cursorRowBuffer; } }
+        protected override int ScreenCursorRow { get { return CursorRow + cursorRowBuffer; } }
 
         protected StringBuilder LineBuilder { get; set; }
         protected SubBuffer LineSubBuffer { get; set; }
@@ -95,15 +95,17 @@ namespace kOS.Safe.Screen
             return gotUsed;
         }
 
+        // The saved row counts dropped scrollback too, so it still names the same line after
+        // output in between dropped the oldest lines (P2-4).
         protected void SaveCursorPos()
         {
-            savedCursorRow = AbsoluteCursorRow;
+            savedCursorRow = unchecked(AbsoluteCursorRow + DroppedRows);
             savedCursorColumn = CursorColumn;
         }
 
         protected void RestoreCursorPos()
         {
-            AbsoluteCursorRow = savedCursorRow;
+            AbsoluteCursorRow = unchecked(savedCursorRow - DroppedRows);
             CursorColumn = savedCursorColumn;
         }
 
@@ -169,6 +171,7 @@ namespace kOS.Safe.Screen
 
         private void UpdateSubBufferCursor(List<string> lines)
         {
+            ReturnViewToScreen(); // the input line or its cursor changed: show it
             int lineIndex = 0;
             int lineCursorIndex = LineCursorIndex;
 
@@ -199,15 +202,15 @@ namespace kOS.Safe.Screen
                 cursorColumnBuffer = (tooBigColumn % ColumnCount);
                 cursorRowBuffer += (tooBigColumn / ColumnCount); // truncating integer division.
             }
-            if (CursorRowShow >= RowCount)
+            if (ScreenCursorRow >= RowCount)
             {
-                int rowsToScroll = (CursorRowShow-RowCount) + 1;
+                int rowsToScroll = (ScreenCursorRow-RowCount) + 1;
                 // Add the rows before scrolling: scrolling stops at the end of the buffer, and
                 // a scroll cut short left the input line one row too high, over the last
                 // output row (or above the buffer, failing on Enter).
                 AddNewBufferLines(rowsToScroll);
                 CursorRow -= rowsToScroll;
-                ScrollVertical(rowsToScroll);
+                ScrollScreen(rowsToScroll);
             }
         }
 

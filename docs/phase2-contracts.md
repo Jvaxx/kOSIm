@@ -1,6 +1,6 @@
 # Phase 2 preparation — current terminal map and proposed contracts
 
-Status: **preparation done 2026-10-19; user decisions D1–D4 made the same day (see "Decisions" below). P2-1 implemented and checked in game 2026-10-19; P2-2 and P2-3 implemented and headless-tested 2026-10-19 (in-game checks pending, end of Phase 2); P2-4 not started.** The map below describes the code before P2-1; since P2-1, `TermWindow`'s routing lives in `TerminalInputRouter`, since P2-2 its telnet list, snapshot and output fan-out live in `TerminalSession` (unchanged behavior), and since P2-3 the lifecycle in §1 and the findings LIFE-01/02/03 are as fixed there (see §2). This document fulfils the roadmap's "Decisions to document before major changes" for Phase 2. It records how the terminal works today (verified against the code at commit `5651bf95`), the findings this mapping turned up, the contracts proposed for each decision area, and a proposed order for the first extractions. Decisions marked **open** need the user's choice before the step that depends on them.
+Status: **preparation done 2026-10-19; user decisions D1–D4 made the same day (see "Decisions" below). P2-1 implemented and checked in game 2026-10-19; P2-2, P2-3 and P2-4 implemented and headless-tested 2026-10-19 (in-game checks pending, end of Phase 2).** The map below describes the code before P2-1; since P2-1, `TermWindow`'s routing lives in `TerminalInputRouter`, since P2-2 its telnet list, snapshot and output fan-out live in `TerminalSession` (unchanged behavior), since P2-3 the lifecycle in §1 and the findings LIFE-01/02/03 are as fixed there (see §2), and since P2-4 the screen model has a separate view and a bounded scrollback (§3.1 as built). This document fulfils the roadmap's "Decisions to document before major changes" for Phase 2. It records how the terminal works today (verified against the code at commit `5651bf95`), the findings this mapping turned up, the contracts proposed for each decision area, and a proposed order for the first extractions. Decisions marked **open** need the user's choice before the step that depends on them.
 
 File references are to `src/`; `S/` = `kOS/Screen/`, `SS/` = `kOS.Safe/Screen/`, `SU/` = `kOS.Safe/UserIO/`, `U/` = `kOS/UserIO/`.
 
@@ -82,13 +82,14 @@ After a change, the other attached clients of a different size are sent a resize
 
 | ID | Finding | Evidence | Severity |
 | --- | --- | --- | --- |
-| VIEW-01 | **Scrolling back moves where output is written.** At the prompt, PageUp then a command: the command and its output overwrite older lines in the middle of the scrollback, and the lines below them stay as they were. | Headless probe (scratch test, removed): 30 lines on a 10-row screen, PageUp, `print "NEW OUTPUT".` → `line 20`/`line 21` replaced by the command and its output, `line 22`…`29` after them. Code: `ScreenBuffer.AbsoluteCursorRow`, `ScrollVertical`. Upstream behavior. | Data loss (scrollback only) |
-| VIEW-02 | Scrollback is unbounded: a script printing forever grows memory until `CLEARSCREEN`. Command history is unbounded too. | `ScreenBuffer.AddNewBufferLines` (no trimming), `Interpreter.commandHistory` | Memory growth |
+| VIEW-01 | (**Fixed in P2-4**.) **Scrolling back moves where output is written.** At the prompt, PageUp then a command: the command and its output overwrite older lines in the middle of the scrollback, and the lines below them stay as they were. | Headless probe (scratch test, removed): 30 lines on a 10-row screen, PageUp, `print "NEW OUTPUT".` → `line 20`/`line 21` replaced by the command and its output, `line 22`…`29` after them. Code: `ScreenBuffer.AbsoluteCursorRow`, `ScrollVertical`. Upstream behavior. | Data loss (scrollback only) |
+| VIEW-02 | (**Scrollback bounded in P2-4**; command history still unbounded, Phase 3.) Scrollback is unbounded: a script printing forever grows memory until `CLEARSCREEN`. Command history is unbounded too. | `ScreenBuffer.AddNewBufferLines` (no trimming), `Interpreter.commandHistory` | Memory growth |
 | INPUT-02 | (Kept by decision D4.) GUI Ctrl-X / Ctrl-D send **Enter** (`0x000d`), not the detach/close code that `ProcessOneInputChar` handles (`0x0004`/`0x0018`, "If GUI, then close window"). Closing the GUI with Ctrl-D never worked. | `S/TermWindow.cs` ≈ 468–473 vs ≈ 671–681; same in upstream `8f281a45` | Minor (a documented key does the wrong thing) |
 | LIFE-01 | (**Fixed in P2-3**, except script GUI skins; in-game measurement pending.) Terminal, editor and script GUI textures and cloned skins are never destroyed. Each processor load leaks them until the scene is unloaded, at best. | `S/TermWindow.cs` `Awake`, `BuildPanelSkin`; `S/GUIWindow.cs`; `kOS/Utilities/Utils.cs` texture helpers | Native leak (needs in-game measurement) |
 | LIFE-02 | (**Fixed in P2-3**.) A processor destroyed with telnet clients attached never detaches them. The clients rely on Unity fake-null, with no detach message, and the `TermWindow`'s list is just dropped. | `DetachAllTelnets` unused; `kOSProcessor.OnDestroy` | Minor; works by accident |
 | LIFE-03 | (**Fixed in P2-3**.) `ManualResetEvent`s are not disposed; `RemoveSubBuffer` leaves its resize notifier registered. | `YiedFinishedThreadedDetector`, `TelnetConnectionWorker`; `ScreenBuffer.RemoveSubBuffer` | Minor |
 | LIFE-04 | (Found in P2-3; **not fixed**, decision needed.) A disposed script GUI (`CLEARGUIS`, or scope lost) closes its window but keeps the window's GameObject, still updated, until power-off or a scene change. Destroying it changes what a script still holding the GUI sees. | `GUIWidgets.Dispose` → `GUIWindow.Detach` (only `Close`) | Minor (per disposed GUI) |
+| VIEW-04 | (Found in P2-4; **not changed**, decision needed.) A screen made shorter keeps its top row, so the cursor is clamped onto older output and the old bottom rows stay below the screen; output scrolling over them overwrites them only where it writes. A terminal would keep the bottom instead. | `ScreenBuffer.SetSize`/`ResizeBuffer`; upstream | Display (resize only) |
 | VIEW-03 | (Found in P2-2; **fixed 2026-10-19**.) A full telnet repaint painted the last refresh's snapshot: after a resize, a narrower client got rows of the old width (wrapped by real terminals), and rows changed between the resize and the repaint were never sent. | Seeded client-model test; `docs/testing-and-build.md`, "Full telnet repaint after a resize (VIEW-03)". Upstream behavior. | Display corruption (telnet) |
 
 ## 3. Proposed contracts
@@ -104,6 +105,8 @@ Proposed contract:
 - Scrollback is **bounded** (the oldest lines are dropped; the screen itself is never trimmed).
 
 **Decided:** D1 one shared view offset; D2 2,000 lines.
+
+**As built (P2-4):** as proposed, with: the screen is `RowCount` rows from the screen top, which is normally the buffer's end (after a shrink, see VIEW-04); the view may also look at rows left below the screen; "typing a key" means a change of the prompt's input line or its cursor (paging keys keep the view); a telnet client's cursor waits at the view's edge while the cursor is outside it; `ScrollVertical` is the view scroll. Details: `docs/testing-and-build.md`, "Screen and view (Phase 2, P2-4)".
 
 ### 3.2 Resize authority
 
@@ -180,7 +183,7 @@ Each step is behavior-preserving unless marked, gets headless tests, keeps the r
    - the window destroys its textures and skins (LIFE-01; in game, measure with repeated vessel loads);
    - unregister removed overlays and dispose the events (LIFE-03);
    - the NAWS handler no longer reads Unity objects (§3.4).
-4. **P2-4 Screen/viewport split (behavior change; D1 shared view, D2 2,000 lines).**
+4. **P2-4 Screen/viewport split (behavior change; D1 shared view, D2 2,000 lines). Done 2026-10-19, headless.**
    - Separate the view offset from the write position (fixes VIEW-01). Bound the scrollback (VIEW-02).
    - Tests: PageUp then output and commands, `PRINT AT` while scrolled, resize while scrolled, `CLEARSCREEN` while scrolled, snapshots and telnet diffs with a view offset.
 

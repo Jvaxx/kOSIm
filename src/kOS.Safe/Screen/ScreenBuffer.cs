@@ -6,6 +6,20 @@ using kOS.Safe.UserIO;
 
 namespace kOS.Safe.Screen
 {
+    /// <summary>
+    /// The terminal's character grid: a list of buffer lines holding the <b>screen</b>,
+    /// <see cref="RowCount"/> rows from the screen top (normally the buffer's last rows), where
+    /// all output goes (<c>PRINT</c>, <c>PRINT AT</c> row 0 = the screen's top row, the cursor,
+    /// the prompt), and above it the scrollback. (A screen made shorter keeps its top row, as
+    /// before P2-4, so lines can remain below it until output scrolls over them: VIEW-04.)
+    /// <br/>
+    /// Screen and view (Phase 2, P2-4; decisions D1 and D2): what is displayed is a <b>view</b>,
+    /// <see cref="RowCount"/> rows that PageUp/PageDown (<see cref="ScrollVertical"/>) move into
+    /// the scrollback, shared by the GUI and every telnet client. Moving the view never moves
+    /// where output goes (before P2-4 it did: VIEW-01). Output and typing at the prompt bring the
+    /// view back to the screen. The scrollback keeps at most <see cref="MAX_SCROLLBACK"/> lines;
+    /// older ones are dropped (VIEW-02). The screen itself is never trimmed.
+    /// </summary>
     public class ScreenBuffer : IScreenBuffer
     {
         private const int DEFAULT_ROWS = 36;
@@ -15,7 +29,12 @@ namespace kOS.Safe.Screen
         public const int MAX_ROWS = 160;
         public const int MAX_COLUMNS = 255;
 
-        private int topRow;
+        /// <summary>The most lines kept above the screen (decision D2); older ones are dropped.</summary>
+        public const int MAX_SCROLLBACK = 2000;
+
+        private int topRow; // the screen's first line in the buffer
+        private int viewOffset; // how many rows the view is above the screen (negative: below it)
+        private int droppedRows; // scrollback lines dropped so far, so TopRow keeps counting
         private readonly List<IScreenBufferLine> buffer;
         private readonly List<SubBuffer> subBuffers;
 
@@ -39,7 +58,14 @@ namespace kOS.Safe.Screen
         
         public int ColumnCount { get; private set; }
 
-        public virtual int CursorRowShow { get { return CursorRow; } }
+        /// <summary>
+        /// The cursor's row as displayed: in the view, so outside 0..RowCount-1 while the view
+        /// is scrolled away from it. On the screen, it is <see cref="ScreenCursorRow"/>.
+        /// </summary>
+        public virtual int CursorRowShow { get { return ScreenCursorRow + (topRow - ViewTop); } }
+
+        /// <summary>The cursor's row on the screen, as displayed (the prompt's input line included).</summary>
+        protected virtual int ScreenCursorRow { get { return CursorRow; } }
 
         public virtual int CursorColumnShow { get { return CursorColumn; } }
 
@@ -51,8 +77,31 @@ namespace kOS.Safe.Screen
             set { CursorRow = value - topRow; }
         }
 
-        // Needed so the terminal knows when it's been scrolled, for its diffing purposes.
-        public int TopRow { get { return topRow; } }
+        /// <summary>
+        /// The displayed view's first row, counted from the first line ever kept (dropped
+        /// scrollback included), so that it changes exactly by how far the display scrolled.
+        /// Needed so the terminal knows when it's been scrolled, for its diffing purposes.
+        /// </summary>
+        public int TopRow { get { return unchecked(droppedRows + ViewTop); } }
+
+        /// <summary>How many rows the view is above the screen: 0 when it shows the screen.</summary>
+        public int ViewOffset { get { return topRow - ViewTop; } }
+
+        /// <summary>Lines above the screen (at most <see cref="MAX_SCROLLBACK"/>).</summary>
+        public int ScrollbackRows { get { return topRow; } }
+
+        /// <summary>Scrollback lines dropped since this screen was made, to keep at most <see cref="MAX_SCROLLBACK"/>.</summary>
+        protected int DroppedRows { get { return droppedRows; } }
+
+        // The view's first line in the buffer, kept within the buffer.
+        private int ViewTop
+        {
+            get
+            {
+                int maxTop = Math.Max(0, buffer.Count - RowCount);
+                return Math.Max(0, Math.Min(topRow - viewOffset, maxTop));
+            }
+        }
 
         protected int CursorRow { get; set; }
 
@@ -117,12 +166,28 @@ namespace kOS.Safe.Screen
             int scrollDiff = Notifyees
                 .Where(notifier => notifier != null)
                 .Sum(notifier => notifier(this));
-            ScrollVertical(scrollDiff);
+            ScrollScreen(scrollDiff);
+            viewOffset = ViewOffset; // the same view, as far as the new size allows
         }
 
+        /// <summary>
+        /// Move the view (PageUp/PageDown) by <paramref name="deltaRows"/>, negative up into the
+        /// scrollback, without moving the screen where output goes (P2-4; before, this moved
+        /// the screen too, VIEW-01). The view stays within the buffer.
+        /// </summary>
+        /// <returns>how many rows the view actually moved</returns>
         public virtual int ScrollVertical(int deltaRows)
         {
-            return ScrollVerticalInternal(deltaRows);
+            int before = ViewTop;
+            long target = Math.Max(0L, Math.Min((long)before + deltaRows, Math.Max(0, buffer.Count - RowCount)));
+            viewOffset = topRow - (int)target;
+            return ViewTop - before;
+        }
+
+        /// <summary>Bring the view back to the screen (output, typing at the prompt).</summary>
+        protected void ReturnViewToScreen()
+        {
+            viewOffset = 0;
         }
 
         /// <summary>
@@ -158,11 +223,12 @@ namespace kOS.Safe.Screen
 
         public void MoveToNextLine()
         {
+            ReturnViewToScreen();
             if ((CursorRow + 1) >= RowCount)
             {
                 // scrolling up
                 AddNewBufferLines();
-                ScrollVerticalInternal();
+                ScrollScreen(1);
             }
             else
             {
@@ -185,6 +251,7 @@ namespace kOS.Safe.Screen
 
         public void Print(string textToPrint, bool addNewLine)
         {
+            ReturnViewToScreen();
             List<string> lines = SplitIntoLines(textToPrint);
             foreach (string line in lines)
             {
@@ -264,11 +331,13 @@ namespace kOS.Safe.Screen
             RemoveResizeNotifier(subBuffer.NotifyOfParentResize); // registered by AddSubBuffer (P2-3, LIFE-03)
         }
 
+        /// <summary>The displayed rows: the view (the screen unless scrolled), overlays merged.</summary>
         public List<IScreenBufferLine> GetBuffer()
         {
             // base buffer
-            int extraPadRows = Math.Max(0, (topRow + RowCount) - buffer.Count); // When screen extends past the buffer bottom., this is needed to prevent GetRange() exception.
-            var mergedBuffer = new List<IScreenBufferLine>(buffer.GetRange(topRow, RowCount - extraPadRows));
+            int viewTop = ViewTop;
+            int extraPadRows = Math.Max(0, (viewTop + RowCount) - buffer.Count); // When screen extends past the buffer bottom., this is needed to prevent GetRange() exception.
+            var mergedBuffer = new List<IScreenBufferLine>(buffer.GetRange(viewTop, RowCount - extraPadRows));
             int lastLineWidth = mergedBuffer[mergedBuffer.Count - 1].Length;
             while (extraPadRows > 0)
             {
@@ -282,9 +351,10 @@ namespace kOS.Safe.Screen
             {
                 if (!subBuffer.Enabled) continue;
 
-                // Fixed overlays use viewport rows; others use absolute scrollback rows.
-                // Widen before subtracting/adding so extreme positions cannot wrap into view.
-                long mergeRow = subBuffer.Fixed ? subBuffer.PositionRow : (long)subBuffer.PositionRow - topRow;
+                // Fixed overlays use view rows; others use absolute buffer rows, so they
+                // scroll with the view. Widen before subtracting/adding so extreme positions
+                // cannot wrap into view.
+                long mergeRow = subBuffer.Fixed ? subBuffer.PositionRow : (long)subBuffer.PositionRow - viewTop;
                 int sourceRows = Math.Min(subBuffer.RowCount, subBuffer.Buffer.Count);
                 long firstRow = Math.Max(0L, mergeRow);
                 long endRow = Math.Min((long)mergedBuffer.Count, mergeRow + sourceRows);
@@ -302,7 +372,7 @@ namespace kOS.Safe.Screen
         public string DebugDump()
         {
             StringBuilder sb = new StringBuilder();
-            sb.Append("DebugDump ScreenBuffer: RowCount=" + RowCount + ", ColumnCount=" + ColumnCount + ", topRow=" + topRow + ", buffer.count=" + buffer.Count + "\n");
+            sb.Append("DebugDump ScreenBuffer: RowCount=" + RowCount + ", ColumnCount=" + ColumnCount + ", topRow=" + topRow + ", viewOffset=" + viewOffset + ", buffer.count=" + buffer.Count + "\n");
             for (int i = 0; i < buffer.Count; ++i)
             {
                 sb.Append(" line " + i + " = [");
@@ -329,11 +399,18 @@ namespace kOS.Safe.Screen
             AddNewBufferLines(RowCount);
 
             topRow = 0;
+            viewOffset = 0;
             CursorRow = 0;
             CursorColumn = 0;
         }
 
-        private int ScrollVerticalInternal(int deltaRows = 1)
+        /// <summary>
+        /// Move the screen (where output goes) by <paramref name="deltaRows"/> within the buffer,
+        /// as output reaching the bottom does, then drop the scrollback beyond
+        /// <see cref="MAX_SCROLLBACK"/>. The view keeps its offset from the screen.
+        /// </summary>
+        /// <returns>how many rows the screen actually moved</returns>
+        protected int ScrollScreen(int deltaRows)
         {
             int maxTopRow = buffer.Count - RowCount; // refuse to allow a scroll past the end of the visible buffer.
 
@@ -344,6 +421,14 @@ namespace kOS.Safe.Screen
                 deltaRows = (maxTopRow - topRow);
 
             topRow += deltaRows;
+
+            int excess = topRow - MAX_SCROLLBACK;
+            if (excess > 0)
+            {
+                buffer.RemoveRange(0, excess);
+                topRow -= excess;
+                droppedRows = unchecked(droppedRows + excess);
+            }
 
             return deltaRows;
         }

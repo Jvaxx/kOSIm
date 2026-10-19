@@ -212,6 +212,30 @@ Gate 1030/1030 (`minimum_tests` 1006 → 1030).
 
 **In game:** pending: attach a client narrower than the GUI terminal (e.g. a 40-column telnet to the default 50), and shrink the GUI terminal with a telnet client attached; no wrapped rows.
 
+### Screen and view (Phase 2, P2-4)
+
+**Change (intentional behavior change; decisions D1 shared view, D2 2,000-line scrollback; fixes VIEW-01 and the scrollback half of VIEW-02):** `ScreenBuffer` now separates the **screen**, where all output goes, from the displayed **view**.
+
+- The screen is `RowCount` rows from the screen top. `PRINT`, `PRINT AT` (row 0 = the screen's top row), the cursor, `AbsoluteCursorRow`, the prompt and its input line, `CLEARSCREEN`, `TERMINAL:WIDTH/HEIGHT` and resize watchers all describe the screen, as before when not scrolled.
+- PageUp/PageDown (`ScrollVertical`) move only the view, by 10 rows, within the buffer. **Before (VIEW-01):** they moved the screen too, so a command typed after PageUp, and its output, overwrote older lines in the middle of the scrollback, and the lines below stayed. Now the command goes below the output, and the scrollback is untouched.
+- The view returns to the screen on output (`Print`, `PRINT AT`, a new line) and when the prompt's input line or its cursor changes (typing, editing keys, history). Paging keys keep it. As before, paging keys reach the prompt only while it waits for a command (a running program's `GETCHAR` reads them as keys).
+- One view per terminal, shared by the GUI and every telnet client (D1). A fixed overlay (the RemoteTech progress bar) stays at the bottom of the view; the input line stays on its line and scrolls with it.
+- The cursor is shown where it is in the view: `CursorRowShow` is now view-relative (unchanged when not scrolled). Outside the view the GUI draws no cursor, and a telnet client's cursor waits at the nearest edge (`ScreenSnapShot.TeleportRow`; before, the row was sent unchecked).
+- **Bounded scrollback (D2):** at most `ScreenBuffer.MAX_SCROLLBACK` = 2,000 lines above the screen; older ones are dropped as output scrolls. The screen is never trimmed. `TopRow` (used by snapshot diffs) now counts dropped lines too, so it still changes exactly by how far the display scrolled; it is the view's top. `PRINT AT` restores the cursor to the same line even when its output dropped scrollback.
+- **API notes:** `IScreenBuffer` is unchanged. `ScrollVertical` now moves the view (the only callers were PageUp/PageDown; a mod calling it no longer moves where output goes). New on `ScreenBuffer`: `MAX_SCROLLBACK`, `ViewOffset`, `ScrollbackRows`, and for subclasses `ScreenCursorRow`, `ScrollScreen`, `ReturnViewToScreen`, `DroppedRows`; `TextEditor` overrides `ScreenCursorRow` instead of `CursorRowShow`.
+
+**Not changed (recorded):** **VIEW-04:** a screen made shorter keeps its top row (upstream), so the cursor is clamped onto older output and the old bottom rows stay below the screen until output scrolls over them, partly overwriting them (decision needed if it should behave like a terminal and keep the bottom). Command history stays unbounded (Phase 3, TERM-05).
+
+**Tests** (15 new; gate 1057/1057, `minimum_tests` 1042 → 1057):
+- `Screen/ScreenViewTest` (14), real screen and the real prompt (`ScriptHost`): the VIEW-01 case (30 lines on a 10-row screen, PageUp, `print "NEW OUTPUT".`: older output unchanged, command and output below it); PageUp/PageDown move only the view (cursor and write position unchanged, cursor shown 10 rows lower, input line stays on its line); typing, editing and history bring the view back, paging keys keep it; `PRINT AT` while scrolled writes to the screen's row 0 and leaves the scrollback alone; the view stops at the top and at the screen; cursor hidden outside the view (GUI) and kept at the edge (telnet); resize while scrolled keeps the view, watchers see the screen; `CLEARSCREEN` while scrolled; non-fixed overlays scroll with the view, fixed ones stay; the newest 2,000 lines are kept and `TopRow` keeps counting; a 160-row screen is never trimmed; `PRINT AT` restores the cursor across dropped scrollback; the prompt with a wrapped command at the limit; seeded (4 seeds × 3,000 steps of view moves, prints, `PRINT AT`, resizes and clears): view moves change neither content nor cursor, writes never change the scrollback except by dropping its oldest lines (a narrower screen cuts lines on the right), output shows the screen, the scrollback stays within the limit.
+- `UserIO/TerminalSessionTest` (1): a telnet client keeps showing the screen while output passes the scrollback limit, then after PageUp and new output.
+- The fixture interpreter (`ScriptHost`) gained the game `Interpreter`'s history keys. Telnet cursor checks in `TerminalSessionTest` now expect the edge row while the view is scrolled away, and the frozen P2-2 oracle (`PreSessionTermWindowFanOut`) carries the same clamp, marked.
+- Mutations, each reverted (failures): `TopRow` without dropped lines (2), no trimming (5), PageUp moving the screen as before (4), output not returning the view (2), input changes not returning it (1), `PRINT AT` restore ignoring dropped lines (1), non-fixed overlays placed by the screen (8), cursor row ignoring the view (2), telnet cursor not clamped (4).
+
+Full Release build: 0 errors, 44 existing warnings (`kOS.dll f083d0f3…`, `kOS.Safe.dll a49d6d99…`).
+
+**In game (pending, end-of-Phase-2 pass):** GUI and telnet at the prompt: fill the screen, PageUp/PageDown (view moves, both displays follow, cursor hidden in the GUI and at the edge in telnet), then type a command (view returns, command below the output, scrollback intact); `PRINT AT` dashboard while scrolled; a long `FROM` loop printing 3,000 lines then PageUp to the top (oldest kept line ≈ 2,000 back); RemoteTech progress bar not applicable (not installed): skip.
+
 ### Explicit lifecycle (Phase 2, P2-3)
 
 **Change** (implements the ownership table in `docs/phase2-contracts.md` §3.5 and the thread rule in §3.4; behavior changes only where noted):
