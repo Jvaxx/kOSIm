@@ -133,6 +133,13 @@ namespace kOS.Screen
 
         private readonly WheelScroll wheelScroll = new WheelScroll(); // O1
 
+        // Mouse selection of cells (O3): dragging over the characters selects instead of
+        // moving the window; dragging past the top or bottom scrolls the view.
+        private readonly TerminalSelection selection = new TerminalSelection();
+        private Vector2 lastDragPosition;
+        private DateTime nextSelectionScroll;
+        private static readonly TimeSpan selectionScrollInterval = TimeSpan.FromMilliseconds(50);
+
         /// <summary>The terminal's name (the GUI window's title; telnet clients also get the state after it).</summary>
         public string TitleText { get { return baseTitle; } }
 
@@ -380,6 +387,8 @@ namespace kOS.Screen
                 Close();
             }
             RefreshStatus();
+            if (selection.IsDragging && !Input.GetMouseButton(0))
+                selection.EndDrag(); // released outside the window
             // The snapshot for the GUI, and the telnet clients' output, at most every 1/20th second:
             bool telnetsGotRepainted = session.Update(DateTime.Now);
             ProcessTelnetInput(); // want to do this even when the terminal isn't actually displaying.
@@ -626,7 +635,10 @@ namespace kOS.Screen
         private void CopyVisibleRows()
         {
             if (shared == null || shared.Screen == null) return;
-            string text = TerminalCopy.VisibleText(shared.Screen);
+            var screenBuffer = shared.Screen as ScreenBuffer;
+            bool selected = screenBuffer != null && !selection.IsEmpty;
+            // The selection when there is one (O3), else the rows in view:
+            string text = selected ? TerminalCopy.SelectionText(screenBuffer, selection) : TerminalCopy.VisibleText(shared.Screen);
             if (text.Length == 0)
             {
                 ShowCopyNotice("Nothing to copy");
@@ -881,6 +893,7 @@ namespace kOS.Screen
         void TerminalGui(int windowId)
         {
             ScrollViewWithWheel();
+            SelectWithMouse(); // before DragWindow sees the drag
             Color previousColor = GUI.color;
             GUISkin previousSkin = GUI.skin;
             try
@@ -917,6 +930,95 @@ namespace kOS.Screen
             if (lines != 0)
                 shared.Screen.ScrollVertical(lines);
             current.Use();
+        }
+
+        /// <summary>The character field in window coordinates, as <c>DrawTerminalGui</c> lays it out.</summary>
+        private Rect CharacterField(IScreenBuffer screen)
+        {
+            return new Rect(28, 38, screen.ColumnCount * screen.CharacterPixelWidth, screen.RowCount * screen.CharacterPixelHeight);
+        }
+
+        /// <summary>
+        /// Mouse selection (Phase 3, O3): button 0 down over the characters starts one (a
+        /// click alone selects nothing), a drag moves its end to the nearest cell boundary,
+        /// and while the pointer is above or below the field the view scrolls a line every
+        /// 50 ms. The events are used, so the window does not move. Keyboard focus is taken
+        /// in <c>KOSManagedWindow</c> as before.
+        /// </summary>
+        private void SelectWithMouse()
+        {
+            // Asked on every event, so the id is the same in each; the drag holds it as the
+            // hot control, which keeps the mouse events coming while outside the window.
+            int controlId = GUIUtility.GetControlID(FocusType.Passive);
+            Event current = Event.current;
+            if (current == null || shared == null || shared.Screen == null) return;
+            IScreenBuffer screen = shared.Screen;
+            if (screen.CharacterPixelWidth <= 0 || screen.CharacterPixelHeight <= 0) return;
+            Rect field = CharacterField(screen);
+            switch (current.GetTypeForControl(controlId))
+            {
+                case EventType.MouseDown:
+                    if (current.button != 0 || !field.Contains(current.mousePosition)) return;
+                    lastDragPosition = current.mousePosition;
+                    int row, column;
+                    CellBoundaryAt(screen, field, current.mousePosition, out row, out column);
+                    selection.Begin(row, column);
+                    GUIUtility.hotControl = controlId;
+                    current.Use();
+                    break;
+                case EventType.MouseDrag:
+                    if (!selection.IsDragging) return;
+                    lastDragPosition = current.mousePosition;
+                    ExtendSelection(screen, field);
+                    current.Use();
+                    break;
+                case EventType.MouseUp:
+                    if (!selection.IsDragging) return;
+                    selection.EndDrag();
+                    if (GUIUtility.hotControl == controlId)
+                        GUIUtility.hotControl = 0;
+                    current.Use();
+                    break;
+                case EventType.Repaint:
+                    if (selection.IsDragging && (lastDragPosition.y < field.yMin || lastDragPosition.y >= field.yMax) &&
+                        DateTime.Now >= nextSelectionScroll)
+                    {
+                        nextSelectionScroll = DateTime.Now + selectionScrollInterval;
+                        screen.ScrollVertical(lastDragPosition.y < field.yMin ? -1 : 1);
+                        ExtendSelection(screen, field);
+                    }
+                    break;
+            }
+        }
+
+        private void ExtendSelection(IScreenBuffer screen, Rect field)
+        {
+            int row, column;
+            CellBoundaryAt(screen, field, lastDragPosition, out row, out column);
+            selection.DragTo(row, column);
+        }
+
+        /// <summary>
+        /// The cell boundary nearest a point: its row (as <c>TopRow</c> counts) and the
+        /// boundary column (0 to the column count). Above the field is the top row's start,
+        /// below it the bottom row's end.
+        /// </summary>
+        private static void CellBoundaryAt(IScreenBuffer screen, Rect field, Vector2 point, out int row, out int column)
+        {
+            int viewRow = (int)Math.Floor((point.y - field.yMin) / screen.CharacterPixelHeight);
+            column = (int)Math.Round((point.x - field.xMin) / screen.CharacterPixelWidth);
+            column = Math.Max(0, Math.Min(column, screen.ColumnCount));
+            if (viewRow < 0)
+            {
+                viewRow = 0;
+                column = 0;
+            }
+            else if (viewRow >= screen.RowCount)
+            {
+                viewRow = screen.RowCount - 1;
+                column = screen.ColumnCount;
+            }
+            row = screen.TopRow + viewRow;
         }
 
         private static double RenderTimeSeconds()
@@ -1112,6 +1214,8 @@ namespace kOS.Screen
                         string lineString = line.ToString().Replace('\0', ' ');
                         GUI.Label(new Rect(0, (row * charHeight), WindowRect.width - 10, charHeight), lineString, terminalLetterSkin.label);
                     }
+                    DrawSelection(snapshot.TopRow, rowsToPaint, screen.ColumnCount, charWidth, charHeight,
+                        reversingScreen, screen.Brightness);
 
                     char ch;
                     if (cursorBlinkTime < 0.5f && IsPowered && ShowCursor &&
@@ -1220,6 +1324,31 @@ namespace kOS.Screen
             }
         }
         
+        /// <summary>The selection (O3), as a translucent block over the drawn rows.</summary>
+        private void DrawSelection(int topRow, int rows, int columns, int charWidth, int charHeight,
+            bool reversingScreen, double brightness)
+        {
+            if (selection.IsEmpty) return;
+            Color previousColor = GUI.color;
+            try
+            {
+                Color highlight = reversingScreen ? bgColor : currentTextColor;
+                highlight.a = 0.35f * Mathf.Clamp01((float)brightness);
+                GUI.color = highlight;
+                for (int row = 0; row < rows; ++row)
+                {
+                    int from, to;
+                    if (selection.TryGetColumns(topRow + row, columns, out from, out to))
+                        GUI.DrawTexture(new Rect(from * charWidth, row * charHeight, (to - from) * charWidth, charHeight),
+                            Texture2D.whiteTexture, ScaleMode.StretchToFill, true);
+                }
+            }
+            finally
+            {
+                GUI.color = previousColor;
+            }
+        }
+
         void DrawCursorAt(char ch, int x, int y, bool reversingScreen, int charWidth, int charHeight, double brightness)
         {
             // Draw the solid cursor block and inverted character inside one balanced group.

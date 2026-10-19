@@ -27,6 +27,26 @@ namespace kOS.Safe.UserIO
         }
 
         /// <summary>
+        /// The selected text (Phase 3, O3): each row's selected cells, blanks as spaces and
+        /// trailing spaces left out, rows joined with LF; dropped rows are skipped. Empty for
+        /// an empty selection.
+        /// </summary>
+        public static string SelectionText(ScreenBuffer screen, TerminalSelection selection)
+        {
+            if (selection.IsEmpty) return string.Empty;
+            var rows = new List<string>();
+            for (int row = selection.StartRow; row <= selection.EndRow; ++row)
+            {
+                IScreenBufferLine line = screen.GetLineAt(row);
+                if (line == null) continue;
+                int from, to;
+                if (!selection.TryGetColumns(row, line.Length, out from, out to)) continue;
+                rows.Add(line.ToString().Substring(from, to - from).Replace('\0', ' ').TrimEnd(' '));
+            }
+            return WithoutControlCharacters(string.Join("\n", rows.ToArray()));
+        }
+
+        /// <summary>
         /// The text without C0 control characters other than tab and LF (COPY-01). A syntax
         /// error's verbose description marks the bad token with chars 26 and 27
         /// (<c>KOSParseException</c>); the screen does not keep them, but the printed error text

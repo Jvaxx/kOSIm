@@ -401,6 +401,32 @@ namespace kOS.Safe.Screen
             return mergedBuffer;
         }
 
+        /// <summary>
+        /// One row as displayed, by <see cref="TopRow"/>'s numbering (dropped scrollback
+        /// counted), in view or not: the buffer line with the overlays that follow the buffer
+        /// (the line being typed) merged, and, in view, the fixed ones too, as
+        /// <see cref="GetBuffer"/> shows them. Null for a dropped row or one past the buffer.
+        /// For the GUI's selection (Phase 3, O3).
+        /// </summary>
+        public IScreenBufferLine GetLineAt(int row)
+        {
+            long index = (long)row - droppedRows;
+            if (index < 0 || index >= buffer.Count) return null;
+            UpdateSubBuffers();
+            IScreenBufferLine line = buffer[(int)index];
+            int viewTop = ViewTop;
+            foreach (SubBuffer subBuffer in subBuffers)
+            {
+                if (!subBuffer.Enabled) continue;
+                long first = subBuffer.Fixed ? (long)viewTop + subBuffer.PositionRow : subBuffer.PositionRow;
+                if (subBuffer.Fixed && (index < viewTop || index >= (long)viewTop + RowCount)) continue;
+                int sourceRows = Math.Min(subBuffer.RowCount, subBuffer.Buffer.Count);
+                if (index >= first && index < first + sourceRows)
+                    line = subBuffer.Buffer[(int)(index - first)];
+            }
+            return line;
+        }
+
         // This was handy when trying to figure out what was going on.
         public string DebugDump()
         {
