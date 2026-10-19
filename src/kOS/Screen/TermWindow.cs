@@ -523,7 +523,23 @@ namespace kOS.Screen
                     consumeEvent = true;
                     return;
                 }
-                
+
+                // History search (Phase 3): Ctrl+R starts it or finds the next older match;
+                // Escape leaves it, and is otherwise left to the game as before.
+                if (e.keyCode == KeyCode.R && e.control && !e.alt)
+                {
+                    ProcessOneInputChar(CommandLineEditor.SEARCH_KEY, null, true, true);
+                    consumeEvent = true;
+                    cursorBlinkTime = 0.0f;
+                    return;
+                }
+                if (e.keyCode == KeyCode.Escape && IsSearchingHistory())
+                {
+                    ProcessOneInputChar(CommandLineEditor.CANCEL_KEY, null, true, true);
+                    consumeEvent = true;
+                    return;
+                }
+
                 if (!IsSpecial(c)) // printable characters
                 {
 #pragma warning disable CS0162
@@ -583,6 +599,12 @@ namespace kOS.Screen
             {
                 guiPaste.Cancel();
             }
+        }
+
+        private bool IsSearchingHistory()
+        {
+            var editor = shared == null ? null : shared.Interpreter as CommandLineEditor;
+            return editor != null && editor.IsSearchingHistory;
         }
 
         private static string ReadClipboard()

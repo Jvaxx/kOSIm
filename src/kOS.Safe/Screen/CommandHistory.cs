@@ -117,6 +117,46 @@ namespace kOS.Safe.Screen
             return true;
         }
 
+        /// <summary>The text of a command, by index: 0 is the oldest, <see cref="Count"/> - 1 the newest.</summary>
+        public string EntryText(int index)
+        {
+            return entries[index].Text;
+        }
+
+        /// <summary>
+        /// The history search (Ctrl+R): the newest command at or before <paramref name="startIndex"/>
+        /// that contains <paramref name="query"/>, ignoring case (kerboscript does), skipping
+        /// commands equal to <paramref name="skipText"/> (the match already shown).
+        /// </summary>
+        /// <returns>false when no older command matches</returns>
+        public bool TryFindOlder(string query, int startIndex, string skipText, out int index)
+        {
+            if (query == null) throw new ArgumentNullException("query");
+            for (index = Math.Min(startIndex, entries.Count - 1); index >= 0; --index)
+            {
+                string text = entries[index].Text;
+                if (text != skipText && text.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Show the command at <paramref name="index"/> as if reached with Up/Down (a search
+        /// match taken for editing): the draft is kept aside first when it is shown, and
+        /// Up/Down move on from this command.
+        /// </summary>
+        public void Recall(int index, string currentText, int currentCursor)
+        {
+            if (index < 0 || index >= entries.Count) throw new ArgumentOutOfRangeException("index");
+            if (!IsRecalling)
+            {
+                draftText = currentText ?? string.Empty;
+                draftCursor = Math.Max(0, Math.Min(currentCursor, draftText.Length));
+            }
+            position = index;
+        }
+
         /// <summary>The text of one interpreter line, by the numbers <see cref="Add"/> handed out.</summary>
         public string GetLine(int lineNumber)
         {

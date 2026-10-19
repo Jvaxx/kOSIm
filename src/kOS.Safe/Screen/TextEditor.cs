@@ -19,6 +19,15 @@ namespace kOS.Safe.Screen
         protected SubBuffer LineSubBuffer { get; set; }
         protected int LineCursorIndex { get; set; }
 
+        /// <summary>
+        /// The text the input line shows: the line being edited, unless a subclass shows
+        /// something else in its place (the history search, P3 Ctrl+R).
+        /// </summary>
+        protected virtual string ShownLine { get { return LineBuilder.ToString(); } }
+
+        /// <summary>The cursor index within <see cref="ShownLine"/>.</summary>
+        protected virtual int ShownCursorIndex { get { return LineCursorIndex; } }
+
 
         public TextEditor()
         {
@@ -145,7 +154,7 @@ namespace kOS.Safe.Screen
 
         protected void UpdateLineSubBuffer()
         {
-            string commandText = LineBuilder.ToString();
+            string commandText = ShownLine;
             List<string> lines = SplitIntoLinesPreserveNewLine(commandText);
                         
             if (lines.Count != LineSubBuffer.RowCount)
@@ -164,7 +173,7 @@ namespace kOS.Safe.Screen
 
         private void UpdateSubBufferCursor()
         {
-            string commandText = LineBuilder.ToString();
+            string commandText = ShownLine;
             List<string> lines = SplitIntoLinesPreserveNewLine(commandText);
             UpdateSubBufferCursor(lines);
         }
@@ -173,7 +182,7 @@ namespace kOS.Safe.Screen
         {
             ReturnViewToScreen(); // the input line or its cursor changed: show it
             int lineIndex = 0;
-            int lineCursorIndex = LineCursorIndex;
+            int lineCursorIndex = ShownCursorIndex;
 
             while ((lineIndex < lines.Count)
                 && (lineCursorIndex > lines[lineIndex].Length))
@@ -219,6 +228,12 @@ namespace kOS.Safe.Screen
         {
             LineBuilder = new StringBuilder(text);
             LineCursorIndex = cursorIndex;
+            RedrawLine();
+        }
+
+        /// <summary>Draw the input line again from scratch, e.g. after <see cref="ShownLine"/> changed.</summary>
+        protected void RedrawLine()
+        {
             MarkRowsDirty(LineSubBuffer.PositionRow, LineSubBuffer.RowCount);
             LineSubBuffer.Wipe();
             UpdateLineSubBuffer();

@@ -71,8 +71,8 @@ namespace kOS.Safe.UserIO
         /// <summary>
         /// Convert typed text, returning the keys that are complete so far.
         /// <list type="bullet">
-        /// <item>All dialects: BS → DELETELEFT, CR or LF → STARTNEXTLINE, Ctrl-L/Ctrl-R →
-        /// REQUESTREPAINT, Ctrl-C → BREAK, NUL dropped; DEL → DELETERIGHT (Plain only).</item>
+        /// <item>All dialects: BS → DELETELEFT, CR or LF → STARTNEXTLINE, Ctrl-L →
+        /// REQUESTREPAINT (Ctrl-R is passed on: the history search), Ctrl-C → BREAK, NUL dropped; DEL → DELETERIGHT (Plain only).</item>
         /// <item>VT100 and xterm: DEL → DELETELEFT, BEL → BEEP, and <c>ESC [</c> + A/B/C/D/H/F
         /// or 1~/3~/4~/5~/6~ → cursor keys, Home, Delete, End, PageUp, PageDown. For any
         /// other <c>ESC [</c> sequence the ESC is dropped and the rest passed on as typed;
@@ -203,8 +203,7 @@ namespace kOS.Safe.UserIO
                     output.Append((char)UnicodeCommand.STARTNEXTLINE);
                     newlinePartner = '\r';
                     break;
-                case (char)0x0c: // Ctrl-L
-                case (char)0x12: // Ctrl-R
+                case (char)0x0c: // Ctrl-L (upstream also took Ctrl-R; it is the history search since Phase 3)
                     output.Append((char)UnicodeCommand.REQUESTREPAINT);
                     break;
                 case (char)0x03: // Ctrl-C, same as a telnet interrupt

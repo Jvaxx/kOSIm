@@ -317,10 +317,9 @@ namespace kOS.Safe.Test.Execution
     /// <c>PRINT AT</c>. Keep it in step with
     /// <c>src/kOS/Screen/Interpreter.cs</c>; only window and logger access differ.
     /// </summary>
-    internal sealed class FixtureInterpreter : TextEditor, IInterpreter
+    internal sealed class FixtureInterpreter : CommandLineEditor, IInterpreter
     {
         private const string InterpreterName = "interpreter";
-        private readonly CommandHistory commandHistory = new CommandHistory();
         private readonly SafeSharedObjects shared;
         private int commandFirstLine;
         private bool locked;
@@ -357,7 +356,7 @@ namespace kOS.Safe.Test.Execution
 
         public bool IsAtStartOfCommand()
         {
-            return LineBuilder == null || LineBuilder.Length == 0;
+            return !IsSearchingHistory && (LineBuilder == null || LineBuilder.Length == 0);
         }
 
         public override void Type(char ch)
@@ -368,44 +367,25 @@ namespace kOS.Safe.Test.Execution
 
         public override bool SpecialKey(char key)
         {
-            if (key == (char)UnicodeCommand.BREAK)
+            if (key == (char)UnicodeCommand.BREAK && !IsSearchingHistory)
             {
                 shared.Cpu.BreakExecution(true);
                 LineBuilder.Remove(0, LineBuilder.Length);
                 EndLine(string.Empty, false); // as the game's Interpreter: no compile of the emptied line
             }
             if (locked) return false;
-            switch (key)
-            {
-                case (char)UnicodeCommand.UPCURSORONE:
-                    ShowCommandHistoryEntry(-1);
-                    break;
-                case (char)UnicodeCommand.DOWNCURSORONE:
-                    ShowCommandHistoryEntry(1);
-                    break;
-                default:
-                    return base.SpecialKey(key);
-            }
-            return true;
+            return base.SpecialKey(key);
         }
 
         // As the game's Interpreter:
         private void AddCommandHistoryEntry(string commandText)
         {
-            commandFirstLine = commandHistory.Add(commandText);
-        }
-
-        private void ShowCommandHistoryEntry(int deltaIndex)
-        {
-            string text;
-            int cursor;
-            if (commandHistory.TryMove(deltaIndex, LineBuilder.ToString(), LineCursorIndex, out text, out cursor))
-                ReplaceLine(text, cursor);
+            commandFirstLine = History.Add(commandText);
         }
 
         public string GetCommandHistoryAbsolute(int absoluteIndex)
         {
-            return commandHistory.GetLine(absoluteIndex);
+            return History.GetLine(absoluteIndex);
         }
 
         private void CompileCommand(string commandText)
@@ -449,7 +429,7 @@ namespace kOS.Safe.Test.Execution
         public override void Reset()
         {
             shared.ScriptHandler.ClearContext(InterpreterName);
-            commandHistory.Clear();
+            History.Clear();
             commandFirstLine = 0;
             base.Reset();
         }

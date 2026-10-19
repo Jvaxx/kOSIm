@@ -256,6 +256,10 @@ Steps, each with headless tests against the real `kOS.Safe` classes, then one Pr
 - **Item 5:** none of E1 (show archive location), E3 (rerun key), E4 (overwrite warning in the in-game editor) for now; E2 (file picker) dropped.
 - **Order:** Ctrl+R search → persistence and leading-space exclusion → D2 state → O1 wheel and O2 follow/marker → O3 selection; a Proton pass every two or three steps. Each step gets its own plan with headless tests first, as P3-1 to P3-4 did.
 
+Status:
+
+- **Ctrl+R search (H1/H2)** — implemented and headless-tested 2026-10-19 (`CommandLineEditor`, shared by the game `Interpreter` and the fixture; details `docs/testing-and-build.md`, "History search"). Settled in the step: Enter with no match runs nothing; Ctrl+C in a search breaks nothing; Tab takes the match; the telnet welcome menu keeps Ctrl-R as a repaint. In game: not yet.
+
 ### Exit criterion
 
 External editing plus in-game execution/debugging is demonstrably easier, with GUI/telnet compatibility and input-safety coverage for each feature.

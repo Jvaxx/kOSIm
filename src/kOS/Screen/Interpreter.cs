@@ -11,10 +11,9 @@ using kOS.Safe.Utilities;
 
 namespace kOS.Screen
 {
-    public class Interpreter : TextEditor, IInterpreter
+    public class Interpreter : CommandLineEditor, IInterpreter
     {
         public const string InterpreterName = "interpreter";
-        private readonly CommandHistory commandHistory = new CommandHistory();
         private int commandFirstLine;
         private bool locked;
 
@@ -54,7 +53,8 @@ namespace kOS.Screen
         /// <returns>true if it's at the start of a new line</returns>
         public bool IsAtStartOfCommand()
         {
-            return LineBuilder == null || LineBuilder.Length == 0;
+            // Not during a history search: Ctrl-D there must not detach or close.
+            return !IsSearchingHistory && (LineBuilder == null || LineBuilder.Length == 0);
         }
 
         public override void Type(char ch)
@@ -67,7 +67,7 @@ namespace kOS.Screen
 
         public override bool SpecialKey(char key)
         {
-            if (key == (char)UnicodeCommand.BREAK)
+            if (key == (char)UnicodeCommand.BREAK && !IsSearchingHistory) // in a search, BREAK only leaves it
             {
                 Shared.Cpu.BreakExecution(true);
                 LineBuilder.Remove(0, LineBuilder.Length); // why isn't there a StringBuilder.Clear()?
@@ -80,36 +80,17 @@ namespace kOS.Screen
 
             if (locked) return false;
 
-            switch (key)
-            {
-                case (char)UnicodeCommand.UPCURSORONE:
-                    ShowCommandHistoryEntry(-1);
-                    break;
-                case (char)UnicodeCommand.DOWNCURSORONE:
-                    ShowCommandHistoryEntry(1);
-                    break;
-                default:
-                    return base.SpecialKey(key);
-            }
-            return true;
+            return base.SpecialKey(key); // the history keys (Up/Down, Ctrl+R) and line editing
         }
 
         private void AddCommandHistoryEntry(string commandText)
         {
-            commandFirstLine = commandHistory.Add(commandText);
-        }
-
-        private void ShowCommandHistoryEntry(int deltaIndex)
-        {
-            string text;
-            int cursor;
-            if (commandHistory.TryMove(deltaIndex, LineBuilder.ToString(), LineCursorIndex, out text, out cursor))
-                ReplaceLine(text, cursor);
+            commandFirstLine = History.Add(commandText);
         }
 
         public string GetCommandHistoryAbsolute(int absoluteIndex)
         {
-            return commandHistory.GetLine(absoluteIndex);
+            return History.GetLine(absoluteIndex);
         }
 
         protected virtual void ProcessCommand(string commandText)
@@ -170,7 +151,7 @@ namespace kOS.Screen
         public override void Reset()
         {
             Shared.ScriptHandler.ClearContext(InterpreterName);
-            commandHistory.Clear();
+            History.Clear();
             commandFirstLine = 0;
             base.Reset();
         }

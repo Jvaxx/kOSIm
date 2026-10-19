@@ -115,6 +115,7 @@ namespace kOS.UserIO
                         resizeCharsToSkip = 2;
                         break;
                     case (char)UnicodeCommand.REQUESTREPAINT:
+                    case (char)0x12: // Ctrl-R: still a repaint here, as upstream (at the terminal it is the history search)
                         forceMenuReprint = true;
                         break;
                     // Implement crude input editing (backspace only - map delete to the same as backspace) in this menu prompt:

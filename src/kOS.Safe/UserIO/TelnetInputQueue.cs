@@ -17,7 +17,7 @@ namespace kOS.Safe.UserIO
     /// and is read before anything else. Text typed after it is kept.</item>
     /// <item><b>Resize</b> (RESIZESCREEN width height): only the latest size is kept, read
     /// before text.</item>
-    /// <item><b>Repaint request</b> (REQUESTREPAINT, from Ctrl-L/Ctrl-R or kOS itself):
+    /// <item><b>Repaint request</b> (REQUESTREPAINT, from Ctrl-L or kOS itself):
     /// read before text.</item>
     /// </list>
     /// When the text backlog is full, further text is discarded until the backlog drains
