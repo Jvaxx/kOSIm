@@ -90,7 +90,7 @@ After a change, the other attached clients of a different size are sent a resize
 | LIFE-03 | (**Fixed in P2-3**.) `ManualResetEvent`s are not disposed; `RemoveSubBuffer` leaves its resize notifier registered. | `YiedFinishedThreadedDetector`, `TelnetConnectionWorker`; `ScreenBuffer.RemoveSubBuffer` | Minor |
 | LIFE-04 | (Found in P2-3; **left as is: user decision 2026-10-19**. Measured in game 2026-10-19: one `GameObject`, one `Texture2D` and one `GUISkin` kept per disposed GUI; power-off frees the first two, a scene change the skins.) A disposed script GUI (`CLEARGUIS`, or scope lost) closes its window but keeps the window's GameObject, still updated, until power-off or a scene change. Destroying it changes what a script still holding the GUI sees. | `GUIWidgets.Dispose` → `GUIWindow.Detach` (only `Close`) | Minor (per disposed GUI) |
 | VIEW-04 | (Found in P2-4; seen in game by the user; **fixed 2026-10-19**: a shorter screen now keeps its bottom, the cursor's row, and drops rows below it.) A screen made shorter kept its top row, so the cursor is clamped onto older output and the old bottom rows stay below the screen; output scrolling over them overwrites them only where it writes. A terminal would keep the bottom instead. | `ScreenBuffer.SetSize`/`ResizeBuffer`; upstream | Display (resize only) |
-| VIEW-03 | (Found in P2-2; **fixed 2026-10-19**.) A full telnet repaint painted the last refresh's snapshot: after a resize, a narrower client got rows of the old width (wrapped by real terminals), and rows changed between the resize and the repaint were never sent. | Seeded client-model test; `docs/testing-and-build.md`, "Full telnet repaint after a resize (VIEW-03)". Upstream behavior. | Display corruption (telnet) |
+| VIEW-03 | (Found in P2-2; **fixed 2026-10-19**.) A full telnet repaint painted the last refresh's snapshot: after a resize, a narrower client got rows of the old width (wrapped by real terminals), and rows changed between the resize and the repaint were never sent. | Seeded client-model test; `docs/testing-and-build.md`, "Telnet". Upstream behavior. | Display corruption (telnet) |
 
 ## 3. Proposed contracts
 
@@ -106,7 +106,7 @@ Proposed contract:
 
 **Decided:** D1 one shared view offset; D2 2,000 lines.
 
-**As built (P2-4):** as proposed, with: the screen is `RowCount` rows from the screen top, which is normally the buffer's end (also after a shrink, since the VIEW-04 fix); the view may also look at rows left below the screen; "typing a key" means a change of the prompt's input line or its cursor (paging keys keep the view); a telnet client's cursor waits at the view's edge while the cursor is outside it; `ScrollVertical` is the view scroll. Details: `docs/testing-and-build.md`, "Screen and view (Phase 2, P2-4)".
+**As built (P2-4):** as proposed, with: the screen is `RowCount` rows from the screen top, which is normally the buffer's end (also after a shrink, since the VIEW-04 fix); the view may also look at rows left below the screen; "typing a key" means a change of the prompt's input line or its cursor (paging keys keep the view); a telnet client's cursor waits at the view's edge while the cursor is outside it; `ScrollVertical` is the view scroll. Details: `docs/testing-and-build.md`, "Terminal screen and view".
 
 ### 3.2 Resize authority
 
@@ -168,17 +168,17 @@ These stay, with the same signatures and behavior:
 
 Each step is behavior-preserving unless marked, gets headless tests, keeps the renderer, and is checked in game (Proton). (User decision 2026-10-19: from P2-2 on, the in-game checks are collected into one Proton pass at the end of Phase 2 instead of one per step; each step's pending checks are listed in the handoff.)
 
-1. **P2-1 Input router to `kOS.Safe`. Done 2026-10-19** (`docs/testing-and-build.md`, "Terminal input router").
+1. **P2-1 Input router to `kOS.Safe`. Done 2026-10-19** (per-step details: git history, `docs/testing-and-build.md` at `876e1a29`).
    - Move `ProcessOneInputChar`, `Type`, `SpecialKey`, `ProcessUnconsumedInput`, `ProcessTelnetInput`, `WipeAllTypeAhead` and the resize-escape state out of `TermWindow` into a `TerminalInputRouter`. It works through interfaces for the interpreter, the screen and the window actions (close, detach, repaint).
    - `TermWindow`'s public overloads forward to it.
    - The test fixture `FixtureTermWindow`, which today **duplicates** this code, is replaced by the real router.
    - No behavior change.
-2. **P2-2 Viewer fan-out to a `TerminalSession`. Done 2026-10-19, headless** (`docs/testing-and-build.md`, "Terminal session").
+2. **P2-2 Viewer fan-out to a `TerminalSession`. Done 2026-10-19, headless** (per-step details: git history, `docs/testing-and-build.md` at `876e1a29`).
    - An `ITerminalViewer` (each telnet client) replaces `TermWindow`'s telnet list. The resize notifications, diff and full repaint, title and clear fan-out move into the session, with the shared snapshot.
    - As built, the GUI window owns the session and draws its snapshot; it is not an `ITerminalViewer`, since it needs none of the streamed output.
    - Resize-authority tests use fake viewers (the D3 contract), plus NAWS end to end through the fixture.
    - No behavior change (D3: last change wins), checked against a copy of the old code on seeded sequences.
-3. **P2-3 Explicit lifecycle. Done 2026-10-19, headless** (`docs/testing-and-build.md`, "Explicit lifecycle"). As built, the window owns and disposes the session, and kOS textures are shared through a load-once cache instead of being destroyed per window. Implements the §3.5 ownership table:
+3. **P2-3 Explicit lifecycle. Done 2026-10-19, headless** (per-step details: git history, `docs/testing-and-build.md` at `876e1a29`). As built, the window owns and disposes the session, and kOS textures are shared through a load-once cache instead of being destroyed per window. Implements the §3.5 ownership table:
    - `TerminalSession.Dispose` (detach telnets with a message: LIFE-02);
    - the window destroys its textures and skins (LIFE-01; in game, measure with repeated vessel loads);
    - unregister removed overlays and dispose the events (LIFE-03);
