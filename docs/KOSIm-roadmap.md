@@ -361,7 +361,7 @@ Recommended checkpoints:
 
 1. **Reliability release:** verified local regression tests and targeted safety fixes, current appearance retained; game-dependent behavior verified under Proton. (Phase 1 reached it.)
 2. **Structural release:** tested session/adapters and explicit input/lifecycle contracts, current renderer retained. (Phase 2 reached it.)
-3. **QoL and presentation release(s):** staged productivity improvements followed by modernized UI.
+3. **QoL and presentation release(s):** staged productivity improvements followed by modernized UI. (Phases 3–4 reached it: released as **1.5.1.100**, the first packaged kOSIM release, 2026-10-20, a private GitHub Release on `Jvaxx/kOSIm`; procedure in `docs/testing-and-build.md`, "Versions and releases".)
 
 These are checkpoints, not mandatory dates or a requirement to implement every report item before releasing.
 
