@@ -6,6 +6,7 @@
 
 **Next action: ask the user what to do next.** Candidates:
 
+- **Terminal geometry presets** (user feature, decisions agreed 2026-10-20: `docs/KOSIm-roadmap.md`, "Planned: terminal geometry presets"). Next step: write the step plan (headless layout and preset-file logic in `kOS.Safe` with tests, header buttons in `TermWindow`, file format and location, the hide width) and get the user's approval before implementing.
 - The rest of EDIT-05 (find/replace, line numbers, highlighting) or the deferred editor conveniences E1/E3/E4 (roadmap, "Workflow").
 - POWER-01: a CPU powering itself off with `DOEVENT("Toggle Power")` logs `KOSBadJumpException`; compare with an upstream build first.
 - Open issues and never-performed checks: `docs/testing-and-build.md`, "Known issues and open findings" and "In-game coverage" (T4, telnet G3-NUL/MENU-TYPE, #3168, …).
@@ -37,4 +38,4 @@ dotnet build kOS.sln -c Release --no-incremental  # full build against the dev g
 
 Deploying, launching, logs, the remote-testing tools and what needs the user: `docs/testing-and-build.md`. Per-session test records up to the release are in git history (this file at `5bd2afab`).
 
-Last session (2026-10-20, docs only): trimmed the roadmap and this handoff; folded `phase2-contracts.md` and `file-io-compatibility.md` into the roadmap and `testing-and-build.md` and removed them. Gate and build not rerun (no code change).
+Last sessions (2026-10-20, docs only): recorded the geometry-preset decisions; trimmed the roadmap and this handoff; folded `phase2-contracts.md` and `file-io-compatibility.md` into the roadmap and `testing-and-build.md` and removed them. Gate and build not rerun (no code change).

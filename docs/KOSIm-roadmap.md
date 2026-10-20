@@ -32,6 +32,17 @@ Base: upstream <https://github.com/KSP-KOS/KOS> `develop` at `8f281a45`. The ori
 
 The review's terminal items TERM-01 to TERM-08 are covered by Phases 2–4. Not done: the rest of EDIT-05 (find/replace, line numbers, highlighting), the deferred external-editor conveniences (below), and the open issues in [testing-and-build.md](testing-and-build.md), "Known issues and open findings". No further phase is planned: ask the user before starting new work.
 
+## Planned: terminal geometry presets
+
+Proposed by the user 2026-10-20 for later; decisions agreed the same day. A step plan still needs the user's approval before implementation (UI rule below).
+
+- **Three preset buttons** (`1`, `2`, `3`) in the terminal's header: **left-click applies** the preset, **right-click saves** the window's current geometry into it.
+- **Feedback:** a short strip notice on save and on clicking an empty slot (as the copy notices: `Saved preset 2`, `Preset 3 is empty`); empty slots drawn dim, as the size buttons at the end of their range.
+- **Narrow windows:** the preset buttons are hidden below some width, so the title, the size buttons and close keep priority.
+- **Shared presets:** one set for every CPU, vessel and save, in their own file under `PluginData` (not `config.xml`, not the per-CPU geometry file).
+- **A preset holds** position, columns, rows and character height. Applying one is a resize like any other (resize watchers fire, telnet clients are asked to resize: D3) and is brought wholly on screen by the existing keep-on-screen rule.
+- **Not included:** the editor window, keyboard shortcuts, anything telnet-side.
+
 ## Binding decisions
 
 Agreed with the user. Later work keeps them unless the user changes them.
