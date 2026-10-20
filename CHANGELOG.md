@@ -1,5 +1,84 @@
 # kOS Mod Changelog
 
+## kOS Improved 1.5.1.100 (2026-10-20)
+
+First checkpoint of kOS Improved (kOSIM), a fork of upstream kOS `develop`
+at `8f281a45`; that commit's own changes since 1.5.1.0 are listed under
+"Unreleased" below. Built for KSP 1.12.5 and tested in game under Proton
+(GE-Proton11-7) only. Scripts, KSM files, saves, craft and the public mod
+APIs stay compatible. The full list, with the reasons and limits, is in
+`docs/testing-and-build.md`, "Behavior changes from upstream".
+
+### Terminal
+
+- New window look: a flat header (title `vessel · CPU · tag`, text size
+  buttons, close), a one-line status strip with the CPU state (`Ready`,
+  `Running 0:/launch.ks`, `Waiting in …`, `Delay 2.4 s`, `No power`, …),
+  a calmer green palette checked for contrast, and the chrome following
+  KSP's UI scale. The settings popover and the bezel are gone; the old
+  toggles are mod options (`TerminalVisualBeep`, `TerminalKeyClick`).
+- The window can be resized from any edge or corner, and its position,
+  size and character height are saved per CPU and restored with the save.
+  It is kept on screen, but can be dragged partly off screen by its
+  header.
+- Screen and view are separate: PageUp/PageDown, the mouse wheel and a
+  scroll bar move only the view, output no longer jumps a scrolled-back
+  view to the bottom (`New output`), and the scrollback is bounded at
+  2,000 lines.
+- Command history keeps 500 commands, is saved per CPU and survives
+  reboots, keeps the line being typed, and has Ctrl+R search; a command
+  starting with a space is not recorded.
+- Paste with Ctrl+V or Shift+Insert (multi-line pastes ask first), copy
+  with Ctrl+Shift+C (selection or view) and Ctrl+Shift+E (last error),
+  and select text with the mouse.
+- Ctrl+C at the prompt also stops a typed `WAIT` and discards a running
+  compile; a failing `COMPILE` reports once.
+- Under Proton the default font is Lucida Console.
+- Render faults show a fallback with Retry instead of breaking the window.
+
+### Other windows
+
+- The toolbar panel has CPUs and Settings tabs: each CPU's state with an
+  Open/Close button, the terminal defaults, telnet (with a port restart)
+  and the boot folder; number fields apply when you leave them.
+- The editor is a flat, movable and resizable window in the terminal's
+  font and colors, with a status line and save errors shown in place; it
+  no longer pulls the view back to the caret while you scroll.
+- Confirmations name their actions, and Esc cancels; the paste box, the
+  name tag and the list pickers use the same look and stay on screen.
+
+### Input
+
+- One kOS window owns the keyboard at a time; action groups, `DOEVENT`,
+  `DOACTION` and `GUI:SHOW` no longer take it, and Escape does not open
+  the pause menu while a terminal has it.
+- Clicks, hover and the wheel over a kOS window no longer reach the scene
+  (camera, part menus, part highlight, map, editor).
+
+### Telnet
+
+- A rewritten protocol parser and key decoder (no leaked option bytes,
+  split keys and UTF-8 handled), bounded input and output queues, clean
+  shutdown, and short terminal types such as `ANSI` or `dumb` accepted.
+- Clients return to the menu when their CPU goes away, and screen updates
+  no longer miss moved or resized rows.
+
+### Files, scripts and display
+
+- `READRAW`/`WRITERAW` keep exact bytes, and copy and move are byte-exact.
+- Archive saves are atomic, and `MOVEPATH` onto itself no longer deletes
+  the file.
+- Paths keep their own volume, so two disks with the same name are no
+  longer confused.
+- Fixed `POPUPMENU:VALUE` and the delivery of widget callbacks under delay.
+- `PRINT` of lists and lexicons shows nested values inline again.
+- The settings panel accepts a 5-digit telnet port.
+
+### Packaging
+
+- `kOS.version` has no update URL, so version checkers do not offer
+  upstream releases over this build.
+
 ## Unreleased
 
 ### New Features

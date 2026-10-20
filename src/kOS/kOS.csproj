@@ -17,8 +17,7 @@
   <ItemGroup>
     <KSPVersionFile Include=".">
       <Destination>$(KSPBT_ModRoot)/kOS.version</Destination>
-      <URL>https://github.com/KSP-KOS/KOS/releases/latest/download/kOS.version</URL>
-      <Download>https://github.com/KSP-KOS/KOS/releases/latest</Download>
+      <!-- kOS Improved: no URL/DOWNLOAD, so KSP-AVC never offers upstream's releases as updates. -->
     </KSPVersionFile>
   </ItemGroup>
   <ItemGroup>
