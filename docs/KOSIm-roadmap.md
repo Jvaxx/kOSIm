@@ -264,7 +264,7 @@ Status:
 - **O1 wheel, O2 follow/marker** — implemented and headless-tested 2026-10-19 (`ScreenBuffer.ScrollScreen`/`HasNewOutputOutOfView`, `WheelScroll`, `TermWindow.ScrollViewWithWheel`; details `docs/testing-and-build.md`, "Mouse wheel and follow-output"). Settled in the step: the marker is the D2 state's `New output`; PageUp/PageDown still wait in the type-ahead while a program runs (scripts may read them); the wheel works then. In game: passed 2026-10-20.
 - **O3 selection** — implemented and headless-tested 2026-10-19 (`TerminalSelection`, `ScreenBuffer.GetLineAt`, `TerminalCopy.SelectionText`, `TermWindow.SelectWithMouse`; details `docs/testing-and-build.md`, "GUI mouse selection"). Settled in the step: a drag over the characters selects instead of moving the window (title bar and frame still move it). In game: passed 2026-10-20.
 
-**Exit review (2026-10-20): met; Phase 3 complete.** Every step has headless tests against the real `kOS.Safe` classes (gate 1171/1171) and passed in game: P3-1 to P3-4 on 2026-10-19, the rest in the Proton pass of 2026-10-20 (KSP 1.12.5.3190, GE-Proton11-7; `docs/testing-and-build.md`, "Proton pass 2026-10-20 (rest of Phase 3)"), GUI and telnet together where both apply. Open from Phase 3 (minor, user decisions pending): **STATUS-01** (a program looping on a `WAIT` of over 0.5 s alternates `Running`/`Waiting in` in the bar and the telnet title, as specified but noisy) and **BAR-01** (the "N telnet clients attached" label covers "Keyclicker" and part of the state text). Not performed: the starved/delay/no-connection/`Starting` states and the bar at a narrow width; a full game restart for saved history (accepted as covered by quickload and scene change). Item 5 conveniences were deferred (decisions above).
+**Exit review (2026-10-20): met; Phase 3 complete.** Every step has headless tests against the real `kOS.Safe` classes (gate 1171/1171) and passed in game: P3-1 to P3-4 on 2026-10-19, the rest in the Proton pass of 2026-10-20 (KSP 1.12.5.3190, GE-Proton11-7; `docs/testing-and-build.md`, "Proton pass 2026-10-20 (rest of Phase 3)"), GUI and telnet together where both apply. Found in the pass: **STATUS-01** (a program looping on a `WAIT` of over 0.5 s alternated `Running`/`Waiting in` in the bar and the telnet title, as specified but noisy): fixed the same day with hysteresis (user decision; `WaitingDisplay`: `Waiting in` kept until 1.5 s of game time pass without a held wait), headless-tested, in-game check pending. **BAR-01** (the "N telnet clients attached" label covers "Keyclicker" and part of the state text): deferred to Phase 4, fixed with the UI rework (user decision). Not performed: the starved/delay/no-connection/`Starting` states and the bar at a narrow width; a full game restart for saved history (accepted as covered by quickload and scene change). Item 5 conveniences were deferred (decisions above).
 
 ### Exit criterion
 
@@ -286,6 +286,8 @@ Redesign the presentation only after the models and adapters are stable.
 - The embedded editor remains minimal, safe, and usable.
 
 Start with disciplined IMGUI. Evaluate another renderer only if a scoped prototype demonstrates benefits that justify packaging, lifecycle, and compatibility costs. Do not assume KSP supports a newer Unity framework or runtime.
+
+Carried in from Phase 3 (user decision 2026-10-20): **BAR-01**, the bottom bar's "N telnet clients attached" label overlaps the "Keyclicker" toggle and the D2 state text; fix it as part of the status strip, not as a patch to the current bar.
 
 ### Exit criterion
 

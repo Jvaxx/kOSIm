@@ -129,6 +129,7 @@ namespace kOS.Screen
         private DateTime nextStatusTime;
         private static readonly TimeSpan statusInterval = TimeSpan.FromSeconds(0.25);
         private bool reportedStatusFailure;
+        private readonly WaitingDisplay waitingDisplay = new WaitingDisplay(); // STATUS-01
         private GUIStyle statusLabelStyle;
 
         private readonly WheelScroll wheelScroll = new WheelScroll(); // O1
@@ -1451,7 +1452,8 @@ namespace kOS.Screen
                 if (cpu != null)
                 {
                     status.ProgramPath = cpu.RunningProgramPath;
-                    status.Waiting = cpu.IsWaitingFor(TerminalStatus.WAIT_SHOWN_AFTER_SECONDS);
+                    status.Waiting = waitingDisplay.Update(cpu.SessionTime,
+                        cpu.IsWaitingFor(TerminalStatus.WAIT_SHOWN_AFTER_SECONDS), status.AtPrompt, status.ProgramPath);
                 }
                 var connectivity = shared.Interpreter as ConnectivityInterpreter;
                 if (connectivity != null)
@@ -1459,6 +1461,10 @@ namespace kOS.Screen
                 status.Connected = kOS.Communication.ConnectivityManager.HasConnectionToControl(shared.Vessel);
                 var screenBuffer = shared.Screen as ScreenBuffer;
                 status.NewOutput = screenBuffer != null && screenBuffer.HasNewOutputOutOfView;
+            }
+            else
+            {
+                waitingDisplay.Reset(); // off, no power or booting: a later wait starts afresh
             }
             return status.Text;
         }

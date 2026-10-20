@@ -50,6 +50,50 @@ namespace kOS.Safe.Test.Terminal
             Assert.AreEqual("ship", TerminalStatus.TitleWithStatus("ship", ""));
         }
 
+        // STATUS-01: Waiting kept across the short runs between waits.
+
+        [Test]
+        public void WaitingIsKeptBetweenTheWaitsOfALoop()
+        {
+            var display = new WaitingDisplay();
+            // A wait 1 loop: held from half a second into each wait, as IsWaitingFor reports it.
+            for (double t = 0; t < 10; t += 0.25)
+            {
+                bool held = t >= 0.5 && t % 1 >= 0.5;
+                Assert.AreEqual(t >= 0.5, display.Update(t, held, false, "0:/loop.ks"), "at " + t);
+            }
+        }
+
+        [Test]
+        public void RunningIsShownAfterARunWithoutAWait()
+        {
+            var display = new WaitingDisplay();
+            Assert.IsTrue(display.Update(1.0, true, false, "0:/a.ks"));
+            Assert.IsTrue(display.Update(1.0 + WaitingDisplay.KEPT_FOR_SECONDS - 0.01, false, false, "0:/a.ks"));
+            Assert.IsFalse(display.Update(1.0 + WaitingDisplay.KEPT_FOR_SECONDS, false, false, "0:/a.ks"));
+        }
+
+        [Test]
+        public void ANewActivityStartsAfresh()
+        {
+            var display = new WaitingDisplay();
+            Assert.IsTrue(display.Update(1.0, true, false, "0:/a.ks"));
+            Assert.IsFalse(display.Update(1.1, false, true, null), "the prompt");
+            Assert.IsFalse(display.Update(1.2, false, false, "0:/a.ks"), "the same program run again");
+
+            Assert.IsTrue(display.Update(2.0, true, false, "0:/a.ks"));
+            Assert.IsFalse(display.Update(2.1, false, false, "0:/b.ks"), "another program");
+            Assert.IsTrue(display.Update(3.0, true, false, "0:/b.ks"));
+            Assert.IsFalse(display.Update(3.1, false, false, null), "the interpreter after a program");
+
+            Assert.IsTrue(display.Update(4.0, true, false, null));
+            Assert.IsFalse(display.Update(0.5, false, false, null), "the clock started again");
+
+            Assert.IsTrue(display.Update(5.0, true, false, "0:/a.ks"));
+            display.Reset(); // power off
+            Assert.IsFalse(display.Update(5.1, false, false, "0:/a.ks"));
+        }
+
         // The real CPU:
 
         private static void Write(ScriptHost host, string name, string content)
@@ -115,6 +159,38 @@ namespace kOS.Safe.Test.Terminal
                     host.Update();
                     Assert.IsFalse(host.Cpu.IsWaitingFor(TerminalStatus.WAIT_SHOWN_AFTER_SECONDS), "update " + i);
                 }
+            }
+        }
+
+        [Test]
+        public void AWaitLoopStaysWaitingUntilThePrompt()
+        {
+            using (var host = new ScriptHost())
+            {
+                // As slow2.ks in the 2026-10-20 pass, where the state alternated twice a second.
+                Write(host, "statuswaitloop.ks", "print \"go\".\nlocal n is 0.\nuntil n >= 5 { print \"line \" + n. set n to n + 1. wait 1. }\n");
+                host.Boot();
+                host.Type("runpath(\"0:/statuswaitloop.ks\").\n");
+                UpdateUntil(host, () => host.Transcript().Contains("\ngo"));
+
+                var display = new WaitingDisplay();
+                int heldChanges = 0, shownChanges = 0;
+                bool held = false, shown = false;
+                for (int i = 0; i < 400 && !host.Screen.IsWaitingForCommand(); ++i)
+                {
+                    host.Update();
+                    bool nowHeld = host.Cpu.IsWaitingFor(TerminalStatus.WAIT_SHOWN_AFTER_SECONDS);
+                    bool nowShown = display.Update(host.Cpu.SessionTime, nowHeld, host.Screen.IsWaitingForCommand(), host.Cpu.RunningProgramPath);
+                    if (nowHeld != held) ++heldChanges;
+                    if (nowShown != shown) ++shownChanges;
+                    held = nowHeld;
+                    shown = nowShown;
+                }
+                Assert.IsTrue(host.Screen.IsWaitingForCommand(), "the loop ended\n" + host.Transcript());
+                host.AssertNoErrors();
+                Assert.GreaterOrEqual(heldChanges, 8, "the CPU itself is held only part of each turn");
+                Assert.AreEqual(2, shownChanges, "Waiting from the first held wait, never back to Running; off at the prompt (Ready)");
+                Assert.IsFalse(shown);
             }
         }
 
