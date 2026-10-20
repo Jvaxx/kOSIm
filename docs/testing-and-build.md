@@ -236,6 +236,7 @@ Open or recorded, not fixed (most likely upstream unless noted):
 - **Files:** a save onto a file link replaces the link with a regular file (net48 cannot read link targets); legacy archive `READALL` can still corrupt short binary content (use the raw API); IO-03 commit safety relies on the platform's Replace/Move, without power-loss durability or external-change detection.
 - **Script GUI:** #3168 (`POPUPMENU:VALUE` from a string fails with an invalid cast) not addressed. The texture cache never evicts.
 - **Performance:** the worst update of a 3,000-line paste grows with the scrollback (not investigated).
+- **TEST-FLAKE-01** (headless, kOSIM test): `TerminalStatusTest.TheCpuNamesTheMainProgramAndAHeldWait` failed once in about 20 gate runs on 2026-10-20 ("held by wait 2 for over half a second"): it steps fixed game time while `runpath` compiles on a thread in wall-clock time. Rerun the gate; fix proposed in `HANDOFF.md`.
 
 ## In-game coverage
 
