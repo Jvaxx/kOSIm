@@ -40,7 +40,7 @@ Commands, behavior changes, limits and open issues: [testing-and-build.md](testi
 | 1 — Correctness and safety | Complete (2026-10-19): every P0/P1 review finding checked; fixes headless-tested and passed in game. |
 | 2 — Structural boundaries | Complete (2026-10-19): input router, `TerminalSession` fan-out, explicit lifecycle, screen/view split ([phase2-contracts.md](phase2-contracts.md)). |
 | 3 — Workflow quality of life | Complete (2026-10-20): history (draft, Ctrl+R search, saved history), paste, copy, CPU state, wheel, follow-output, mouse selection. STATUS-01 fix awaits its in-game check. |
-| 4 — Modern, simpler UI | Decisions agreed 2026-10-20; step 1 planned, awaiting approval. |
+| 4 — Modern, simpler UI | Decisions agreed 2026-10-20. Step 1 (terminal chrome) approved and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. |
 
 What each item changed, and what was never checked in game: [testing-and-build.md](testing-and-build.md), "Behavior changes from upstream" and "In-game coverage". Detailed step plans and exit reviews of Phases 0–3 are in git history (this file at `876e1a29`).
 
@@ -113,7 +113,7 @@ Redesign the presentation only after the models and adapters are stable.
 
 Start with disciplined IMGUI. Evaluate another renderer only if a scoped prototype demonstrates benefits that justify packaging, lifecycle, and compatibility costs. Do not assume KSP supports a newer Unity framework or runtime.
 
-Carried in from Phase 3 (user decision 2026-10-20): **BAR-01**, the bottom bar's "N telnet clients attached" label overlaps the "Keyclicker" toggle and the D2 state text; fix it as part of the status strip, not as a patch to the current bar. Also open in the UI: G3-UI (controls overlap at 20 columns), PASTE-UI-01 (translucent paste box), the narrow-width bar (never checked).
+Carried in from Phase 3 (user decision 2026-10-20): **BAR-01**, the bottom bar's "N telnet clients attached" label overlaps the "Keyclicker" toggle and the D2 state text; fix it as part of the status strip, not as a patch to the current bar (done in step 1, to check in game). Also open in the UI: G3-UI (controls overlap at 20 columns), PASTE-UI-01 (translucent paste box), the narrow-width bar (never checked).
 
 No UI redesign without a plan approved by the user; no wholesale terminal rewrite or embedded IDE.
 
@@ -133,7 +133,7 @@ No UI redesign without a plan approved by the user; no wholesale terminal rewrit
 
 ### Steps
 
-Each with headless tests first, then a Proton check:
+Each with headless tests; the Proton checks of all steps are done in one pass at the end of Phase 4 (user decision 2026-10-20):
 
 1. **Terminal chrome:** style module, header, flat frame, status strip, settings popover, chrome UI scale.
 2. **Geometry and scrolling:** saved geometry, keep on screen, edge resizing with the size overlay, the scroll bar.
@@ -141,7 +141,7 @@ Each with headless tests first, then a Proton check:
 4. **Toolbar panel** tabs.
 5. **Other windows** (paste box, editor with EDIT-03, name tag, dialogs).
 
-### Step 1 plan (proposed 2026-10-20, awaiting approval)
+### Step 1 plan (approved by the user 2026-10-20; implemented; Proton check at the end of Phase 4)
 
 Headless (`kOS.Safe`):
 
@@ -160,6 +160,12 @@ Game side (`TermWindow`, new `KOSStyle`):
 Intentional differences: the window's pixel size for a given cell count changes (different chrome); the window moves only by its header/strip, not by the old frame; the in-game title reads `test-vessel · CX-4181 · tag` (telnet keeps its title).
 
 In game (Proton): layout at 50×36 and at the script minimum width, UI scale 1.0 and another, focus border, every popover control, popover close paths and keyboard focus, strip chips (telnet attached, New output click, copy notice), drag and grip resize, selection and wheel still aligned, Alt+F12 locks.
+
+As implemented (2026-10-20; behavior in `testing-and-build.md`, "Terminal window (Phase 4, step 1)"):
+
+- `kOS.Safe.Screen.TerminalChromeLayout` (metrics at UI scale 1: header 20, strip 18, padding 6 (at least 4, for descenders), gutter 8, minimum width 150, chrome font 11; the scale is clamped to 0.5–3), `StatusStrip` (with `Shorten`, also used for the header title), `TerminalStatus.Kind`/`StateText`/`Chips`/`TelnetClients` (`StatusKind`, `StatusChip` with priorities No connection 40, Delay 30, New output 20, telnet 10). Tests: `TerminalChromeLayoutTest`, `StatusStripTest` (in `TerminalChromeLayoutTest.cs`), four new cases in `TerminalStatusTest`; mutations of the chip priority, the ellipsis trim, the telnet count in the title and the gutter each failed tests.
+- Game side: `kOS.Screen.KOSStyle` (palette, chrome font with `…`/`·` fallbacks, generated icon textures kept for the game, flat button/toggle/slider), `TermWindow` (header, strip, popover as window `UniqueId + 11`, layout used by drawing, selection, wheel, resize and `NotifyOfScreenResize`), `KOSManagedWindow.ContainsPoint` (virtual; the popover counts as the terminal for focus clicks).
+- Choices made while implementing (within the plan): the resize-drag minimum is the script minimum of 15 × 3 cells; a press in the characters' padding also starts a selection; a UI-scale change keeps the cells and resizes the window; the popover's settings are written only when changed (fixes the float-rounded `TERMINAL:BRIGHTNESS` while the window is open); the state under delay at the prompt is `Delay 2.4 s` (as the title); the missing-texture screen still checks the old textures.
 
 ### Exit criterion
 

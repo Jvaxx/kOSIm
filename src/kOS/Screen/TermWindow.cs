@@ -43,14 +43,11 @@ namespace kOS.Screen
         private static readonly Color bgColor = new Color(0.0f, 0.0f, 0.0f, 1.0f); // black background of terminal
         private static readonly Color textColor = new Color(0.5f, 1.0f, 0.5f, 1.0f); // font color on terminal
         private static readonly Color textColorOff = new Color(0.8f, 0.8f, 0.8f, 0.7f); // font color when power starved.
-        private Rect closeButtonRect;
-        private Rect resizeButtonCoords;
-        private GUIStyle tinyToggleStyle;
         private Vector2 resizeOldSize;
         private bool resizeMouseDown;
         private int formerCharPixelHeight;
         private int formerCharPixelWidth;
-        private int postponedCharPixelHeight;
+        private int postponedCharPixelHeight = -1; // a size picked in the settings, applied at the next OnGUI
         
         private bool consumeEvent;
         private bool fontGotResized;
@@ -89,18 +86,30 @@ namespace kOS.Screen
         /// <summary>text color that changes depending on if the computer is on</summary>
         private Color currentTextColor;
 
-        private Texture2D terminalImage;
-        private Texture2D terminalFrameImage;
-        private Texture2D terminalFrameActiveImage;
-        private GUIStyle terminalImageStyle;
-        private GUIStyle terminalFrameStyle;
-        private GUIStyle terminalFrameActiveStyle;
-
-        private Texture2D resizeButtonImage;
-        private Texture2D networkZigZagImage;
-        private Texture2D brightnessButtonImage;
-        private Texture2D fontHeightButtonImage;
+        // The textures the terminal was drawn with before Phase 4. It no longer uses them, but
+        // still says when they are missing, as a sign of a broken install (see DrawTerminalGui):
+        private static readonly string[] installTextures = {
+            "kOS/GFX/dds_monitor_minimal",
+            "kOS/GFX/dds_monitor_minimal_frame",
+            "kOS/GFX/dds_monitor_minimal_frame_active",
+            "kOS/GFX/dds_resize-button",
+            "kOS/GFX/dds_network-zigzag",
+            "kOS/GFX/dds_brightness-button",
+            "kOS/GFX/dds_font-height-button"
+        };
         private int guiTerminalBeepsPending;
+
+        // The chrome (Phase 4, step 1): our own header, frame and status strip, laid out by
+        // TerminalChromeLayout for the UI scale and the cell size, drawn in KOSStyle.
+        private TerminalChromeLayout layout;
+        private float fittedScale = float.NaN; // the UI scale the window size was last worked out for
+        private string headerTitle = string.Empty;
+
+        // The settings popover, from the header's settings button:
+        private bool settingsOpen;
+        private Rect settingsRect; // absolute, where it was last drawn
+        private Rect settingsButtonRect; // absolute
+        private MouseBlocking.Area settingsMouseArea;
 
         private SharedObjects shared;
         private KOSTextEditPopup popupEditor;
@@ -117,20 +126,20 @@ namespace kOS.Screen
         private GUIStyle pastePreviewStyle;
         private GUIStyle pasteHintStyle;
 
-        // Ctrl+Shift+C and Ctrl+Shift+E (P3-4) say what they did here, in place of the size, for a moment:
+        // Ctrl+Shift+C and Ctrl+Shift+E (P3-4) say what they did in the status strip, for a moment:
         private string copyNotice;
         private DateTime copyNoticeEnd;
         private static readonly TimeSpan copyNoticeDuration = TimeSpan.FromSeconds(2);
         
-        // The CPU state (Phase 3, D2), in the bottom bar and after the telnet title; worked out
-        // at most every statusInterval, which also bounds the title updates telnet clients get:
+        // The CPU state (Phase 3, D2), in the status strip and after the telnet title; worked
+        // out at most every statusInterval, which also bounds the title updates telnet clients get:
         private string baseTitle;
-        private string statusText = string.Empty;
+        private TerminalStatus status; // null until worked out, or when that failed
+        private string statusText = string.Empty; // its text, after the telnet title
         private DateTime nextStatusTime;
         private static readonly TimeSpan statusInterval = TimeSpan.FromSeconds(0.25);
         private bool reportedStatusFailure;
         private readonly WaitingDisplay waitingDisplay = new WaitingDisplay(); // STATUS-01
-        private GUIStyle statusLabelStyle;
 
         private readonly WheelScroll wheelScroll = new WheelScroll(); // O1
 
@@ -146,8 +155,6 @@ namespace kOS.Screen
 
         private readonly RenderFaultRecovery renderFaultRecovery = new RenderFaultRecovery();
         private bool resizeFromFault;
-        
-        private GUISkin customSkin;
         
         private bool uiGloballyHidden = false;
 
@@ -166,40 +173,11 @@ namespace kOS.Screen
 
         public void Awake()
         {
-            // set dummy rectangles
-            closeButtonRect = new Rect(0, 0, 0, 0); // will be resized later.
-            resizeButtonCoords = new Rect(0, 0, 0, 0); // will be resized later.
-
-            terminalImage = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_monitor_minimal", false);
-            terminalFrameImage = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_monitor_minimal_frame", false);
-            terminalFrameActiveImage = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_monitor_minimal_frame_active", false);
-            resizeButtonImage = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_resize-button", false);
-            networkZigZagImage = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_network-zigzag", false);
-            brightnessButtonImage = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_brightness-button", false);
-            fontHeightButtonImage = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_font-height-button", false);
-
-            allTexturesFound =
-                terminalImage != null &&
-                terminalFrameImage != null &&
-                terminalFrameActiveImage != null &&
-                resizeButtonImage != null &&
-                networkZigZagImage != null &&
-                brightnessButtonImage != null &&
-                fontHeightButtonImage != null;
-;
-            terminalImageStyle = Create9SliceStyle(terminalImage);
-            terminalFrameStyle = Create9SliceStyle(terminalFrameImage);
-            terminalFrameActiveStyle = Create9SliceStyle(terminalFrameActiveImage);
-
-            tinyToggleStyle = new GUIStyle(HighLogic.Skin.toggle)
-            {
-                fontSize = 10
-            };
+            allTexturesFound = installTextures.All(path => Utilities.Utils.GetTextureWithErrorMsg(path, false) != null);
 
             popupEditor = gameObject.AddComponent<KOSTextEditPopup>();
             popupEditor.SetUniqueId(UniqueId + 5);
             
-            customSkin = BuildPanelSkin();
             terminalLetterSkin = BuildPanelSkin();
 
             GameEvents.onHideUI.Add (OnHideUI);
@@ -210,45 +188,23 @@ namespace kOS.Screen
 
 
         /// <summary>
-        /// Unity lacks gui styles for GUI.DrawTexture(), so to make it do
-        /// 9-slice stretching, we have to draw the 9slice image as a GUI.Label.
-        /// But GUI.Labels that render a Texture2D instead of text, won't stretch
-        /// larger than the size of the image file no matter what you do (only smaller).
-        /// So to make it stretch the image in a label, the image has to be implemented
-        /// as part of the label's background defined in the GUIStyle instead of as a
-        /// normal image element.  This sets up that style, which you can then render
-        /// by making a GUILabel use this style and have dummy empty string content.
-        /// </summary>
-        /// <returns>The slice style.</returns>
-        /// <param name="fromTexture">From texture.</param>
-        private GUIStyle Create9SliceStyle(Texture2D fromTexture)
-        {
-            GUIStyle style = new GUIStyle();
-            style.normal.background = fromTexture;
-            style.border = new RectOffset(10, 10, 10, 10);
-            style.stretchWidth = true;
-            style.stretchHeight = true;
-            return style;
-        }
-
-        /// <summary>
         /// The window goes with its processor (P2-3): the telnet clients are detached with a
         /// message (the session is disposed), the screen forgets this window's resize notifier,
-        /// and the skins cloned in <see cref="Awake"/> are destroyed. The textures are shared
-        /// (<see cref="Utilities.Utils.GetTextureWithErrorMsg"/>) and stay.
+        /// and the skin cloned in <see cref="Awake"/> is destroyed. The textures are shared
+        /// (<see cref="Utilities.Utils.GetTextureWithErrorMsg"/>, <see cref="KOSStyle"/>) and stay.
         /// </summary>
         new public void OnDestroy()
         {
             LoseFocus();
             guiPaste.Cancel();
             KOSMouseBlocking.Unregister(ref pasteConfirmationMouseArea);
+            KOSMouseBlocking.Unregister(ref settingsMouseArea);
             GameEvents.onHideUI.Remove(OnHideUI);
             GameEvents.onShowUI.Remove(OnShowUI);
 
             session.Dispose();
             if (shared != null && shared.Screen != null)
                 shared.Screen.RemoveResizeNotifier(NotifyOfScreenResize);
-            Utilities.Utils.DestroyCreated(ref customSkin);
             Utilities.Utils.DestroyCreated(ref terminalLetterSkin);
 
             base.OnDestroy();
@@ -280,6 +236,7 @@ namespace kOS.Screen
             base.Open(takeFocus);
             BringToFront();
             guiTerminalBeepsPending = 0; // Closing and opening the window will wipe pending beeps from the beep queue.
+            nextStatusTime = DateTime.MinValue; // the strip's state, not the one from before it was closed
         }
             
         /// <param name="recalcWidth">If true, recalc the font width from height if there's any font change.
@@ -313,6 +270,7 @@ namespace kOS.Screen
         {
             // Diable GUI and release all locks
             guiPaste.Cancel(); // a paste waiting for confirmation is dropped with the window
+            settingsOpen = false;
             base.Close();
         }
 
@@ -349,6 +307,14 @@ namespace kOS.Screen
                 guiPaste.Cancel(); // nobody can answer the confirmation (IsOpen may be set without Close())
             if (!IsOpen) return;
 
+            if (postponedCharPixelHeight >= 0 && shared != null && shared.Screen != null)
+            {
+                // Picked in the settings while the window drew; changed between passes, as the
+                // window's size follows it.
+                shared.Screen.CharacterPixelHeight = postponedCharPixelHeight;
+                postponedCharPixelHeight = -1;
+            }
+
             // Keep font/geometry preparation before GUI.Window, but contain its failures
             // so the callback can still offer fallback Close/Retry/Resize controls.
             renderFaultRecovery.TryRender(RenderTimeSeconds(), PrepareTerminalRendering, CanRecoverRenderFault, ReportRenderFault);
@@ -368,8 +334,11 @@ namespace kOS.Screen
             
             GUI.color = color;
 
-            WindowRect = GUI.Window(UniqueId, WindowRect, TerminalGui, TitleText);
+            // No KSP window skin or title: the window draws its own header and frame (Phase 4).
+            WindowRect = GUI.Window(UniqueId, WindowRect, TerminalGui, GUIContent.none, GUIStyle.none);
             BlockMouseOver(WindowRect);
+            if (settingsOpen)
+                DrawSettings();
             if (guiPaste.IsAwaitingConfirmation)
                 DrawPasteConfirmation();
             
@@ -405,7 +374,8 @@ namespace kOS.Screen
             }
 
             if (!IsOpen ) return;
-         
+
+            CloseSettingsOnClickOutside();
             UpdateLogic();
             UpdateGUIBeeps();
 
@@ -485,6 +455,13 @@ namespace kOS.Screen
                 if (guiPaste.IsAwaitingConfirmation)
                 {
                     ProcessKeyWhileConfirmingPaste(e);
+                    return;
+                }
+
+                if (e.keyCode == KeyCode.Escape && settingsOpen)
+                {
+                    settingsOpen = false;
+                    consumeEvent = true;
                     return;
                 }
 
@@ -893,6 +870,8 @@ namespace kOS.Screen
 
         void TerminalGui(int windowId)
         {
+            // Under everything, the fallback screens too (no window skin draws a background):
+            KOSStyle.Fill(new Rect(0, 0, WindowRect.width, WindowRect.height), KOSStyle.WindowBackground);
             ScrollViewWithWheel();
             SelectWithMouse(); // before DragWindow sees the drag
             Color previousColor = GUI.color;
@@ -924,9 +903,8 @@ namespace kOS.Screen
             Event current = Event.current;
             if (current == null || current.type != EventType.ScrollWheel) return;
             if (shared == null || shared.Screen == null) return;
-            // The character field, as its frame is drawn (window coordinates):
-            var field = new Rect(15, 20, WindowRect.width - 30, WindowRect.height - 55);
-            if (!field.Contains(current.mousePosition)) return;
+            // Between the header and the strip: the characters, their padding and the gutter.
+            if (!ToRect(Layout.Body(WindowRect.width, WindowRect.height)).Contains(current.mousePosition)) return;
             int lines = wheelScroll.Lines(current.delta.y);
             if (lines != 0)
                 shared.Screen.ScrollVertical(lines);
@@ -936,12 +914,35 @@ namespace kOS.Screen
         /// <summary>The character field in window coordinates, as <c>DrawTerminalGui</c> lays it out.</summary>
         private Rect CharacterField(IScreenBuffer screen)
         {
-            return new Rect(28, 38, screen.ColumnCount * screen.CharacterPixelWidth, screen.RowCount * screen.CharacterPixelHeight);
+            return ToRect(Layout.Field(screen.ColumnCount, screen.RowCount));
         }
 
         /// <summary>
-        /// Mouse selection (Phase 3, O3): button 0 down over the characters starts one (a
-        /// click alone selects nothing), a drag moves its end to the nearest cell boundary,
+        /// The chrome's layout for the current UI scale and cell size (Phase 4), made again
+        /// when either changes.
+        /// </summary>
+        private TerminalChromeLayout Layout
+        {
+            get
+            {
+                IScreenBuffer screen = shared == null ? null : shared.Screen;
+                int cellWidth = screen == null ? 0 : Math.Max(0, screen.CharacterPixelWidth);
+                int cellHeight = screen == null ? 0 : Math.Max(0, screen.CharacterPixelHeight);
+                float scale = TerminalChromeLayout.ClampScale(KOSStyle.UiScale);
+                if (layout == null || layout.Scale != scale || layout.CellWidth != cellWidth || layout.CellHeight != cellHeight)
+                    layout = new TerminalChromeLayout(scale, cellWidth, cellHeight);
+                return layout;
+            }
+        }
+
+        private static Rect ToRect(ScreenRect rect)
+        {
+            return new Rect(rect.X, rect.Y, rect.Width, rect.Height);
+        }
+
+        /// <summary>
+        /// Mouse selection (Phase 3, O3): button 0 down over the characters or their padding
+        /// starts one (a click alone selects nothing), a drag moves its end to the nearest cell boundary,
         /// and while the pointer is above or below the field the view scrolls a line every
         /// 50 ms. The events are used, so the window does not move. Keyboard focus is taken
         /// in <c>KOSManagedWindow</c> as before.
@@ -959,7 +960,8 @@ namespace kOS.Screen
             switch (current.GetTypeForControl(controlId))
             {
                 case EventType.MouseDown:
-                    if (current.button != 0 || !field.Contains(current.mousePosition)) return;
+                    if (current.button != 0 ||
+                        !ToRect(Layout.SelectionArea(WindowRect.width, WindowRect.height)).Contains(current.mousePosition)) return;
                     lastDragPosition = current.mousePosition;
                     int row, column;
                     CellBoundaryAt(screen, field, current.mousePosition, out row, out column);
@@ -1032,6 +1034,9 @@ namespace kOS.Screen
             GetFontIfChanged(true);
             if (shared.Screen.CharacterPixelWidth <= 0 || shared.Screen.CharacterPixelHeight <= 0)
                 throw new InvalidOperationException("Terminal character dimensions must be positive before rendering.");
+            // KSP's UI scale changed: the chrome follows it and the cells stay, so the window's size changes.
+            if (TerminalChromeLayout.ClampScale(KOSStyle.UiScale) != fittedScale)
+                FitWindowToScreen(shared.Screen);
         }
 
         private static bool CanRecoverRenderFault(Exception exception)
@@ -1061,15 +1066,13 @@ namespace kOS.Screen
                 "Terminal display fault.\nSee KSP.log; retrying automatically.\nCPU execution is unchanged.");
             if (GUI.Button(new Rect(15, WindowRect.height - 30, 65, 25), "Retry"))
                 renderFaultRecovery.RequestRetry();
-            closeButtonRect = new Rect(WindowRect.width - 75, WindowRect.height - 30, 50, 25);
-            if (GUI.Button(closeButtonRect, "Close"))
+            if (GUI.Button(new Rect(WindowRect.width - 75, WindowRect.height - 30, 50, 25), "Close"))
             {
                 Close();
                 Event.current.Use();
                 return;
             }
-            resizeButtonCoords = new Rect(WindowRect.width - 70, WindowRect.height - 65, 65, 25);
-            if (GUI.RepeatButton(resizeButtonCoords, "Resize") && !resizeMouseDown)
+            if (GUI.RepeatButton(new Rect(WindowRect.width - 70, WindowRect.height - 65, 65, 25), "Resize") && !resizeMouseDown)
             {
                 resizeMouseDown = true;
                 resizeOldSize = new Vector2(WindowRect.width, WindowRect.height);
@@ -1095,8 +1098,7 @@ namespace kOS.Screen
                     "kOS isn't installed correctly and you should try\n" +
                     "installing it again.");
 
-                closeButtonRect = new Rect(WindowRect.width - 75, WindowRect.height - 30, 50, 25);
-                if (GUI.Button(closeButtonRect, "Close"))
+                if (GUI.Button(new Rect(WindowRect.width - 75, WindowRect.height - 30, 50, 25), "Close"))
                 {
                     Close();
                     Event.current.Use();
@@ -1115,65 +1117,6 @@ namespace kOS.Screen
                 resizeFromFault = false;
             }
 
-            GUI.Label(new Rect(15, 20, WindowRect.width-30, WindowRect.height-55), "", terminalImageStyle);
-            GUI.color = color;
-
-            if (session.ViewerCount > 0)
-                DrawTelnetStatus();
-
-            closeButtonRect = new Rect(WindowRect.width-75, WindowRect.height-30, 50, 25);
-            Rect reverseButtonRect = new Rect(WindowRect.width-180, WindowRect.height-42, 100, 18);
-            Rect visualBeepButtonRect = new Rect(WindowRect.width-180, WindowRect.height-22, 100, 18);
-            Rect keyClickButtonRect = new Rect(10, WindowRect.height - 22, 85, 18);
-            Rect rasterBarsButtonRect = new Rect(10, WindowRect.height - 42, 85, 18);
-            Rect brightnessRect = new Rect(3, WindowRect.height - 100, 8, 50);
-            Rect brightnessButtonRect = new Rect(1, WindowRect.height - 48, brightnessButtonImage.width, brightnessButtonImage.height);
-            Rect fontHeightButtonRect = new Rect(30, WindowRect.height-33, fontHeightButtonImage.width, fontHeightButtonImage.height);
-            Rect fontHeightLabelRect = new Rect(45, WindowRect.height-33, 20, 13);
-            Rect fontHeightLessButtonRect = new Rect(75, WindowRect.height-37, 12, 13);
-            Rect fontHeightMoreButtonRect = new Rect(100, WindowRect.height-37, 12, 13);
-
-            resizeButtonCoords = new Rect(WindowRect.width-resizeButtonImage.width,
-                                          WindowRect.height-resizeButtonImage.height,
-                                          resizeButtonImage.width,
-                                          resizeButtonImage.height);
-            if (GUI.RepeatButton(resizeButtonCoords, resizeButtonImage ))
-            {
-                if (! resizeMouseDown)
-                {
-                    // Remember the fact that this mouseDown started on the resize button:
-                    resizeMouseDown = true;
-                    resizeOldSize = new Vector2(WindowRect.width, WindowRect.height);
-                }
-            }
-
-            if (GUI.Button(closeButtonRect, "Close"))
-            {
-                Close();
-                Event.current.Use();
-            }
-            
-            screen.ReverseScreen = GUI.Toggle(reverseButtonRect, screen.ReverseScreen, "Reverse Screen", tinyToggleStyle);
-            screen.VisualBeep = GUI.Toggle(visualBeepButtonRect, screen.VisualBeep, "Visual Beep", tinyToggleStyle);
-            keyClickEnabled = GUI.Toggle(keyClickButtonRect, keyClickEnabled, "Keyclicker", tinyToggleStyle);
-            screen.Brightness = (double) GUI.VerticalSlider(brightnessRect, (float)screen.Brightness, 1f, 0f);
-            GUI.DrawTexture(brightnessButtonRect, brightnessButtonImage);
-
-            int charHeight = screen.CharacterPixelHeight;
-            int charWidth = screen.CharacterPixelWidth;
-
-            // Note, pressing these buttons causes a change *next* OnGUI, not on this pass.
-            // Changing it in the midst of this pass confuses the terminal to change
-            // it's mind about how wide the window should be halfway through painting the
-            // components that make it up:
-            GUI.DrawTexture(fontHeightButtonRect, fontHeightButtonImage);
-            GUI.Label(fontHeightLabelRect,charHeight+"px", customSkin.label);
-            postponedCharPixelHeight = -1; // -1 means "font size buttons weren't clicked on this pass".
-            if (GUI.Button(fontHeightLessButtonRect, "-", customSkin.button))
-                postponedCharPixelHeight = Math.Max(TerminalStruct.MINCHARPIXELS, charHeight - 2);
-            if (GUI.Button(fontHeightMoreButtonRect, "+", customSkin.button))
-                postponedCharPixelHeight = Math.Min(TerminalStruct.MAXCHARPIXELS, charHeight + 2);
-
             fontGotResized = false;
             if (formerCharPixelWidth != screen.CharacterPixelWidth || formerCharPixelHeight != screen.CharacterPixelHeight)
             {
@@ -1183,18 +1126,46 @@ namespace kOS.Screen
                 fontGotResized = true;
             }
 
+            // After a resize above, so the parts are laid out for the window's new size:
+            TerminalChromeLayout chrome = Layout;
+            float width = WindowRect.width, height = WindowRect.height;
+            DrawCharacters(screen, chrome, width, height);
+            DrawHeader(chrome, width);
+            DrawStrip(screen, chrome, width, height);
+            // The frame, over everything: the accent color says the terminal has the keyboard.
+            KOSStyle.Frame(new Rect(0, 0, width, height), chrome.Border, HasKeyboard ? KOSStyle.Accent : KOSStyle.FrameColor);
+
+            if (!fontGotResized)
+                CheckResizeDrag(); // Has to occur before DragWindow or else DragWindow will consume the event and prevent drags from being seen by the resize icon.
+            // The window moves by its header and the strip, after their buttons took their own
+            // clicks; a drag over the characters selects (O3).
+            GUI.DragWindow(ToRect(chrome.Header(width)));
+            GUI.DragWindow(ToRect(chrome.Strip(width, height)));
+        }
+
+        /// <summary>
+        /// The characters on the body's background, which is the text color while the screen
+        /// is reversed (reverse screen, or a visual beep), with the selection and the cursor.
+        /// </summary>
+        private void DrawCharacters(IScreenBuffer screen, TerminalChromeLayout chrome, float width, float height)
+        {
+            int charHeight = screen.CharacterPixelHeight;
+            int charWidth = screen.CharacterPixelWidth;
+
             currentTextColor = IsPowered ? textColor : textColorOff;
                         
             // Paint the background color.
             DateTime nowTime = DateTime.Now;
             bool reversingScreen = (nowTime > blinkEndTime) ? screen.ReverseScreen : (!screen.ReverseScreen);
+            Rect body = ToRect(chrome.Body(width, height));
+            KOSStyle.Fill(body, bgColor);
             if (reversingScreen)
             {   // In reverse screen mode, draw a big rectangle in foreground color across the whole active screen area:
-                GUI.color = AdjustColor(textColor, screen.Brightness);
-                GUI.DrawTexture(new Rect(15, 20, WindowRect.width-30, WindowRect.height-55), Texture2D.whiteTexture, ScaleMode.ScaleAndCrop );
+                KOSStyle.Fill(body, AdjustColor(textColor, screen.Brightness));
             }
+            Rect field = CharacterField(screen);
             Color previousTextColor = terminalLetterSkin.label.normal.textColor;
-            GUI.BeginGroup(new Rect(28, 38, screen.ColumnCount * charWidth + 2, screen.RowCount * charHeight + 4)); // +4 so descenders and underscores visible on bottom row.
+            GUI.BeginGroup(new Rect(field.x, field.y, field.width + 2, field.height + 4)); // +4 so descenders and underscores visible on bottom row.
             try
             {
                 terminalLetterSkin.label.normal.textColor = AdjustColor(reversingScreen ? bgColor : currentTextColor, screen.Brightness);
@@ -1237,33 +1208,207 @@ namespace kOS.Screen
                 }
                 finally { GUI.EndGroup(); }
             }
+        }
 
-            // Draw the rounded corner frame atop the chars field, so it covers the sqaure corners of the character zone
-            // if they bleed over a bit.  Also, change which variant is used depending on focus:
-            if (HasKeyboard)
-                GUI.Label(new Rect(15, 20, WindowRect.width-30, WindowRect.height-55), "", terminalFrameActiveStyle);
-            else
-                GUI.Label(new Rect(15, 20, WindowRect.width-30, WindowRect.height-55), "", terminalFrameStyle);
+        private static int IconSize(TerminalChromeLayout chrome)
+        {
+            return Math.Max(6, (int)Math.Round(chrome.HeaderHeight * 0.6));
+        }
 
-            if (copyNotice != null && DateTime.Now < copyNoticeEnd)
+        /// <summary>The header (Phase 4): the terminal's name, then the settings and close buttons.</summary>
+        private void DrawHeader(TerminalChromeLayout chrome, float width)
+        {
+            KOSStyle.Fill(ToRect(chrome.Header(width)), KOSStyle.ChromeBackground);
+            GUIStyle titleStyle = KOSStyle.TitleLabel(chrome.FontSize);
+            Rect title = ToRect(chrome.Title(width));
+            GUI.Label(title, StatusStrip.Shorten(headerTitle, title.width, text => KOSStyle.Measure(titleStyle, text), KOSStyle.Ellipsis), titleStyle);
+
+            int iconSize = IconSize(chrome);
+            Rect settings = ToRect(chrome.SettingsButton(width));
+            settingsButtonRect = new Rect(WindowRect.x + settings.x, WindowRect.y + settings.y, settings.width, settings.height);
+            if (KOSStyle.IconButton(settings, KOSStyle.Icon.Settings, iconSize, settingsOpen))
+                settingsOpen = !settingsOpen;
+            if (KOSStyle.IconButton(ToRect(chrome.CloseButton(width)), KOSStyle.Icon.Close, iconSize, false))
             {
-                GUI.Label(new Rect(WindowRect.width/2-60, WindowRect.height-12, 140, 10), copyNotice, customSkin.label);
+                Close();
+                Event.current.Use();
             }
-            else
-            {
-                // The size, then the CPU state (D2), centered between the toggles on either side:
-                if (statusLabelStyle == null)
-                    statusLabelStyle = new GUIStyle(customSkin.label) { alignment = TextAnchor.UpperCenter, clipping = TextClipping.Clip, wordWrap = false };
-                string size = screen.ColumnCount + "x" + screen.RowCount;
-                GUI.Label(new Rect(100, WindowRect.height-12, Math.Max(1, WindowRect.width - 285), 10),
-                    statusText.Length == 0 ? size : size + "   " + statusText, statusLabelStyle);
-            }
+        }
 
-            if (!fontGotResized)
-                CheckResizeDrag(); // Has to occur before DragWindow or else DragWindow will consume the event and prevent drags from being seen by the resize icon.
-            GUI.DragWindow();
-            if (postponedCharPixelHeight >= 0)
-                shared.Screen.CharacterPixelHeight = postponedCharPixelHeight; // next OnGUI will repaint in the new size.
+        /// <summary>
+        /// The status strip (Phase 4; replaces the bottom bar): the state after a dot of its
+        /// color, the chips that apply, a copy notice and the size, placed by
+        /// <see cref="StatusStrip"/> so that nothing overlaps (BAR-01); the resize grip at its
+        /// right end. Clicking <c>New output</c> brings the view back to the screen.
+        /// </summary>
+        private void DrawStrip(IScreenBuffer screen, TerminalChromeLayout chrome, float width, float height)
+        {
+            Rect strip = ToRect(chrome.Strip(width, height));
+            KOSStyle.Fill(strip, KOSStyle.ChromeBackground);
+            GUIStyle label = KOSStyle.Label(chrome.FontSize);
+            int dot = Math.Max(4, (int)Math.Round(chrome.FontSize * 0.55));
+            float dotWidth = dot + Mathf.Round(dot * 0.7f);
+            var placer = new StatusStrip(text => KOSStyle.Measure(label, text), chrome.Padding, chrome.Padding, dotWidth, KOSStyle.Ellipsis);
+
+            TerminalStatus shown = status;
+            List<StatusChip> chips = shown == null ? null : shown.Chips;
+            string notice = copyNotice != null && DateTime.Now < copyNoticeEnd ? copyNotice : null;
+            ScreenRect content = chrome.StripContent(width, height);
+            float chipInset = Math.Max(1, Mathf.Round(strip.height * 0.15f));
+            var newOutputChip = new Rect(0, 0, 0, 0);
+            foreach (StatusStrip.Placement part in placer.Layout(content.X, content.Width, shown == null ? null : shown.StateText,
+                chips, notice, screen.ColumnCount + "x" + screen.RowCount))
+            {
+                var where = new Rect(part.X, strip.y, part.Width, strip.height);
+                switch (part.Part)
+                {
+                    case StatusStrip.Part.State:
+                        KOSStyle.DrawIcon(new Rect(where.x, where.y, dot, where.height), KOSStyle.Icon.Dot, dot, KOSStyle.StatusColor(shown.Kind));
+                        KOSStyle.Text(new Rect(where.x + dotWidth, where.y, Math.Max(0, where.width - dotWidth), where.height), part.Text, label, KOSStyle.ChromeText);
+                        break;
+                    case StatusStrip.Part.Chip:
+                        StatusChip chip = chips[part.ChipIndex];
+                        var background = new Rect(where.x, where.y + chipInset, where.width, Math.Max(0, where.height - 2 * chipInset));
+                        KOSStyle.Fill(background, KOSStyle.ChipBackground);
+                        Color chipColor = KOSStyle.ChromeText;
+                        if (chip.Kind == StatusChipKind.NoConnection)
+                            chipColor = KOSStyle.Warning;
+                        else if (chip.Kind == StatusChipKind.NewOutput)
+                        {
+                            chipColor = KOSStyle.Accent;
+                            newOutputChip = background;
+                            if (background.Contains(Event.current.mousePosition))
+                                KOSStyle.Fill(background, KOSStyle.Hover);
+                        }
+                        KOSStyle.Text(background, part.Text, KOSStyle.CenteredLabel(chrome.FontSize), chipColor);
+                        break;
+                    case StatusStrip.Part.Notice:
+                        KOSStyle.Text(where, part.Text, label, KOSStyle.Accent);
+                        break;
+                    case StatusStrip.Part.Size:
+                        KOSStyle.Text(where, part.Text, label, KOSStyle.DimText);
+                        break;
+                }
+            }
+            // Asked for on every event, chip or not, so the controls after it keep their ids:
+            if (GUI.Button(newOutputChip, GUIContent.none, GUIStyle.none) && newOutputChip.width > 0)
+                ShowNewOutput(screen);
+
+            Rect grip = ToRect(chrome.Grip(width, height));
+            KOSStyle.DrawIcon(grip, KOSStyle.Icon.Grip, IconSize(chrome), KOSStyle.DimText);
+            if (GUI.RepeatButton(grip, GUIContent.none, GUIStyle.none))
+            {
+                if (! resizeMouseDown)
+                {
+                    // Remember the fact that this mouseDown started on the resize button:
+                    resizeMouseDown = true;
+                    resizeOldSize = new Vector2(WindowRect.width, WindowRect.height);
+                }
+            }
+        }
+
+        /// <summary>The <c>New output</c> chip was clicked: the view goes back to the screen, as typing brings it.</summary>
+        private void ShowNewOutput(IScreenBuffer screen)
+        {
+            var screenBuffer = screen as ScreenBuffer;
+            if (screenBuffer != null && screenBuffer.ViewOffset > 0)
+                screenBuffer.ScrollVertical(screenBuffer.ViewOffset);
+            nextStatusTime = DateTime.MinValue; // the chip goes at the next update
+        }
+
+        private const float SETTINGS_WIDTH = 220f;
+        private const int SETTINGS_ROWS = 5;
+
+        private static float SettingsRowHeight(TerminalChromeLayout chrome)
+        {
+            return Mathf.Round(22f * chrome.Scale);
+        }
+
+        /// <summary>
+        /// The settings popover (Phase 4): reverse screen, visual beep, key click, brightness and
+        /// character size, under the header's settings button. A window of its own, drawn after
+        /// the terminal (like the paste box), so it can reach past a small terminal; a click on
+        /// it counts as on the terminal (<see cref="ContainsPoint"/>), which keeps the keyboard
+        /// focus. It closes with the settings button, Esc, a press outside it, or the terminal.
+        /// </summary>
+        private void DrawSettings()
+        {
+            TerminalChromeLayout chrome = Layout;
+            float width = Mathf.Round(SETTINGS_WIDTH * chrome.Scale);
+            float height = SETTINGS_ROWS * SettingsRowHeight(chrome) + 2 * chrome.Padding;
+            Rect button = ToRect(chrome.SettingsButton(WindowRect.width));
+            float x = Mathf.Clamp(WindowRect.x + button.xMax - width, 0, Math.Max(0, UnityEngine.Screen.width - width));
+            float y = Mathf.Clamp(WindowRect.y + button.yMax, 0, Math.Max(0, UnityEngine.Screen.height - height));
+            settingsRect = new Rect(x, y, width, height);
+            int settingsId = UniqueId + 11;
+            GUI.Window(settingsId, settingsRect, DrawSettingsContents, GUIContent.none, GUIStyle.none);
+            GUI.BringWindowToFront(settingsId);
+            KOSMouseBlocking.Show(ref settingsMouseArea, "TermWindowSettings" + UniqueId, settingsRect);
+        }
+
+        private void DrawSettingsContents(int windowId)
+        {
+            TerminalChromeLayout chrome = Layout;
+            var panel = new Rect(0, 0, settingsRect.width, settingsRect.height);
+            KOSStyle.Fill(panel, KOSStyle.PanelBackground);
+            KOSStyle.Frame(panel, chrome.Border, KOSStyle.FrameColor);
+            IScreenBuffer screen = shared == null ? null : shared.Screen;
+            if (screen == null) return;
+
+            int fontSize = chrome.FontSize;
+            float rowHeight = SettingsRowHeight(chrome);
+            var row = new Rect(chrome.Padding, chrome.Padding, panel.width - 2 * chrome.Padding, rowHeight);
+
+            // The screen's settings are set only when changed (the old controls set them on
+            // every frame, which rounded TERMINAL:BRIGHTNESS to a float while the window was open):
+            bool reverse = KOSStyle.Toggle(row, screen.ReverseScreen, "Reverse screen", fontSize, chrome.Border);
+            if (reverse != screen.ReverseScreen)
+                screen.ReverseScreen = reverse;
+            row.y += rowHeight;
+            bool visualBeep = KOSStyle.Toggle(row, screen.VisualBeep, "Visual beep", fontSize, chrome.Border);
+            if (visualBeep != screen.VisualBeep)
+                screen.VisualBeep = visualBeep;
+            row.y += rowHeight;
+            keyClickEnabled = KOSStyle.Toggle(row, keyClickEnabled, "Key click", fontSize, chrome.Border);
+            row.y += rowHeight;
+
+            GUIStyle label = KOSStyle.Label(fontSize);
+            float labelWidth = Mathf.Round(row.width * 0.45f);
+            KOSStyle.Text(new Rect(row.x + 2, row.y, labelWidth - 2, row.height), "Brightness", label, KOSStyle.ChromeText);
+            float brightness = (float)screen.Brightness;
+            float picked = KOSStyle.Slider(new Rect(row.x + labelWidth, row.y + Mathf.Round(rowHeight * 0.2f), row.width - labelWidth, Mathf.Round(rowHeight * 0.6f)),
+                brightness, 0f, 1f);
+            if (picked != brightness)
+                screen.Brightness = picked;
+            row.y += rowHeight;
+
+            KOSStyle.Text(new Rect(row.x + 2, row.y, labelWidth - 2, row.height), "Character size", label, KOSStyle.ChromeText);
+            int charHeight = screen.CharacterPixelHeight;
+            float buttonSize = Mathf.Round(rowHeight * 0.8f);
+            float buttonY = Mathf.Round(row.y + (rowHeight - buttonSize) / 2f);
+            var less = new Rect(row.x + labelWidth, buttonY, buttonSize, buttonSize);
+            var more = new Rect(row.xMax - buttonSize, buttonY, buttonSize, buttonSize);
+            KOSStyle.Text(new Rect(less.xMax, row.y, Math.Max(0, more.x - less.xMax), row.height), charHeight + " px", KOSStyle.CenteredLabel(fontSize), KOSStyle.ChromeText);
+            // In steps of 2 within CHARHEIGHT's range, as the old -/+ buttons; applied at the next OnGUI:
+            if (KOSStyle.Button(less, "-", fontSize))
+                postponedCharPixelHeight = Math.Max(TerminalStruct.MINCHARPIXELS, charHeight - 2);
+            if (KOSStyle.Button(more, "+", fontSize))
+                postponedCharPixelHeight = Math.Min(TerminalStruct.MAXCHARPIXELS, charHeight + 2);
+        }
+
+        /// <summary>A press outside the settings popover closes it (its button toggles it in <see cref="DrawHeader"/>).</summary>
+        private void CloseSettingsOnClickOutside()
+        {
+            if (!settingsOpen) return;
+            if (!Input.GetMouseButtonDown(0) && !Input.GetMouseButtonDown(1) && !Input.GetMouseButtonDown(2)) return;
+            var mouse = new Vector2(Input.mousePosition.x, UnityEngine.Screen.height - Input.mousePosition.y);
+            if (!settingsRect.Contains(mouse) && !settingsButtonRect.Contains(mouse))
+                settingsOpen = false;
+        }
+
+        protected override bool ContainsPoint(Vector2 posAbsolute)
+        {
+            return base.ContainsPoint(posAbsolute) || (settingsOpen && settingsRect.Contains(posAbsolute));
         }
         
         protected Color AdjustColor(Color baseColor, double brightness)
@@ -1273,17 +1418,6 @@ namespace kOS.Screen
             return newColor;
         }
 
-        /// <summary>
-        ///  Draw a little status line at the bottom as a reminder that you are sharing the terminal with a telnet session:
-        /// </summary>
-        protected void DrawTelnetStatus()
-        {
-            int num = session.ViewerCount;
-            string message = String.Format( "{0} telnet client{1} attached", num, (num == 1 ? "" : "s"));
-            GUI.DrawTexture(new Rect(10, WindowRect.height - 25, 25, 25), networkZigZagImage);
-            GUI.Label(new Rect(40, WindowRect.height - 25, 160, 20), message);
-        }
-        
         protected void CheckResizeDrag()
         {
             CheckResizeDrag(true);
@@ -1296,10 +1430,13 @@ namespace kOS.Screen
                 if (resizeMouseDown) // and it's in the midst of a drag.
                 {
                     Vector2 dragDelta = MousePosAbsolute - MouseButtonDownPosAbsolute;
+                    // No smaller than the script minimum of cells; the fault fallback needs its buttons.
+                    float minWidth = updateScreenSize ? Layout.MinimumWindowWidth : 200;
+                    float minHeight = updateScreenSize ? Layout.MinimumWindowHeight : 200;
                     WindowRect = new Rect(WindowRect.xMin,
                                           WindowRect.yMin,
-                                          Math.Max(resizeOldSize.x + dragDelta.x, 200),
-                                          Math.Max(resizeOldSize.y + dragDelta.y, 200));
+                                          Math.Max(resizeOldSize.x + dragDelta.x, minWidth),
+                                          Math.Max(resizeOldSize.y + dragDelta.y, minHeight));
                 }
             }
             else // mouse button is up
@@ -1402,6 +1539,7 @@ namespace kOS.Screen
             NotifyOfScreenResize(shared.Screen);
             shared.Screen.AddResizeNotifier(NotifyOfScreenResize);
             baseTitle = CalcualteTitle();
+            headerTitle = CalculateHeaderTitle();
             session.ChangeTitle(baseTitle); // the state follows in the next update
 
             soundMaker.AttachTo(shared); // Attach the soundMaker also
@@ -1418,14 +1556,17 @@ namespace kOS.Screen
             if (now < nextStatusTime) return;
             nextStatusTime = now + statusInterval;
             baseTitle = CalcualteTitle();
+            headerTitle = CalculateHeaderTitle();
             if (IsOpen || session.ViewerCount > 0) // nobody to show it to otherwise
             {
                 try
                 {
-                    statusText = DescribeStatus();
+                    status = DescribeStatus();
+                    statusText = status.Text;
                 }
                 catch (Exception ex) when (!(ex is OutOfMemoryException))
                 {
+                    status = null;
                     statusText = string.Empty; // the state must never stop the terminal
                     if (!reportedStatusFailure)
                     {
@@ -1437,9 +1578,9 @@ namespace kOS.Screen
             session.ChangeTitle(TerminalStatus.TitleWithStatus(baseTitle, statusText));
         }
 
-        private string DescribeStatus()
+        private TerminalStatus DescribeStatus()
         {
-            var status = new TerminalStatus();
+            var status = new TerminalStatus { TelnetClients = session.ViewerCount };
             var processor = shared.Processor as kOSProcessor;
             if (processor != null)
                 status.Mode = processor.ProcessorMode;
@@ -1466,7 +1607,7 @@ namespace kOS.Screen
             {
                 waitingDisplay.Reset(); // off, no power or booting: a later wait starts afresh
             }
-            return status.Text;
+            return status;
         }
 
         internal string CalcualteTitle()
@@ -1477,6 +1618,19 @@ namespace kOS.Screen
                                 shared.KSPPart.partInfo.title.Split(' ')[0], // just the first word of the name, i.e "CX-4181"
                                 ((partTag==null) ? "" : partTag.nameTag)
                                 );
+        }
+
+        /// <summary>
+        /// The GUI header's title (Phase 4): <c>vessel · CX-4181 · tag</c>, without the tag when
+        /// there is none. Telnet keeps <see cref="CalcualteTitle"/>.
+        /// </summary>
+        private string CalculateHeaderTitle()
+        {
+            KOSNameTag partTag = shared.KSPPart.Modules.OfType<KOSNameTag>().FirstOrDefault();
+            string title = shared.Vessel.vesselName + KOSStyle.Separator + shared.KSPPart.partInfo.title.Split(' ')[0];
+            if (partTag != null && !string.IsNullOrEmpty(partTag.nameTag))
+                title += KOSStyle.Separator + partTag.nameTag;
+            return title;
         }
         
         /// <summary>
@@ -1500,10 +1654,18 @@ namespace kOS.Screen
 
         internal int NotifyOfScreenResize(IScreenBuffer sb)
         {
-            WindowRect = new Rect(WindowRect.xMin, WindowRect.yMin, sb.ColumnCount*sb.CharacterPixelWidth + 65, sb.RowCount*sb.CharacterPixelHeight + 100);
+            FitWindowToScreen(sb);
 
             session.ScreenResized(); // telnet clients of another size are asked to follow (decision D3)
             return 0;
+        }
+
+        /// <summary>The window's size for the screen's cells, with the chrome at the current UI scale.</summary>
+        private void FitWindowToScreen(IScreenBuffer sb)
+        {
+            var fit = new TerminalChromeLayout(KOSStyle.UiScale, sb.CharacterPixelWidth, sb.CharacterPixelHeight);
+            fittedScale = fit.Scale;
+            WindowRect = new Rect(WindowRect.xMin, WindowRect.yMin, fit.WindowWidthFor(sb.ColumnCount), fit.WindowHeightFor(sb.RowCount));
         }
         
         public void ClearScreen()
@@ -1518,12 +1680,12 @@ namespace kOS.Screen
         
         private int HowManyRowsFit()
         {
-            return (int)(WindowRect.height - 100) / shared.Screen.CharacterPixelHeight;
+            return Layout.RowsThatFit(WindowRect.height);
         }
 
         private int HowManyColumnsFit()
         {
-            return (int)(WindowRect.width - 65) / shared.Screen.CharacterPixelWidth;
+            return Layout.ColumnsThatFit(WindowRect.width);
         }
         
         private static GUISkin BuildPanelSkin()

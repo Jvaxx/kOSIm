@@ -345,19 +345,29 @@ namespace kOS.Screen
             GUI.BringWindowToFront(uniqueId);
         }
 
+        /// <summary>
+        /// Whether a point (absolute GUI coordinates) is on this window: its rectangle, and
+        /// for a window that draws a part outside it (the terminal's settings popover), that
+        /// part too, so a click there keeps the keyboard focus.
+        /// </summary>
+        protected virtual bool ContainsPoint(Vector2 posAbsolute)
+        {
+            return windowRect.Contains(posAbsolute);
+        }
+
         // Returns true only if the position is inside this window and NOT inside
         // any terminal windows that are closer to the front.
         // (This is the sort of basic checking that Unity's GUI *should* do itself
         // but it seems quite bad at it.)
         public bool IsInsideMyExposedPortion(Vector2 posAbsolute)
         {
-            if (windowRect.Contains(posAbsolute))
+            if (ContainsPoint(posAbsolute))
             {
                 int myDepthIndex = depthSort.FindIndex(t => t == this);
                 bool insideHigher = false;
                 for (int stackedIndex = myDepthIndex - 1 ; (!insideHigher) && stackedIndex >= 0 ; --stackedIndex)
                 {
-                    insideHigher = depthSort[stackedIndex].windowRect.Contains(posAbsolute);
+                    insideHigher = depthSort[stackedIndex].ContainsPoint(posAbsolute);
                 }
                 if (!insideHigher)
                     return true;

@@ -50,6 +50,70 @@ namespace kOS.Safe.Test.Terminal
             Assert.AreEqual("ship", TerminalStatus.TitleWithStatus("ship", ""));
         }
 
+        // Phase 4, step 1: the parts for the GUI's status strip.
+
+        private static string[] ChipTexts(TerminalStatus status)
+        {
+            return status.Chips.ConvertAll(chip => chip.Text).ToArray();
+        }
+
+        [Test]
+        public void TheStripGetsThePartsSeparately()
+        {
+            var status = new TerminalStatus { ProgramPath = "0:/a.ks", DelaySecondsLeft = 12.3, Connected = false, NewOutput = true, TelnetClients = 2 };
+            Assert.AreEqual(StatusKind.Running, status.Kind);
+            Assert.AreEqual("Running 0:/a.ks", status.StateText);
+            CollectionAssert.AreEqual(new[] { "Delay 12 s", "No connection", "New output", "2 telnet clients" }, ChipTexts(status));
+            Assert.AreEqual("Running 0:/a.ks | Delay 12 s | No connection | New output", status.Text, "the telnet title has no client count");
+
+            var sending = new TerminalStatus { AtPrompt = true, DelaySecondsLeft = 2.44, TelnetClients = 1 };
+            Assert.AreEqual(StatusKind.Sending, sending.Kind);
+            Assert.AreEqual("Delay 2.4 s", sending.StateText, "in place of Ready, as in the title");
+            CollectionAssert.AreEqual(new[] { "1 telnet client" }, ChipTexts(sending), "the delay is not repeated");
+            Assert.AreEqual("Delay 2.4 s", sending.Text);
+        }
+
+        [Test]
+        public void TheKindColorsTheDot()
+        {
+            Assert.AreEqual(StatusKind.Off, new TerminalStatus { Mode = ProcessorModes.OFF }.Kind);
+            Assert.AreEqual(StatusKind.NoPower, new TerminalStatus { Mode = ProcessorModes.STARVED }.Kind);
+            Assert.AreEqual(StatusKind.Starting, new TerminalStatus { Booted = false, AtPrompt = true }.Kind);
+            Assert.AreEqual(StatusKind.Ready, new TerminalStatus { AtPrompt = true }.Kind);
+            Assert.AreEqual(StatusKind.Running, new TerminalStatus().Kind);
+            Assert.AreEqual(StatusKind.Waiting, new TerminalStatus { ProgramPath = "0:/a.ks", Waiting = true }.Kind);
+            Assert.AreEqual(StatusKind.Waiting, new TerminalStatus { Waiting = true }.Kind);
+        }
+
+        [Test]
+        public void OffNoPowerAndStartingHaveOnlyTheClientCount()
+        {
+            foreach (var status in new[]
+            {
+                new TerminalStatus { Mode = ProcessorModes.OFF, Connected = false, NewOutput = true, DelaySecondsLeft = 1 },
+                new TerminalStatus { Mode = ProcessorModes.STARVED, Connected = false, NewOutput = true },
+                new TerminalStatus { Booted = false, Connected = false, NewOutput = true }
+            })
+            {
+                Assert.AreEqual(0, status.Chips.Count, status.StateText);
+                status.TelnetClients = 3;
+                CollectionAssert.AreEqual(new[] { "3 telnet clients" }, ChipTexts(status), status.StateText);
+                Assert.AreEqual(status.StateText, status.Text, "as before: the state says it all");
+            }
+        }
+
+        [Test]
+        public void ChipPriorities()
+        {
+            var status = new TerminalStatus { ProgramPath = "0:/a.ks", DelaySecondsLeft = 1, Connected = false, NewOutput = true, TelnetClients = 1 };
+            int[] priorities = status.Chips.ConvertAll(chip => chip.Priority).ToArray();
+            CollectionAssert.AreEqual(new[] { StatusChipKind.Delay, StatusChipKind.NoConnection, StatusChipKind.NewOutput, StatusChipKind.Telnet },
+                status.Chips.ConvertAll(chip => chip.Kind).ToArray(), "the order shown");
+            Assert.Greater(priorities[1], priorities[0], "no connection is kept longest");
+            Assert.Greater(priorities[0], priorities[2], "then the delay");
+            Assert.Greater(priorities[2], priorities[3], "then new output; the client count goes first");
+        }
+
         // STATUS-01: Waiting kept across the short runs between waits.
 
         [Test]
