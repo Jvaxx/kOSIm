@@ -65,9 +65,35 @@ namespace kOS.Screen
         private static string ellipsis = "...";
         private static string separator = " - ";
 
+        private static Font builtinFont;
+        private static string chromeFontSource = "none";
+
+        /// <summary>
+        /// KSP skin's label font, else the skin's font, else Unity's built-in Arial (what IMGUI
+        /// draws a style without a font in). KSP's skin can leave both unset (CHROME-FONT-01,
+        /// Proton pass 2026-10-20). Not <c>GUI.skin</c>: it throws outside <c>OnGUI</c>, and the
+        /// title is worked out in <c>Update</c>.
+        /// </summary>
         private static Font ChromeFont
         {
-            get { return HighLogic.Skin != null && HighLogic.Skin.label != null ? HighLogic.Skin.label.font : null; }
+            get
+            {
+                GUISkin skin = HighLogic.fetch != null ? HighLogic.Skin : null;
+                if (skin != null && skin.label != null && skin.label.font != null)
+                {
+                    chromeFontSource = "KSP label";
+                    return skin.label.font;
+                }
+                if (skin != null && skin.font != null)
+                {
+                    chromeFontSource = "KSP skin";
+                    return skin.font;
+                }
+                if (builtinFont == null) // Unity's ==: also when destroyed
+                    builtinFont = Resources.GetBuiltinResource(typeof(Font), "Arial.ttf") as Font;
+                chromeFontSource = "built-in";
+                return builtinFont;
+            }
         }
 
         /// <summary>Ends a shortened text: "…" if the chrome font has it, else "...".</summary>
@@ -85,13 +111,14 @@ namespace kOS.Screen
         private static void CheckFont()
         {
             if (fontChecked) return;
+            if (HighLogic.fetch == null || HighLogic.Skin == null) return; // the skin is not loaded yet: ask again later
             Font font = ChromeFont;
-            if (font == null) return; // the skin is not loaded yet: ask again later
+            if (font == null) return;
             fontChecked = true;
             bool hasEllipsis = HasGlyph(font, '…'), hasDot = HasGlyph(font, '·');
             if (hasEllipsis) ellipsis = "…";
             if (hasDot) separator = " · ";
-            Debug.Log(string.Format("kOS: chrome font {0}: ellipsis {1}, middle dot {2}", font.name,
+            Debug.Log(string.Format("kOS: chrome font {0} ({1}): ellipsis {2}, middle dot {3}", font.name, chromeFontSource,
                 hasEllipsis ? "yes" : "no (using ...)", hasDot ? "yes" : "no (using -)"));
         }
 

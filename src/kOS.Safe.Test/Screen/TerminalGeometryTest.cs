@@ -249,5 +249,120 @@ namespace kOS.Safe.Test.Terminal
             AssertRect(0, 0, 400, 300, WindowPlacement.KeepOnScreen(Rect(float.NaN, float.NegativeInfinity, 400, 300), 1024, 768),
                 "a broken position");
         }
+
+        // DRAG-01: a 400x300 window, its header 20 high, its buttons from x 340 (60 wide), 48 reachable.
+
+        private static kOS.Safe.UserIO.ScreenRect Reachable(float x, float y)
+        {
+            return WindowPlacement.KeepReachable(Rect(x, y, 400, 300), 340, 20, 48, 1024, 768);
+        }
+
+        [Test]
+        public void AMovedWindowMayLeaveTheScreenByItsSidesAndBottom()
+        {
+            AssertRect(-200, 100, 400, 300, Reachable(-200, 100), "half off the left");
+            AssertRect(900, 100, 400, 300, Reachable(900, 100), "most of it off the right");
+            AssertRect(100, 700, 400, 300, Reachable(100, 700), "below the bottom, its header on screen");
+            AssertRect(50, 60, 400, 300, Reachable(50, 60), "on screen: not moved");
+        }
+
+        [Test]
+        public void AMovedWindowKeepsEnoughOfItsHeaderToMoveItBack()
+        {
+            AssertRect(-292, 100, 400, 300, Reachable(-1000, 100), "off the left: the buttons and 48 pixels left of them");
+            AssertRect(976, 100, 400, 300, Reachable(2000, 100), "off the right: 48 pixels of the title's end");
+            AssertRect(100, 748, 400, 300, Reachable(100, 1000), "off the bottom: the whole header");
+            AssertRect(100, 0, 400, 300, Reachable(100, -5), "never above the top");
+        }
+
+        [Test]
+        public void ANarrowWindowCannotLeaveByTheLeft()
+        {
+            AssertRect(0, 100, 90, 300, WindowPlacement.KeepReachable(Rect(-50, 100, 90, 300), 30, 20, 48, 1024, 768),
+                "buttons and reachable part wider than the window");
+        }
+
+        [Test]
+        public void KeepReachableHandlesAnUnknownScreenOrPosition()
+        {
+            AssertRect(-5000, -20, 400, 300, WindowPlacement.KeepReachable(Rect(-5000, -20, 400, 300), 340, 20, 48, 0, 0),
+                "screen not known yet");
+            AssertRect(0, 0, 400, 300, WindowPlacement.KeepReachable(Rect(float.NaN, float.PositiveInfinity, 400, 300), 340, 20, 48, 1024, 768),
+                "a broken position");
+        }
+    }
+
+    /// <summary>DRAG-01: when a window is kept wholly on screen and when only by its header.</summary>
+    [TestFixture]
+    public class WindowKeeperTest
+    {
+        private static kOS.Safe.UserIO.ScreenRect Rect(float x, float y, float width, float height)
+        {
+            return new kOS.Safe.UserIO.ScreenRect(x, y, width, height);
+        }
+
+        private static kOS.Safe.UserIO.ScreenRect Keep(WindowKeeper keeper, kOS.Safe.UserIO.ScreenRect window,
+            float screenWidth = 1024, float screenHeight = 768, float scale = 1)
+        {
+            return keeper.Keep(window, window.Width - 60, 20, 48, screenWidth, screenHeight, scale);
+        }
+
+        private static WindowKeeper Drawn(kOS.Safe.UserIO.ScreenRect window)
+        {
+            var keeper = new WindowKeeper();
+            Keep(keeper, window);
+            return keeper;
+        }
+
+        [Test]
+        public void TheFirstDrawFitsTheWindowWholly()
+        {
+            Assert.AreEqual(-200f, Keep(Drawn(Rect(50, 60, 400, 300)), Rect(-200, 60, 400, 300)).X, "then moved: partly off");
+            Assert.AreEqual(0f, Keep(new WindowKeeper(), Rect(-200, 60, 400, 300)).X, "restored partly off");
+        }
+
+        [Test]
+        public void AMovedWindowStaysPartlyOffAtLaterDraws()
+        {
+            WindowKeeper keeper = Drawn(Rect(50, 60, 400, 300));
+            Keep(keeper, Rect(-200, 600, 400, 300));
+            kOS.Safe.UserIO.ScreenRect again = Keep(keeper, Rect(-200, 600, 400, 300));
+            Assert.AreEqual(-200f, again.X);
+            Assert.AreEqual(600f, again.Y);
+        }
+
+        [Test]
+        public void OpeningOrRestoringFitsItWholly()
+        {
+            WindowKeeper keeper = Drawn(Rect(50, 60, 400, 300));
+            Keep(keeper, Rect(-200, 600, 400, 300));
+            keeper.FitWhollyNext();
+            kOS.Safe.UserIO.ScreenRect opened = Keep(keeper, Rect(-200, 600, 400, 300));
+            Assert.AreEqual(0f, opened.X);
+            Assert.AreEqual(468f, opened.Y);
+            Assert.AreEqual(-100f, Keep(keeper, Rect(-100, 468, 400, 300)).X, "moved off again after");
+        }
+
+        [Test]
+        public void AScreenOrScaleChangeFitsItWholly()
+        {
+            WindowKeeper keeper = Drawn(Rect(50, 60, 400, 300));
+            Keep(keeper, Rect(-200, 60, 400, 300));
+            Assert.AreEqual(0f, Keep(keeper, Rect(-200, 60, 400, 300), 1920, 1080).X, "resolution");
+            Keep(keeper, Rect(-200, 60, 400, 300), 1920, 1080);
+            Assert.AreEqual(0f, Keep(keeper, Rect(-200, 60, 400, 300), 1920, 1080, 1.3f).X, "UI scale");
+        }
+
+        [Test]
+        public void ASizeChangeFitsItWhollyUnlessTheUserDraggedAnEdge()
+        {
+            WindowKeeper keeper = Drawn(Rect(50, 60, 400, 300));
+            Keep(keeper, Rect(-200, 60, 400, 300));
+            Assert.AreEqual(0f, Keep(keeper, Rect(-200, 60, 480, 300)).X, "character size or script");
+
+            Keep(keeper, Rect(-200, 60, 480, 300));
+            keeper.SizedByUser(Rect(-200, 60, 560, 300));
+            Assert.AreEqual(-200f, Keep(keeper, Rect(-200, 60, 560, 300)).X, "the user's edge drag");
+        }
     }
 }

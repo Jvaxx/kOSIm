@@ -105,6 +105,7 @@ namespace kOS.Screen
         // A resize drag by an edge, a corner or the grip, while resizeEdges is not None. The
         // window follows it snapped to cells; the screen takes the new size on release.
         private ResizeEdges resizeEdges;
+        private readonly WindowKeeper keeper = new WindowKeeper();
         private Rect resizeStartRect;
         private Vector2 resizeStartMouse; // absolute
         private int resizeStartColumns;
@@ -249,6 +250,7 @@ namespace kOS.Screen
         {
             base.Open(takeFocus);
             BringToFront();
+            keeper.FitWhollyNext(); // a window left partly off screen comes back on (DRAG-01)
             guiTerminalBeepsPending = 0; // Closing and opening the window will wipe pending beeps from the beep queue.
             nextStatusTime = DateTime.MinValue; // the strip's state, not the one from before it was closed
         }
@@ -351,11 +353,11 @@ namespace kOS.Screen
             GUI.color = color;
 
             FollowResizeDrag();
-            // Restored, the resolution or UI scale changed, resized: the window stays on screen (step 2).
+            // Restored, opened, the resolution, UI scale or size changed: the window comes wholly on screen (step 2, DRAG-01).
             KeepOnScreen();
             // No KSP window skin or title: the window draws its own header and frame (Phase 4).
             WindowRect = GUI.Window(UniqueId, WindowRect, TerminalGui, GUIContent.none, GUIStyle.none);
-            KeepOnScreen(); // moved by its header or strip
+            KeepOnScreen(); // moved by its header or strip: partly off screen is allowed (DRAG-01)
             BlockMouseOver(WindowRect);
             if (guiPaste.IsAwaitingConfirmation)
                 DrawPasteConfirmation();
@@ -1451,17 +1453,25 @@ namespace kOS.Screen
                 resizeTarget = TerminalResize.Drag(Layout, ToScreenRect(resizeStartRect), resizeStartColumns, resizeStartRows,
                     resizeEdges, delta.x, delta.y, UnityEngine.Screen.width, UnityEngine.Screen.height);
                 WindowRect = ToRect(resizeTarget.Window);
+                keeper.SizedByUser(resizeTarget.Window);
                 return;
             }
             resizeEdges = ResizeEdges.None;
             shared.Screen.SetSize(resizeTarget.Rows, resizeTarget.Columns);
             FitWindowToScreen(shared.Screen); // also when the cells did not change (SetSize then does not notify)
+            keeper.SizedByUser(ToScreenRect(WindowRect));
         }
 
-        /// <summary>The window moved onto the screen if it is off it, its size kept (step 2, Q2).</summary>
+        /// <summary>
+        /// The window kept on screen, its size kept (step 2, Q2): wholly after a restore, an
+        /// open, a change of resolution, UI scale or size; while moved, by its header (DRAG-01).
+        /// </summary>
         private void KeepOnScreen()
         {
-            WindowRect = ToRect(WindowPlacement.KeepOnScreen(ToScreenRect(WindowRect), UnityEngine.Screen.width, UnityEngine.Screen.height));
+            TerminalChromeLayout chrome = Layout;
+            float reachable = (float)Math.Round(WindowPlacement.BASE_REACHABLE_HEADER * chrome.Scale);
+            WindowRect = ToRect(keeper.Keep(ToScreenRect(WindowRect), chrome.HeaderButtons(WindowRect.width).X, chrome.HeaderHeight,
+                reachable, UnityEngine.Screen.width, UnityEngine.Screen.height, chrome.Scale));
         }
 
         /// <summary>
@@ -1706,6 +1716,7 @@ namespace kOS.Screen
             // The saved geometry, value by value, else the defaults. A boot script that sets the
             // size runs later and wins (D3: the last resize).
             this.geometryStore = geometryStore;
+            keeper.FitWhollyNext();
             TerminalGeometry saved = (geometryStore == null ? null : geometryStore.Load()) ?? new TerminalGeometry();
             
             shared.Screen.CharacterPixelWidth = 8; // will be overridden later when drawing the font.

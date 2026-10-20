@@ -15,6 +15,10 @@ namespace kOS.Screen
     /// vessel, flight controls or staging. Windows report where they drew with
     /// <see cref="Show"/>; <see cref="KOSMouseBlockingDriver"/> updates the lock every frame.
     /// </para>
+    /// <para>
+    /// In flight KSP opens part menus and highlights parts without looking at any lock, so each
+    /// visible window also gets a Unity UI raycast blocker (INPUT-02, <see cref="KOSRaycastBlockers"/>).
+    /// </para>
     /// </summary>
     public static class KOSMouseBlocking
     {
@@ -68,6 +72,7 @@ namespace kOS.Screen
         }
 
         private static MouseBlocking instance;
+        private static readonly KOSRaycastBlockers blockers = new KOSRaycastBlockers();
         private static GameEventHooks hooks;
         private static bool errorLogged;
 
@@ -118,6 +123,14 @@ namespace kOS.Screen
             area = null;
             if (instance != null)
                 instance.Unregister(old);
+            try
+            {
+                blockers.Remove(old);
+            }
+            catch (Exception ex)
+            {
+                LogFirst(ex);
+            }
         }
 
         /// <summary>Decide and apply the lock for the current mouse. Cheap; harmless to call more than once a frame.</summary>
@@ -135,6 +148,19 @@ namespace kOS.Screen
                 // Refused lock changes are retried every frame; log only the first failure.
                 LogFirst(ex);
             }
+            UpdateBlockers();
+        }
+
+        private static void UpdateBlockers()
+        {
+            try
+            {
+                Instance.UpdateBlockers(Time.frameCount, blockers);
+            }
+            catch (Exception ex)
+            {
+                LogFirst(ex);
+            }
         }
 
         private static void OnSceneLoadRequested(GameScenes scene)
@@ -147,6 +173,7 @@ namespace kOS.Screen
             {
                 LogFirst(ex);
             }
+            UpdateBlockers(); // nothing is shown any more: every blocker hidden
         }
 
         private static void LogFirst(Exception ex)

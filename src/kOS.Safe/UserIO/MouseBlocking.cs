@@ -14,6 +14,24 @@ namespace kOS.Safe.UserIO
         void Unlock();
     }
 
+    /// <summary>
+    /// Raycast blockers for <see cref="MouseBlocking.UpdateBlockers"/> (INPUT-02): one per
+    /// window, which the game makes a transparent Unity UI element, so the scene's own "pointer
+    /// over UI" checks see the kOS window. KSP's part clicks and part hover use only those
+    /// checks, not <c>InputLockManager</c>. Tests record the calls.
+    /// </summary>
+    public interface IRaycastBlockers
+    {
+        /// <summary>The window's blocker covers <paramref name="rect"/> (GUI coordinates). Called every update: change nothing when nothing changed.</summary>
+        void Show(MouseBlocking.Area area, ScreenRect rect);
+
+        /// <summary>The window's blocker, if it has one, stops blocking.</summary>
+        void Hide(MouseBlocking.Area area);
+
+        /// <summary>The window is gone: its blocker, if it has one, is destroyed.</summary>
+        void Remove(MouseBlocking.Area area);
+    }
+
     /// <summary>A rectangle in GUI screen coordinates (origin top left), like Unity's <c>Rect</c>.</summary>
     public struct ScreenRect
     {
@@ -169,6 +187,26 @@ namespace kOS.Safe.UserIO
             {
                 sink.Unlock();
                 HoldsLock = false;
+            }
+        }
+
+        /// <summary>
+        /// Puts a blocker over each window visible in <paramref name="frame"/> (the same
+        /// visibility as the lock's), and hides the others' (INPUT-02). Unlike the lock, a
+        /// blocker covers its window only, whatever the mouse does: Unity's UI tests the mouse
+        /// itself each frame. KSP opens a part's menu only for a press and release within 0.2 s,
+        /// so a drag that leaves a window needs no blocker outside it.
+        /// </summary>
+        public void UpdateBlockers(int frame, IRaycastBlockers blockers)
+        {
+            if (blockers == null)
+                throw new ArgumentNullException("blockers");
+            foreach (Area a in areas)
+            {
+                if (IsVisible(a, frame))
+                    blockers.Show(a, a.Rect);
+                else
+                    blockers.Hide(a);
             }
         }
 

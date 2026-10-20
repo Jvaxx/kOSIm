@@ -68,6 +68,9 @@ namespace kOS.Screen
         private DateTime noticeEnd;
 
         private ResizeEdges resizeEdges = ResizeEdges.None;
+        private readonly WindowKeeper keeper = new WindowKeeper();
+        /// <summary>The header's buttons' width at the last draw, which a window moved off the left keeps on screen (DRAG-01).</summary>
+        private float headerButtonsWidth;
         private Rect resizeStartRect;
         private Vector2 resizeStartMouse;
 
@@ -157,6 +160,7 @@ namespace kOS.Screen
             }
             base.Open(takeFocus);
             BringToFront();
+            keeper.FitWhollyNext(); // a window left partly off screen comes back on (DRAG-01)
             focusTextPending = takeFocus;
         }
 
@@ -207,7 +211,7 @@ namespace kOS.Screen
             FollowResizeDrag();
             KeepOnScreen();
             WindowRect = GUI.Window(UniqueId, WindowRect, ProcessWindow, GUIContent.none, GUIStyle.none);
-            KeepOnScreen(); // moved by its header
+            KeepOnScreen(); // moved by its header: partly off screen is allowed (DRAG-01)
             BlockMouseOver(WindowRect);
             if (focusTextPending && !InteractionFrozen)
                 GUI.FocusWindow(UniqueId); // the keys go to this window's text (see DrawText)
@@ -453,6 +457,7 @@ namespace kOS.Screen
             };
             List<ScreenRect> headerButtons = flat.HeaderButtons(width, buttonWidths);
             float buttonsLeft = headerButtons[0].X;
+            headerButtonsWidth = width - buttonsLeft;
             var keep = new ScreenRect(buttonsLeft, 0, width - buttonsLeft, flat.HeaderHeight);
 
             if (interactive)
@@ -614,14 +619,20 @@ namespace kOS.Screen
             return new Vector2(Input.mousePosition.x, UnityEngine.Screen.height - Input.mousePosition.y);
         }
 
-        /// <summary>On screen, and no smaller than the minimum (the UI scale may have grown).</summary>
+        /// <summary>
+        /// No smaller than the minimum (the UI scale may have grown), and on screen: wholly after
+        /// an open, a change of resolution, UI scale or size; while moved, by its header (DRAG-01).
+        /// </summary>
         private void KeepOnScreen()
         {
             FlatWindowLayout flat = Layout;
             Rect rect = WindowRect;
             rect.width = Math.Max(rect.width, flat.EditorMinimumWidth);
             rect.height = Math.Max(rect.height, flat.EditorMinimumHeight);
-            WindowRect = ToRect(WindowPlacement.KeepOnScreen(ToScreenRect(rect), UnityEngine.Screen.width, UnityEngine.Screen.height));
+            float buttons = headerButtonsWidth > 0 ? headerButtonsWidth : flat.IconButtonWidth; // not drawn yet: the close button
+            float reachable = (float)Math.Round(WindowPlacement.BASE_REACHABLE_HEADER * flat.Scale);
+            WindowRect = ToRect(keeper.Keep(ToScreenRect(rect), rect.width - buttons, flat.HeaderHeight, reachable,
+                UnityEngine.Screen.width, UnityEngine.Screen.height, flat.Scale));
         }
 
         /// <summary>A press on an edge, a corner or the grip starts a resize drag, followed in <see cref="FollowResizeDrag"/>.</summary>
@@ -650,6 +661,7 @@ namespace kOS.Screen
             Vector2 delta = MouseOnScreen() - resizeStartMouse;
             WindowRect = ToRect(WindowResize.Drag(ToScreenRect(resizeStartRect), resizeEdges, delta.x, delta.y,
                 flat.EditorMinimumWidth, flat.EditorMinimumHeight, UnityEngine.Screen.width, UnityEngine.Screen.height));
+            keeper.SizedByUser(ToScreenRect(WindowRect));
         }
 
         /// <summary>Over the frame: the edges a press would resize, or are resizing, in the accent color.</summary>

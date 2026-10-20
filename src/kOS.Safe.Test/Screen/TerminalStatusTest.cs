@@ -188,16 +188,19 @@ namespace kOS.Safe.Test.Terminal
         {
             using (var host = new ScriptHost())
             {
-                Write(host, "statusmain.ks", "runpath(\"0:/statuslib.ks\").\nwait 2.\nprint \"done\".\n");
-                Write(host, "statuslib.ks", "wait 0.1.\n");
+                Write(host, "statusmain.ks", "runpath(\"0:/statuslib.ks\").\nprint \"main waits\".\nwait 2.\nprint \"done\".\n");
+                Write(host, "statuslib.ks", "print \"lib runs\".\nwait 0.1.\n");
                 host.Boot();
                 Assert.IsNull(host.Cpu.RunningProgramPath, "the interpreter only");
                 Assert.IsFalse(host.Cpu.IsWaitingFor(TerminalStatus.WAIT_SHOWN_AFTER_SECONDS));
 
                 host.Type("runpath(\"0:/statusmain.ks\").\n");
-                Updates(host, 0.6);
+                // Both compiles run on a background thread in wall-clock time (TEST-FLAKE-01):
+                // game time is stepped only once wait 2 has started.
+                UpdateUntil(host, () => host.Transcript().Contains("\nlib runs"));
                 Assert.AreEqual("0:/statusmain.ks", host.Cpu.RunningProgramPath, "the first program, not the library it ran");
                 Assert.IsFalse(host.Screen.IsWaitingForCommand());
+                UpdateUntil(host, () => host.Transcript().Contains("\nmain waits"));
                 Updates(host, 0.6);
                 Assert.IsTrue(host.Cpu.IsWaitingFor(TerminalStatus.WAIT_SHOWN_AFTER_SECONDS), "held by wait 2 for over half a second");
                 Assert.IsFalse(host.Cpu.IsWaitingFor(10));

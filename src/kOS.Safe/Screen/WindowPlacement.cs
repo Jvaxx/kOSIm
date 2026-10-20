@@ -4,8 +4,9 @@ using kOS.Safe.UserIO;
 namespace kOS.Safe.Screen
 {
     /// <summary>
-    /// Keeps a window on the game's screen (Phase 4, step 2): after a restore from a saved
-    /// geometry, a change of resolution or UI scale, a resize, and while it is moved.
+    /// Keeps a window on the game's screen (Phase 4, step 2): wholly after a restore from a
+    /// saved geometry, a change of resolution or UI scale and a resize; while it is moved, only
+    /// enough of its header to move it back (DRAG-01, <see cref="WindowKeeper"/>).
     /// </summary>
     public static class WindowPlacement
     {
@@ -20,6 +21,38 @@ namespace kOS.Safe.Screen
         {
             return new ScreenRect(Along(window.X, window.Width, screenWidth), Along(window.Y, window.Height, screenHeight),
                 window.Width, window.Height);
+        }
+
+        /// <summary>At a UI scale of 1, how much of the header's draggable part a window moved partly off screen keeps on it (DRAG-01).</summary>
+        public const int BASE_REACHABLE_HEADER = 48;
+
+        /// <summary>
+        /// The window moved, as little as possible, so that it can still be moved back by its
+        /// header (DRAG-01): its header wholly on screen vertically (not above the top, not
+        /// below the bottom), and at least <paramref name="reachable"/> pixels of the header's
+        /// draggable part on screen horizontally. Pushed off the left, the header's buttons (from
+        /// <paramref name="buttonsLeft"/>, in the window, to its right edge) stay on screen too,
+        /// as they do not move the window. Its size is never changed. A screen size that is not
+        /// positive (not known yet) leaves the window where it is.
+        /// </summary>
+        public static ScreenRect KeepReachable(ScreenRect window, float buttonsLeft, float headerHeight, float reachable,
+            float screenWidth, float screenHeight)
+        {
+            float x = window.X, y = window.Y;
+            if (screenWidth > 0 && !float.IsInfinity(screenWidth))
+            {
+                if (float.IsNaN(x) || float.IsInfinity(x)) x = 0;
+                float buttons = Math.Max(0, window.Width - Math.Max(0, buttonsLeft));
+                float lowest = Math.Min(0, reachable + buttons - window.Width);
+                float highest = Math.Max(lowest, screenWidth - reachable);
+                x = Math.Max(lowest, Math.Min(x, highest));
+            }
+            if (screenHeight > 0 && !float.IsInfinity(screenHeight))
+            {
+                if (float.IsNaN(y) || float.IsInfinity(y)) y = 0;
+                y = Math.Max(0, Math.Min(y, screenHeight - headerHeight));
+            }
+            return new ScreenRect(x, y, window.Width, window.Height);
         }
 
         /// <summary>

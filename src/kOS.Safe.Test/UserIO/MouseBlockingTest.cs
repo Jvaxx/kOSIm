@@ -351,5 +351,95 @@ namespace kOS.Safe.Test.UserIO
         {
             Assert.Throws<ArgumentNullException>(() => new MouseBlocking(null));
         }
+
+        // INPUT-02: the raycast blockers follow the windows that draw, whatever the mouse does.
+
+        private class RecordingBlockers : IRaycastBlockers
+        {
+            public readonly Dictionary<MouseBlocking.Area, ScreenRect> Shown = new Dictionary<MouseBlocking.Area, ScreenRect>();
+            public readonly List<MouseBlocking.Area> Hidden = new List<MouseBlocking.Area>();
+
+            public void Show(MouseBlocking.Area area, ScreenRect rect)
+            {
+                Shown[area] = rect;
+                Hidden.Remove(area);
+            }
+
+            public void Hide(MouseBlocking.Area area)
+            {
+                Shown.Remove(area);
+                if (!Hidden.Contains(area)) Hidden.Add(area);
+            }
+
+            public void Remove(MouseBlocking.Area area)
+            {
+                Shown.Remove(area);
+                Hidden.Remove(area);
+            }
+        }
+
+        [Test]
+        public void ADrawnWindowGetsABlockerAtItsRectangle()
+        {
+            var blockers = new RecordingBlockers();
+            Hover(OutX, OutY, term); // the mouse is not over it: blocked all the same
+            blocking.UpdateBlockers(frame, blockers);
+            Assert.AreEqual(1, blockers.Shown.Count);
+            Assert.AreEqual(TermRect.ToString(), blockers.Shown[term].ToString());
+            CollectionAssert.AreEqual(new[] { dialog }, blockers.Hidden, "never drawn");
+
+            ++frame; // the next frame's update sees the previous frame's drawing
+            blocking.UpdateBlockers(frame, blockers);
+            Assert.IsTrue(blockers.Shown.ContainsKey(term));
+        }
+
+        [Test]
+        public void ABlockerFollowsItsWindow()
+        {
+            var blockers = new RecordingBlockers();
+            Hover(OutX, OutY, term);
+            blocking.Show(term, new ScreenRect(-200, 50, 400, 300), frame); // moved partly off screen (DRAG-01)
+            blocking.UpdateBlockers(frame, blockers);
+            Assert.AreEqual(new ScreenRect(-200, 50, 400, 300).ToString(), blockers.Shown[term].ToString());
+        }
+
+        [Test]
+        public void AWindowThatStopsDrawingLosesItsBlocker()
+        {
+            var blockers = new RecordingBlockers();
+            Hover(InX, InY, term, dialog);
+            Hover(InX, InY, dialog); // the terminal closed
+            blocking.UpdateBlockers(frame, blockers);
+            Assert.IsTrue(blockers.Shown.ContainsKey(term), "drawn in the previous frame");
+            Hover(InX, InY, dialog);
+            blocking.UpdateBlockers(frame, blockers);
+            Assert.IsFalse(blockers.Shown.ContainsKey(term));
+            CollectionAssert.Contains(blockers.Hidden, term);
+            Assert.IsTrue(blockers.Shown.ContainsKey(dialog));
+        }
+
+        [Test]
+        public void ReleaseAllHidesEveryBlocker()
+        {
+            var blockers = new RecordingBlockers();
+            Hover(InX, InY, term, dialog);
+            blocking.UpdateBlockers(frame, blockers);
+            Assert.AreEqual(2, blockers.Shown.Count);
+            blocking.ReleaseAll(); // scene change
+            blocking.UpdateBlockers(frame, blockers);
+            Assert.AreEqual(0, blockers.Shown.Count);
+        }
+
+        [Test]
+        public void AnUnregisteredWindowIsNoLongerReported()
+        {
+            var blockers = new RecordingBlockers();
+            Hover(InX, InY, term, dialog);
+            blocking.Unregister(term);
+            blocking.UpdateBlockers(frame, blockers);
+            Assert.IsFalse(blockers.Shown.ContainsKey(term));
+            Assert.IsFalse(blockers.Hidden.Contains(term), "the game removes it in Unregister");
+            Assert.Throws<ArgumentNullException>(() => blocking.UpdateBlockers(frame, null));
+        }
     }
 }
