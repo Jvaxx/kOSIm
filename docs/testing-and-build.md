@@ -38,7 +38,7 @@ dotnet msbuild src/kOS.Safe.Test/kOS.Safe.Test.csproj \
 - `KOSHeadless=true` builds the two safe projects without KSPBuildTools (standard .NET Framework references plus the repository's SharpZipLib). Never use it for the full build.
 - NUnit 2.7.1 with the pinned NUnit.Runners console (`.ci/nunit-console.exe.config` selects CLR 4). **Do not use `dotnet test`**: it does not run these tests.
 - The runner deletes the previous report first; results go to `artifacts/tests/Release/nunit.xml` (ignored by git).
-- **Gate** (`.ci/known-test-failures.json`): known failures by exact name and message (currently none), and `minimum_tests` (currently **1241**; raise it as tests are added). It rejects new or changed failures, a known failure that now passes, errors, invalid/inconclusive/unexecuted tests, inconsistent counters, a missing or malformed report, duplicate names, a count below the minimum, and a runner exit status inconsistent with the results. No test is ignored or filtered. Do not expand the baseline to hide a regression.
+- **Gate** (`.ci/known-test-failures.json`): known failures by exact name and message (currently none), and `minimum_tests` (currently **1247**; raise it as tests are added). It rejects new or changed failures, a known failure that now passes, errors, invalid/inconclusive/unexecuted tests, inconsistent counters, a missing or malformed report, duplicate names, a count below the minimum, and a runner exit status inconsistent with the results. No test is ignored or filtered. Do not expand the baseline to hide a regression.
 - Failure propagation was verified with a temporary `Assert.Fail` test (runner exit 4, gate exit 1). To recheck: add a temporary failing test, confirm a nonzero exit, remove it, rerun. Never commit it.
 - Running one fixture alone (`-run=`) fails in `ScriptHost.Boot` for fixtures outside the `Execution` namespace (their `[SetUpFixture]` does not run): use the full gate.
 - Add a regression test with each fix; run a mutation (revert the fix, see the new tests fail) for non-trivial ones.
@@ -117,7 +117,7 @@ dotnet build kOS.sln -c Release --no-incremental
 Probe `dev-tools/font-probe/FontProbe.cs` in the dev instance; one launch to the main menu (KSP 1.12.5.3190, Unity 2019.4.18f1, GE-Proton11-7); logs `dev-logs/Player.log.fontprobe-20261020` (lines `kOSIM font probe:`), screenshot `dev-logs/fontprobe-shot-20261020.png`. Font: JetBrains Mono 2.304 (`JetBrainsMono-2.304.zip` SHA-256 `6f6376c6…7bbf`, OFL 1.1).
 
 - **Unity lists OS fonts from the files in `C:/windows/Fonts` only** (`Font.GetPathsToOSFonts`: 23 paths, 23 names; the prefix has no Consolas, Liberation or DejaVu). The Latin monospace ones: **Courier New**, **Courier New Bold**, **Lucida Console** (the CJK fonts were not tested).
-- **The terminal's font under Proton today is Courier New Bold** (`TerminalFontName` "Choose Font" is not found; the first fallback listed and monospaced wins).
+- **The terminal's font under Proton was Courier New Bold** (`TerminalFontName` "Choose Font" is not found; the first fallback the OS has wins). Since step 3c it is Lucida Console (below, "Terminal font fallback order").
 - **A bundled TTF cannot be loaded at run time:** a private GDI registration (`AddFontResourceEx`, `FR_PRIVATE`) succeeds (1) but Unity never lists or finds the font, whether registered before or after kOS lists the fonts; `Font.CreateDynamicFontFromOSFont("JetBrains Mono", …)` silently returns **Arial** (proportional: `i` 4 px, `W` 15 px at 16). `new Font(path)` (Unity's internal `CreateFontFromPath`) returns an empty, non-dynamic font with no glyphs, also for a missing file, without an exception. TextCore's `FontEngine` is public only for loading faces and glyph metrics (rendering and `FontAsset` are internal), so it cannot give IMGUI a `Font`. Left: an asset bundle built with Unity 2019.4.18 (not pursued, user decision).
 - **`Font.HasCharacter` counts glyphs reached through OS fallback** (Courier New Bold "has" `∀⇒ℝ漢☃`), so it cannot tell which font loaded; compare advances (`IsFontMonospaced`) or look.
 - Cell metrics at `CHARHEIGHT` 16: Courier New Bold advance 10, ascent 14, line height 18, `█` from −6 to 15; Lucida Console advance 10, ascent 17, line height 21, `█` from −5 to 17 (taller glyphs, so descenders reach lower in a 16 px row: check the bottom row's padding in game with 3c). Advances are whole pixels and constant at sizes 8–24 for both; cursor ticks at `column × advance('X')` stayed aligned over 40 columns in the screenshot.
@@ -190,7 +190,16 @@ Our own chrome in IMGUI (`TermWindow`; layout `kOS.Safe.Screen.TerminalChromeLay
 - **The settings popover is removed**, and with it the window's controls for reverse screen, visual beep, key click and brightness. Scripts keep `TERMINAL:REVERSE`, `VISUALBEEP`, `BRIGHTNESS`, `CHARHEIGHT` unchanged; reverse screen has no control at all now.
 - **New mod options** (`config.xml`, listed by the toolbar panel as toggles, and as `CONFIG:VISUALBEEP`/`CONFIG:KEYCLICK` and in `LIST CONFIG`): `TerminalVisualBeep` (alias `VISUALBEEP`, false) sets a new terminal's `TERMINAL:VISUALBEEP` when its window attaches to the CPU, as `TerminalBrightness` does for brightness; `TerminalKeyClick` (alias `KEYCLICK`, false) makes every GUI terminal click on each key typed, read on each key (it was a per-window toggle, not saved). An older `config.xml` without them loads with the defaults; no key renamed or removed. `IConfig` (a public interface) is unchanged: the window reads them from `kOS.Suffixed.Config`.
 - Removed code: `TermWindow.DrawSettings`/`DrawSettingsContents`/`CloseSettingsOnClickOutside` and the `ContainsPoint` override (`KOSManagedWindow.ContainsPoint` stays virtual), `KOSStyle.Icon.Settings` (gear), `KOSStyle.IconButton`'s `active` parameter. `KOSStyle.Toggle`/`Slider`/`Button` are kept for steps 4–5 (unused now).
-- Unchanged: the grid rendering, telnet output, the paste box (step 5), focus and locks, the font (3c).
+- Unchanged: the grid rendering, telnet output, the paste box (step 5), focus and locks, the font (3c, below).
+
+### Terminal font fallback order (Phase 4, step 3c)
+
+`kOS.Safe.Screen.TerminalFontChoice` (tests `TerminalFontChoiceTest`), used by `TermWindow.GetFontIfChanged`. Not yet checked in game.
+
+- The GUI terminal tries the font picked in the mod options (`TerminalFontName`) first, unless it is a placeholder (`_not_chosen_yet_`, `Choose Font`) or blank, then upstream's fallbacks in upstream's order with **`Lucida Console` inserted before the Courier entries**; the first the OS has is used, as before (not checked for monospacing, as upstream).
+- **Under Proton the default font is now Lucida Console** (regular weight; the prefix has no bold Lucida) instead of Courier New Bold. Native Windows (Consolas), macOS (Monaco) and Linux (Liberation Mono) find what they found before; only a system without those but with Lucida Console changes.
+- A picked font is kept, Courier New Bold included; the font picker, `TerminalFontName`, the chrome's font (KSP's UI font) and the editor's font list (step 5) are unchanged.
+- To check in game: Lucida Console's taller ascent (17 against 14 at 16 px, line height 21 against 18) puts its glyphs lower in each row, so the bottom row's descenders and underscores against the padding (at least 4 px) at `CHARHEIGHT` 8–24, `█` and box drawing between rows, and the lighter weight's readability.
 
 ### Telnet
 
@@ -263,7 +272,7 @@ Open or recorded, not fixed (most likely upstream unless noted):
 
 ## In-game coverage
 
-Every implemented item has passed in game (KSP 1.12.5.3190, GE-Proton11-7): the telnet, prompt, editor, GUI, boot, render-recovery and file checks on 2026-10-12/15; the Phase 1 fixes, Phase 2 and Phase 3 P3-1 to P3-4 on 2026-10-19; the rest of Phase 3 on 2026-10-20. **Not yet checked in game:** the STATUS-01 fix (`WaitingDisplay`): `slow2.ks` should show `Running` then `Waiting in` once and stay until `Ready`; **Phase 4 steps 1, 2 and 3b** (terminal chrome, geometry and scroll bar, look and settings; checklists in `KOSIm-roadmap.md`, "Step 1 plan", "Step 2 plan" and "Step 3 plan", and in `HANDOFF.md`).
+Every implemented item has passed in game (KSP 1.12.5.3190, GE-Proton11-7): the telnet, prompt, editor, GUI, boot, render-recovery and file checks on 2026-10-12/15; the Phase 1 fixes, Phase 2 and Phase 3 P3-1 to P3-4 on 2026-10-19; the rest of Phase 3 on 2026-10-20. **Not yet checked in game:** the STATUS-01 fix (`WaitingDisplay`): `slow2.ks` should show `Running` then `Waiting in` once and stay until `Ready`; **Phase 4 steps 1, 2, 3b and 3c** (terminal chrome, geometry and scroll bar, look and settings, font order; checklists in `KOSIm-roadmap.md`, "Step 1 plan", "Step 2 plan" and "Step 3 plan", and in `HANDOFF.md`).
 
 Never performed (still worth doing when relevant):
 

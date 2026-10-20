@@ -61,20 +61,7 @@ namespace kOS.Screen
 
         private Font font;
         private int fontSize;
-        private string[] tryFontNames = {
-            "User pick Goes Here",  // overwrite this first one with the user selection - the rest are a fallback just in case
-            "Consolas Bold",        // typical Windows good programming font
-            "Consolas",
-            "Monaco Bold",          // typical Mac good programming font
-            "Monaco",
-            "Liberation Mono Bold", // typical Linux good programming font
-            "Liberation Mono",
-            "Courier New Bold",     // The Courier ones are ugly fallbacks just in case.
-            "Courier Bold",
-            "Courier New",
-            "Courier",
-            "Arial"                 // very bad, proportional, but guaranteed to exist in Unity no matter what.
-        };
+        private string pickedFontName; // TerminalFontName when the font was last looked up
         private GUISkin terminalLetterSkin;
             
         private bool hadKeyboard;
@@ -263,11 +250,12 @@ namespace kOS.Screen
         {
             int newSize = shared.Screen.CharacterPixelHeight;
             string newName =  SafeHouse.Config.TerminalFontName;
-            if (fontSize != newSize || !(tryFontNames[0].Equals(newName)))
+            if (fontSize != newSize || !string.Equals(pickedFontName, newName))
             {
                 fontSize = newSize;
-                tryFontNames[0] = newName;
-                font = AssetManager.Instance.GetSystemFontByNameAndSize(tryFontNames, fontSize, false);
+                pickedFontName = newName;
+                // The user's pick, then the fallbacks (Phase 4 step 3c: Lucida Console before the Courier ones):
+                font = AssetManager.Instance.GetSystemFontByNameAndSize(TerminalFontChoice.NamesToTry(newName), fontSize, false);
 
                 terminalLetterSkin.label.font = font;
                 terminalLetterSkin.label.fontSize = fontSize;
