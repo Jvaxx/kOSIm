@@ -60,7 +60,13 @@ namespace kOS.Safe.Test.Terminal
             ScreenRect grip = layout.Grip(w, h);
             Assert.AreEqual(R | B, TerminalResize.EdgesAt(layout, w, h, grip.X + 1, grip.Y + 1, false), "the whole grip");
             Assert.AreEqual(ResizeEdges.None, TerminalResize.EdgesAt(layout, w, h, w - 1, 0, false), "close button corner");
-            Assert.AreEqual(ResizeEdges.None, TerminalResize.EdgesAt(layout, w, h, w - 25, 0, false), "settings button's top");
+            foreach (ScreenRect button in new[] { layout.SmallerTextButton(w), layout.LargerTextButton(w), layout.CloseButton(w) })
+            {
+                Assert.AreEqual(ResizeEdges.None, TerminalResize.EdgesAt(layout, w, h, button.X, 0, false), "a button's top left " + button);
+                Assert.AreEqual(ResizeEdges.None, TerminalResize.EdgesAt(layout, w, h, button.X + button.Width / 2, 1, false), "a button's top " + button);
+            }
+            ScreenRect smaller = layout.SmallerTextButton(w);
+            Assert.AreEqual(T, TerminalResize.EdgesAt(layout, w, h, smaller.X - 1, 0, false), "the top edge left of the buttons");
             Assert.AreEqual(ResizeEdges.None, TerminalResize.EdgesAt(layout, w, h, w - 1, layout.HeaderHeight - 1, false));
             Assert.AreEqual(R, TerminalResize.EdgesAt(layout, w, h, w - 1, layout.HeaderHeight, false), "the right edge below the header");
         }

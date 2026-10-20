@@ -6,9 +6,10 @@ namespace kOS.Safe.Screen
 {
     /// <summary>
     /// Where the GUI terminal's parts go (Phase 4, step 1), in window coordinates (origin top
-    /// left, as Unity's GUI): a header on top (title, settings and close buttons), the
-    /// character field below it with even padding, a gutter on its right for the scroll bar
-    /// (step 2), and the status strip at the bottom with the resize grip at its right end. A
+    /// left, as Unity's GUI): a header on top (title; smaller text, larger text (step 3) and
+    /// close buttons), the character field below it with even padding, a gutter on its right
+    /// for the scroll bar (step 2), and the status strip at the bottom with the resize grip at
+    /// its right end. A
     /// band along the frame resizes the window (step 2, <see cref="TerminalResize"/>).
     /// <para>
     /// The chrome follows KSP's UI scale; the field follows the cell size (<c>CHARHEIGHT</c>).
@@ -30,8 +31,11 @@ namespace kOS.Safe.Screen
         /// <summary>How far along an edge from a corner a press takes the corner.</summary>
         public const int BASE_RESIZE_CORNER = 12;
         public const int BASE_MINIMUM_THUMB = 16;
-        /// <summary>What the header (title, two buttons) and the strip (state, size, grip) need at least.</summary>
+        /// <summary>What the header (title, three buttons) and the strip (state, size, grip) need at least.</summary>
         public const int BASE_MINIMUM_WIDTH = 150;
+
+        /// <summary>How much the header's smaller and larger text buttons change <c>CHARHEIGHT</c>.</summary>
+        public const int CHARACTER_HEIGHT_STEP = 2;
 
         /// <summary>The bottom row's descenders and underscores are drawn up to this far below the field.</summary>
         public const int MINIMUM_PADDING = 4;
@@ -137,15 +141,27 @@ namespace kOS.Safe.Screen
             return new ScreenRect(Math.Max(0, windowWidth - ButtonWidth), 0, ButtonWidth, HeaderHeight);
         }
 
-        public ScreenRect SettingsButton(float windowWidth)
+        public ScreenRect LargerTextButton(float windowWidth)
         {
             return new ScreenRect(Math.Max(0, windowWidth - 2 * ButtonWidth), 0, ButtonWidth, HeaderHeight);
         }
 
-        /// <summary>The title's room: from the padding to the settings button.</summary>
+        public ScreenRect SmallerTextButton(float windowWidth)
+        {
+            return new ScreenRect(Math.Max(0, windowWidth - 3 * ButtonWidth), 0, ButtonWidth, HeaderHeight);
+        }
+
+        /// <summary>The header's buttons together, from the smaller text button to the window's right edge.</summary>
+        public ScreenRect HeaderButtons(float windowWidth)
+        {
+            ScreenRect first = SmallerTextButton(windowWidth);
+            return new ScreenRect(first.X, 0, NonNegative(windowWidth - first.X), HeaderHeight);
+        }
+
+        /// <summary>The title's room: from the padding to the header's buttons.</summary>
         public ScreenRect Title(float windowWidth)
         {
-            return new ScreenRect(Padding, 0, NonNegative(SettingsButton(windowWidth).X - 2 * Padding), HeaderHeight);
+            return new ScreenRect(Padding, 0, NonNegative(HeaderButtons(windowWidth).X - 2 * Padding), HeaderHeight);
         }
 
         /// <summary>Between the header and the strip: the field, its padding and the gutter.</summary>
@@ -201,6 +217,20 @@ namespace kOS.Safe.Screen
         {
             ScreenRect strip = Strip(windowWidth, windowHeight);
             return new ScreenRect(Padding, strip.Y, NonNegative(Grip(windowWidth, windowHeight).X - 2 * Padding), StripHeight);
+        }
+
+        // The character size, from the header's buttons:
+
+        /// <summary>The <c>CHARHEIGHT</c> the smaller text button gives: a step less, at least the script minimum.</summary>
+        public static int SmallerCharacterHeight(int characterHeight)
+        {
+            return Math.Max(TerminalStruct.MINCHARPIXELS, Math.Min(TerminalStruct.MAXCHARPIXELS, characterHeight - CHARACTER_HEIGHT_STEP));
+        }
+
+        /// <summary>The <c>CHARHEIGHT</c> the larger text button gives: a step more, at most the script maximum.</summary>
+        public static int LargerCharacterHeight(int characterHeight)
+        {
+            return Math.Min(TerminalStruct.MAXCHARPIXELS, Math.Max(TerminalStruct.MINCHARPIXELS, characterHeight + CHARACTER_HEIGHT_STEP));
         }
 
         private static float NonNegative(float value)

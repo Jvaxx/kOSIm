@@ -40,18 +40,19 @@ namespace kOS.Screen
 
         private static string root;
         private static readonly Color color = new Color(1f, 1f, 1f, 1.1f); // opaque window color when focused
-        private static readonly Color bgColor = new Color(0.0f, 0.0f, 0.0f, 1.0f); // black background of terminal
-        private static readonly Color textColor = new Color(0.5f, 1.0f, 0.5f, 1.0f); // font color on terminal
-        private static readonly Color textColorOff = new Color(0.8f, 0.8f, 0.8f, 0.7f); // font color when power starved.
+        // The cells' colors (Phase 4, step 3: TerminalPalette, where their contrast is tested):
+        private static readonly Color bgColor = KOSStyle.ToColor(TerminalPalette.Background);
+        private static readonly Color textColor = KOSStyle.ToColor(TerminalPalette.Text);
+        private static readonly Color textColorOff = KOSStyle.ToColor(TerminalPalette.UnpoweredText); // power starved
+        private static readonly Color cursorColor = KOSStyle.ToColor(TerminalPalette.Cursor);
         private Vector2 resizeOldSize;
         private bool resizeMouseDown;
         private int formerCharPixelHeight;
         private int formerCharPixelWidth;
-        private int postponedCharPixelHeight = -1; // a size picked in the settings, applied at the next OnGUI
+        private int postponedCharPixelHeight = -1; // a size picked with the header's buttons, applied at the next OnGUI
         
         private bool consumeEvent;
         private bool fontGotResized;
-        private bool keyClickEnabled;
         
         private bool collapseFastBeepsToOneBeep = false; // This is a setting we might want to fiddle with depending on opinion.
 
@@ -126,12 +127,6 @@ namespace kOS.Screen
         // The scroll bar's thumb being dragged, and where on it the press was:
         private bool scrollDragging;
         private float scrollGrabOffset;
-
-        // The settings popover, from the header's settings button:
-        private bool settingsOpen;
-        private Rect settingsRect; // absolute, where it was last drawn
-        private Rect settingsButtonRect; // absolute
-        private MouseBlocking.Area settingsMouseArea;
 
         private SharedObjects shared;
         private KOSTextEditPopup popupEditor;
@@ -221,7 +216,6 @@ namespace kOS.Screen
             LoseFocus();
             guiPaste.Cancel();
             KOSMouseBlocking.Unregister(ref pasteConfirmationMouseArea);
-            KOSMouseBlocking.Unregister(ref settingsMouseArea);
             GameEvents.onHideUI.Remove(OnHideUI);
             GameEvents.onShowUI.Remove(OnShowUI);
 
@@ -293,7 +287,6 @@ namespace kOS.Screen
         {
             // Diable GUI and release all locks
             guiPaste.Cancel(); // a paste waiting for confirmation is dropped with the window
-            settingsOpen = false;
             resizeEdges = ResizeEdges.None; // a drag cut short changes nothing
             scrollDragging = false;
             base.Close();
@@ -334,8 +327,8 @@ namespace kOS.Screen
 
             if (postponedCharPixelHeight >= 0 && shared != null && shared.Screen != null)
             {
-                // Picked in the settings while the window drew; changed between passes, as the
-                // window's size follows it.
+                // Picked with the header's buttons while the window drew; changed between
+                // passes, as the window's size follows it.
                 shared.Screen.CharacterPixelHeight = postponedCharPixelHeight;
                 postponedCharPixelHeight = -1;
             }
@@ -366,8 +359,6 @@ namespace kOS.Screen
             WindowRect = GUI.Window(UniqueId, WindowRect, TerminalGui, GUIContent.none, GUIStyle.none);
             KeepOnScreen(); // moved by its header or strip
             BlockMouseOver(WindowRect);
-            if (settingsOpen)
-                DrawSettings();
             if (guiPaste.IsAwaitingConfirmation)
                 DrawPasteConfirmation();
             
@@ -407,7 +398,6 @@ namespace kOS.Screen
 
             if (!IsOpen ) return;
 
-            CloseSettingsOnClickOutside();
             UpdateLogic();
             UpdateGUIBeeps();
 
@@ -487,13 +477,6 @@ namespace kOS.Screen
                 if (guiPaste.IsAwaitingConfirmation)
                 {
                     ProcessKeyWhileConfirmingPaste(e);
-                    return;
-                }
-
-                if (e.keyCode == KeyCode.Escape && settingsOpen)
-                {
-                    settingsOpen = false;
-                    consumeEvent = true;
                     return;
                 }
 
@@ -896,7 +879,8 @@ namespace kOS.Screen
 
         void ITerminalInputHost<TelnetSingletonServer>.KeyClick()
         {
-            if (IsOpen && keyClickEnabled)
+            // A mod option since Phase 4 step 3 (it was a toggle in each window); read on each key, so it applies at once:
+            if (IsOpen && kOS.Suffixed.Config.Instance.TerminalKeyClick)
                 shared.SoundMaker.BeginFileSound("click");
         }
 
@@ -1165,7 +1149,7 @@ namespace kOS.Screen
             float width = WindowRect.width, height = WindowRect.height;
             DrawCharacters(screen, chrome, width, height);
             DrawScrollBar(screen, chrome, width, height);
-            DrawHeader(chrome, width);
+            DrawHeader(screen, chrome, width);
             DrawStrip(screen, chrome, width, height);
             // The frame, over everything: the accent color says the terminal has the keyboard.
             KOSStyle.Frame(new Rect(0, 0, width, height), chrome.Border, HasKeyboard ? KOSStyle.Accent : KOSStyle.FrameColor);
@@ -1252,20 +1236,27 @@ namespace kOS.Screen
             return Math.Max(6, (int)Math.Round(chrome.HeaderHeight * 0.6));
         }
 
-        /// <summary>The header (Phase 4): the terminal's name, then the settings and close buttons.</summary>
-        private void DrawHeader(TerminalChromeLayout chrome, float width)
+        /// <summary>
+        /// The header (Phase 4): the terminal's name, then the smaller and larger text buttons
+        /// (step 3: a small and a large A; <c>CHARHEIGHT</c> in steps of 2, dim at the end of its
+        /// range; saved with the geometry) and the close button.
+        /// </summary>
+        private void DrawHeader(IScreenBuffer screen, TerminalChromeLayout chrome, float width)
         {
             KOSStyle.Fill(ToRect(chrome.Header(width)), KOSStyle.ChromeBackground);
             GUIStyle titleStyle = KOSStyle.TitleLabel(chrome.FontSize);
             Rect title = ToRect(chrome.Title(width));
             GUI.Label(title, StatusStrip.Shorten(headerTitle, title.width, text => KOSStyle.Measure(titleStyle, text), KOSStyle.Ellipsis), titleStyle);
 
-            int iconSize = IconSize(chrome);
-            Rect settings = ToRect(chrome.SettingsButton(width));
-            settingsButtonRect = new Rect(WindowRect.x + settings.x, WindowRect.y + settings.y, settings.width, settings.height);
-            if (KOSStyle.IconButton(settings, KOSStyle.Icon.Settings, iconSize, settingsOpen))
-                settingsOpen = !settingsOpen;
-            if (KOSStyle.IconButton(ToRect(chrome.CloseButton(width)), KOSStyle.Icon.Close, iconSize, false))
+            int charHeight = postponedCharPixelHeight >= 0 ? postponedCharPixelHeight : screen.CharacterPixelHeight;
+            int smaller = TerminalChromeLayout.SmallerCharacterHeight(charHeight);
+            int larger = TerminalChromeLayout.LargerCharacterHeight(charHeight);
+            // A small and a large A; applied at the next OnGUI, between passes:
+            if (KOSStyle.TextButton(ToRect(chrome.SmallerTextButton(width)), "A", Math.Max(6, (int)Math.Round(chrome.FontSize * 0.8)), smaller != charHeight))
+                postponedCharPixelHeight = smaller;
+            if (KOSStyle.TextButton(ToRect(chrome.LargerTextButton(width)), "A", (int)Math.Round(chrome.FontSize * 1.35), larger != charHeight))
+                postponedCharPixelHeight = larger;
+            if (KOSStyle.IconButton(ToRect(chrome.CloseButton(width)), KOSStyle.Icon.Close, IconSize(chrome)))
             {
                 Close();
                 Event.current.Use();
@@ -1344,101 +1335,6 @@ namespace kOS.Screen
             nextStatusTime = DateTime.MinValue; // the chip goes at the next update
         }
 
-        private const float SETTINGS_WIDTH = 220f;
-        private const int SETTINGS_ROWS = 5;
-
-        private static float SettingsRowHeight(TerminalChromeLayout chrome)
-        {
-            return Mathf.Round(22f * chrome.Scale);
-        }
-
-        /// <summary>
-        /// The settings popover (Phase 4): reverse screen, visual beep, key click, brightness and
-        /// character size, under the header's settings button. A window of its own, drawn after
-        /// the terminal (like the paste box), so it can reach past a small terminal; a click on
-        /// it counts as on the terminal (<see cref="ContainsPoint"/>), which keeps the keyboard
-        /// focus. It closes with the settings button, Esc, a press outside it, or the terminal.
-        /// </summary>
-        private void DrawSettings()
-        {
-            TerminalChromeLayout chrome = Layout;
-            float width = Mathf.Round(SETTINGS_WIDTH * chrome.Scale);
-            float height = SETTINGS_ROWS * SettingsRowHeight(chrome) + 2 * chrome.Padding;
-            Rect button = ToRect(chrome.SettingsButton(WindowRect.width));
-            float x = Mathf.Clamp(WindowRect.x + button.xMax - width, 0, Math.Max(0, UnityEngine.Screen.width - width));
-            float y = Mathf.Clamp(WindowRect.y + button.yMax, 0, Math.Max(0, UnityEngine.Screen.height - height));
-            settingsRect = new Rect(x, y, width, height);
-            int settingsId = UniqueId + 11;
-            GUI.Window(settingsId, settingsRect, DrawSettingsContents, GUIContent.none, GUIStyle.none);
-            GUI.BringWindowToFront(settingsId);
-            KOSMouseBlocking.Show(ref settingsMouseArea, "TermWindowSettings" + UniqueId, settingsRect);
-        }
-
-        private void DrawSettingsContents(int windowId)
-        {
-            TerminalChromeLayout chrome = Layout;
-            var panel = new Rect(0, 0, settingsRect.width, settingsRect.height);
-            KOSStyle.Fill(panel, KOSStyle.PanelBackground);
-            KOSStyle.Frame(panel, chrome.Border, KOSStyle.FrameColor);
-            IScreenBuffer screen = shared == null ? null : shared.Screen;
-            if (screen == null) return;
-
-            int fontSize = chrome.FontSize;
-            float rowHeight = SettingsRowHeight(chrome);
-            var row = new Rect(chrome.Padding, chrome.Padding, panel.width - 2 * chrome.Padding, rowHeight);
-
-            // The screen's settings are set only when changed (the old controls set them on
-            // every frame, which rounded TERMINAL:BRIGHTNESS to a float while the window was open):
-            bool reverse = KOSStyle.Toggle(row, screen.ReverseScreen, "Reverse screen", fontSize, chrome.Border);
-            if (reverse != screen.ReverseScreen)
-                screen.ReverseScreen = reverse;
-            row.y += rowHeight;
-            bool visualBeep = KOSStyle.Toggle(row, screen.VisualBeep, "Visual beep", fontSize, chrome.Border);
-            if (visualBeep != screen.VisualBeep)
-                screen.VisualBeep = visualBeep;
-            row.y += rowHeight;
-            keyClickEnabled = KOSStyle.Toggle(row, keyClickEnabled, "Key click", fontSize, chrome.Border);
-            row.y += rowHeight;
-
-            GUIStyle label = KOSStyle.Label(fontSize);
-            float labelWidth = Mathf.Round(row.width * 0.45f);
-            KOSStyle.Text(new Rect(row.x + 2, row.y, labelWidth - 2, row.height), "Brightness", label, KOSStyle.ChromeText);
-            float brightness = (float)screen.Brightness;
-            float picked = KOSStyle.Slider(new Rect(row.x + labelWidth, row.y + Mathf.Round(rowHeight * 0.2f), row.width - labelWidth, Mathf.Round(rowHeight * 0.6f)),
-                brightness, 0f, 1f);
-            if (picked != brightness)
-                screen.Brightness = picked;
-            row.y += rowHeight;
-
-            KOSStyle.Text(new Rect(row.x + 2, row.y, labelWidth - 2, row.height), "Character size", label, KOSStyle.ChromeText);
-            int charHeight = screen.CharacterPixelHeight;
-            float buttonSize = Mathf.Round(rowHeight * 0.8f);
-            float buttonY = Mathf.Round(row.y + (rowHeight - buttonSize) / 2f);
-            var less = new Rect(row.x + labelWidth, buttonY, buttonSize, buttonSize);
-            var more = new Rect(row.xMax - buttonSize, buttonY, buttonSize, buttonSize);
-            KOSStyle.Text(new Rect(less.xMax, row.y, Math.Max(0, more.x - less.xMax), row.height), charHeight + " px", KOSStyle.CenteredLabel(fontSize), KOSStyle.ChromeText);
-            // In steps of 2 within CHARHEIGHT's range, as the old -/+ buttons; applied at the next OnGUI:
-            if (KOSStyle.Button(less, "-", fontSize))
-                postponedCharPixelHeight = Math.Max(TerminalStruct.MINCHARPIXELS, charHeight - 2);
-            if (KOSStyle.Button(more, "+", fontSize))
-                postponedCharPixelHeight = Math.Min(TerminalStruct.MAXCHARPIXELS, charHeight + 2);
-        }
-
-        /// <summary>A press outside the settings popover closes it (its button toggles it in <see cref="DrawHeader"/>).</summary>
-        private void CloseSettingsOnClickOutside()
-        {
-            if (!settingsOpen) return;
-            if (!Input.GetMouseButtonDown(0) && !Input.GetMouseButtonDown(1) && !Input.GetMouseButtonDown(2)) return;
-            var mouse = new Vector2(Input.mousePosition.x, UnityEngine.Screen.height - Input.mousePosition.y);
-            if (!settingsRect.Contains(mouse) && !settingsButtonRect.Contains(mouse))
-                settingsOpen = false;
-        }
-
-        protected override bool ContainsPoint(Vector2 posAbsolute)
-        {
-            return base.ContainsPoint(posAbsolute) || (settingsOpen && settingsRect.Contains(posAbsolute));
-        }
-        
         protected Color AdjustColor(Color baseColor, double brightness)
         {
             Color newColor = baseColor;
@@ -1462,13 +1358,9 @@ namespace kOS.Screen
             return buffer != null && TerminalScrollBar.IsShown(buffer.ViewOffset, scrollDragging);
         }
 
-        /// <summary>
-        /// The edges a press at <paramref name="point"/> (window coordinates) would resize; none
-        /// under the settings popover, which can reach over a narrow terminal's left edge.
-        /// </summary>
+        /// <summary>The edges a press at <paramref name="point"/> (window coordinates) would resize.</summary>
         private ResizeEdges EdgesUnder(Vector2 point)
         {
-            if (settingsOpen && settingsRect.Contains(MouseOnScreen())) return ResizeEdges.None;
             return TerminalResize.EdgesAt(Layout, WindowRect.width, WindowRect.height, point.x, point.y, ScrollBarShown());
         }
 
@@ -1700,7 +1592,7 @@ namespace kOS.Screen
             try
             {
                 Color highlight = reversingScreen ? bgColor : currentTextColor;
-                highlight.a = 0.35f * Mathf.Clamp01((float)brightness);
+                highlight.a = TerminalPalette.SELECTION_ALPHA * Mathf.Clamp01((float)brightness);
                 GUI.color = highlight;
                 for (int row = 0; row < rows; ++row)
                 {
@@ -1724,9 +1616,9 @@ namespace kOS.Screen
             GUI.BeginGroup(new Rect((x * charWidth), (y * charHeight), charWidth, charHeight));
             try
             {
-                GUI.color = AdjustColor(reversingScreen ? bgColor : currentTextColor, brightness);
+                GUI.color = AdjustColor(reversingScreen ? bgColor : cursorColor, brightness); // drawn only while powered
                 GUI.DrawTexture(new Rect(0, 0, charWidth, charHeight), Texture2D.whiteTexture, ScaleMode.StretchToFill, true);
-                GUI.color = AdjustColor(reversingScreen ? currentTextColor : bgColor,
+                GUI.color = AdjustColor(reversingScreen ? cursorColor : bgColor,
                     2*brightness /*it seems to need slightly higher alpha values to show up atop the solid block*/ );
                 terminalLetterSkin.label.normal.textColor = GUI.color;
                 GUI.Label(new Rect(0, 0, charWidth, charHeight), ch.ToString(), terminalLetterSkin.label);
@@ -1773,6 +1665,7 @@ namespace kOS.Screen
             shared.Screen.CharacterPixelWidth = 8; // will be overridden later when drawing the font.
             shared.Screen.CharacterPixelHeight = saved.CharacterHeight ?? SafeHouse.Config.TerminalFontDefaultSize;
             shared.Screen.Brightness = SafeHouse.Config.TerminalBrightness;
+            shared.Screen.VisualBeep = kOS.Suffixed.Config.Instance.TerminalVisualBeep; // a mod option since Phase 4 step 3
             formerCharPixelWidth = shared.Screen.CharacterPixelWidth;
             formerCharPixelHeight = shared.Screen.CharacterPixelHeight;
             shared.Screen.SetSize(saved.Rows ?? SafeHouse.Config.TerminalDefaultHeight, saved.Columns ?? SafeHouse.Config.TerminalDefaultWidth);

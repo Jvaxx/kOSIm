@@ -43,7 +43,7 @@ Structure
         * - :attr:`BRIGHTNESS`
           - :struct:`Scalar`
           - get and set
-          - Adjusts brightness slider of the terminal between 0.0 (min) and 1.0 (max).
+          - Brightness of the terminal's letters between 0.0 (min) and 1.0 (max).
 
         * - :attr:`CHARWIDTH`
           - :struct:`Scalar`
@@ -100,8 +100,8 @@ Structure
     and foreground colors.   Both the telnet terminals and the in-game
     GUI terminal respond to this setting equally.
 
-    Note, this setting can also be toggled with a radio-button on the
-    in-game GUI terminal window.
+    The in-game GUI terminal window has no control for this setting
+    (since KOS Improved's Phase 4); a script sets it.
 
     This setting is different per kOS CPU part.  Different terminal
     windows can have different settings for this value.
@@ -116,8 +116,9 @@ Structure
     (inverting the background/foreground for a fraction of a second),
     instead of making a sound.
 
-    Note, this setting can also be toggled with a radio-button on the
-    in-game GUI terminal window.
+    A new terminal starts with :attr:`Config:VISUALBEEP` (a mod option in
+    the toolbar panel); the in-game GUI terminal window has no control
+    for it (since KOS Improved's Phase 4).
 
     This will only typically affect the in-game GUI terminal window,
     and **not a telnet client's** terminal window.
@@ -138,7 +139,10 @@ Structure
     :access: Get/Set
     :type: :struct:`Scalar`
 
-    The same thing as the brightness slider on the terminal GUI.
+    How bright the letters are drawn.  A new terminal starts with
+    :attr:`Config:BRIGHTNESS` (a mod option in the toolbar panel); the
+    in-game GUI terminal window has no slider for it (since KOS Improved's
+    Phase 4).
     The values range from 0.0 (minimum) to 1.0 (maximum).  At
     zero, the effect is to entirely hide the letters altogether.
 

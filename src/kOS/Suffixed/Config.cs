@@ -40,6 +40,11 @@ namespace kOS.Suffixed
         // But KSP seems to have a bug where single-precision floats don't get saved in the config XML file.  Doubles seem to work, though.
         public double TerminalBrightness {get { return GetPropValue<double>(PropId.TerminalBrightness); } set { SetPropValue(PropId.TerminalBrightness, value); } }
 
+        // Moved out of the terminal window into the mod options (Phase 4, step 3). Not in IConfig,
+        // which other mods may implement; the GUI terminal reads them here.
+        public bool TerminalVisualBeep { get { return GetPropValue<bool>(PropId.TerminalVisualBeep); } set { SetPropValue(PropId.TerminalVisualBeep, value); } }
+        public bool TerminalKeyClick { get { return GetPropValue<bool>(PropId.TerminalKeyClick); } set { SetPropValue(PropId.TerminalKeyClick, value); } }
+
         private Config()
         {
             keys = new Dictionary<string, ConfigKey>(StringComparer.OrdinalIgnoreCase);
@@ -86,6 +91,10 @@ namespace kOS.Suffixed
                 new ConfigKey("TerminalFontName", "FONTNAME", "Font Name for terminal window", "_not_chosen_yet_", "n/a", "n/a", typeof(string)));
             AddConfigKey(PropId.TerminalBrightness,
                 new ConfigKey("TerminalBrightness", "BRIGHTNESS", "Initial brightness setting for new terminals", 0.7d, 0d, 1d, typeof(double)));
+            AddConfigKey(PropId.TerminalVisualBeep,
+                new ConfigKey("TerminalVisualBeep", "VISUALBEEP", "Initial Terminal:VISUALBEEP for new terminals (flash instead of a sound)", false, false, true, typeof(bool)));
+            AddConfigKey(PropId.TerminalKeyClick,
+                new ConfigKey("TerminalKeyClick", "KEYCLICK", "Terminal windows click on each key typed", false, false, true, typeof(bool)));
             AddConfigKey(PropId.TerminalDefaultWidth,
                 new ConfigKey("TerminalDefaultWidth", "DEFAULTWIDTH", "Initial Terminal:WIDTH when a terminal is first opened", 50, 15, 255, typeof(int)));
             AddConfigKey(PropId.TerminalDefaultHeight,
@@ -256,7 +265,9 @@ namespace kOS.Suffixed
             TerminalBrightness = 17,
             TerminalDefaultWidth = 18,
             TerminalDefaultHeight = 19,
-            SuppressAutopilot = 20
+            SuppressAutopilot = 20,
+            TerminalVisualBeep = 21,
+            TerminalKeyClick = 22
         }
     }
 }

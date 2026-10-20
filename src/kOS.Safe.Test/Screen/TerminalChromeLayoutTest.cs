@@ -143,7 +143,8 @@ namespace kOS.Safe.Test.Terminal
                     Assert.AreEqual(0, layout.RowsThatFit(size), "height " + size);
                     foreach (ScreenRect rect in new[]
                     {
-                        layout.Header(size), layout.CloseButton(size), layout.SettingsButton(size), layout.Title(size),
+                        layout.Header(size), layout.CloseButton(size), layout.LargerTextButton(size), layout.SmallerTextButton(size),
+                        layout.HeaderButtons(size), layout.Title(size),
                         layout.Body(size, size), layout.SelectionArea(size, size), layout.Gutter(size, size),
                         layout.Strip(size, size), layout.Grip(size, size), layout.StripContent(size, size),
                         layout.Field(-5, -5), layout.Field(0, 0)
@@ -197,12 +198,22 @@ namespace kOS.Safe.Test.Terminal
                         if (width > layout.MinimumWidth)
                             Assert.AreEqual(width - layout.GutterWidth, field.X + field.Width, where + ": the gutter follows the field");
 
-                        foreach (ScreenRect part in new[] { header, strip, layout.CloseButton(width), layout.SettingsButton(width), layout.Grip(width, height) })
+                        ScreenRect smaller = layout.SmallerTextButton(width), larger = layout.LargerTextButton(width), close = layout.CloseButton(width);
+                        foreach (ScreenRect part in new[] { header, strip, smaller, larger, close, layout.Grip(width, height) })
                             AssertInside(part, window, where);
-                        AssertInside(layout.CloseButton(width), header, where + ": close");
-                        AssertInside(layout.SettingsButton(width), header, where + ": settings");
-                        AssertApart(layout.CloseButton(width), layout.SettingsButton(width), where + ": buttons");
-                        AssertApart(layout.Title(width), layout.SettingsButton(width), where + ": title");
+                        foreach (ScreenRect button in new[] { smaller, larger, close })
+                        {
+                            AssertInside(button, header, where + ": a button in the header");
+                            AssertInside(button, layout.HeaderButtons(width), where + ": a button in the header's buttons");
+                            AssertApart(layout.Title(width), button, where + ": title and a button");
+                        }
+                        AssertApart(smaller, larger, where + ": smaller and larger");
+                        AssertApart(larger, close, where + ": larger and close");
+                        Assert.Less(smaller.X, larger.X, where + ": smaller, then larger");
+                        Assert.Less(larger.X, close.X, where + ": larger, then close");
+                        Assert.AreEqual(smaller.X, layout.HeaderButtons(width).X, where + ": the buttons start at the smaller one");
+                        Assert.AreEqual(width, close.X + close.Width, where + ": close at the right edge");
+                        Assert.AreEqual(smaller.Width + larger.Width + close.Width, layout.HeaderButtons(width).Width, where + ": no gap in the buttons");
                         Assert.Greater(layout.Title(width).Width, 0, where + ": room for a title");
                         AssertInside(layout.Grip(width, height), strip, where + ": grip");
                         AssertInside(layout.StripContent(width, height), strip, where + ": strip content");
@@ -210,6 +221,34 @@ namespace kOS.Safe.Test.Terminal
                         Assert.Greater(layout.StripContent(width, height).Width, 0, where + ": room for the state");
                     }
             });
+        }
+    }
+
+    /// <summary>
+    /// Phase 4, step 3: the header's smaller and larger text buttons change <c>CHARHEIGHT</c> in
+    /// steps of 2 within the script's range.
+    /// </summary>
+    [TestFixture]
+    public class CharacterHeightStepTest
+    {
+        [Test]
+        public void TheButtonsStepByTwo()
+        {
+            Assert.AreEqual(10, TerminalChromeLayout.SmallerCharacterHeight(12));
+            Assert.AreEqual(14, TerminalChromeLayout.LargerCharacterHeight(12));
+            Assert.AreEqual(11, TerminalChromeLayout.SmallerCharacterHeight(13), "an odd size stays odd");
+            Assert.AreEqual(15, TerminalChromeLayout.LargerCharacterHeight(13));
+        }
+
+        [Test]
+        public void TheScriptRangeIsKept()
+        {
+            Assert.AreEqual(TerminalStruct.MINCHARPIXELS, TerminalChromeLayout.SmallerCharacterHeight(TerminalStruct.MINCHARPIXELS), "at the minimum");
+            Assert.AreEqual(TerminalStruct.MINCHARPIXELS, TerminalChromeLayout.SmallerCharacterHeight(TerminalStruct.MINCHARPIXELS + 1), "one above it");
+            Assert.AreEqual(TerminalStruct.MAXCHARPIXELS, TerminalChromeLayout.LargerCharacterHeight(TerminalStruct.MAXCHARPIXELS), "at the maximum");
+            Assert.AreEqual(TerminalStruct.MAXCHARPIXELS, TerminalChromeLayout.LargerCharacterHeight(TerminalStruct.MAXCHARPIXELS - 1), "one below it");
+            Assert.AreEqual(TerminalStruct.MINCHARPIXELS, TerminalChromeLayout.LargerCharacterHeight(0), "below the range: back in it");
+            Assert.AreEqual(TerminalStruct.MAXCHARPIXELS, TerminalChromeLayout.SmallerCharacterHeight(100), "above the range: back in it");
         }
     }
 

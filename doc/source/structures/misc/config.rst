@@ -104,6 +104,14 @@ Configuration of kOS
           - :struct:`Scalar`
           - 0.7 (from range [0.0 .. 1.0])
           - Default brightness setting of new instances of the in-game terminal
+        * - :attr:`VISUALBEEP`
+          - :struct:`Boolean`
+          - False
+          - Default :attr:`Terminal:VISUALBEEP` of new terminals
+        * - :attr:`KEYCLICK`
+          - :struct:`Boolean`
+          - False
+          - In-game terminal windows click on each key typed
         * - :attr:`DEFAULTFONTSIZE`
           - :struct:`Scalar`
           - 12 (from range [6 .. 20], integers only)
@@ -345,11 +353,33 @@ Configuration of kOS
     This is the default starting brightness setting a new
     kOS in-game terminal will have when it is invoked.  This
     is just the default for new terminals.  Individual terminals
-    can have different settings, either by setting the value
-    :attr:`Terminal:BRIGHTNESS` in a script, or by manually moving the
-    brightness slider widget on that terminal.
+    can have different settings, by setting the value
+    :attr:`Terminal:BRIGHTNESS` in a script.
 
     The value here must be between 0 (invisible) and 1 (Max brightness).
+
+.. attribute:: Config:VISUALBEEP
+
+    :access: Get/Set
+    :type: :struct:`Boolean`
+
+    Configures the ``TerminalVisualBeep`` setting.
+
+    This is the starting :attr:`Terminal:VISUALBEEP` of a new terminal:
+    if true, a BEEP flashes the screen instead of making a sound.
+    Individual terminals can have different settings by setting
+    :attr:`Terminal:VISUALBEEP` in a script.
+
+.. attribute:: Config:KEYCLICK
+
+    :access: Get/Set
+    :type: :struct:`Boolean`
+
+    Configures the ``TerminalKeyClick`` setting.
+
+    If true, the in-game GUI terminal windows make a click sound on
+    each key typed.  It applies at once to every terminal window
+    (it used to be a toggle on each window, not saved).
 
 .. attribute:: Config:DEFAULTFONTSIZE
 
@@ -363,7 +393,8 @@ Configuration of kOS
     is just the default for new terminals.  Individual terminals
     can have different settings, either by setting the value
     :attr:`Terminal:CHARHEIGHT` in a script, or by manually clicking
-    the font adjustment buttons on that terminal.
+    the smaller and larger text buttons in that terminal's header
+    (kept per CPU with the window's position and size).
 
     The value here must be at least 6 (nearly impossible to read)
     and no greater than 30 (very big).  It will be rounded to the

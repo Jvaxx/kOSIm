@@ -48,7 +48,7 @@ namespace kOS.Safe.Screen
             if (layout == null) throw new ArgumentNullException("layout");
             if (!(x >= 0 && y >= 0 && x < width && y < height)) return ResizeEdges.None;
             if (layout.Grip(width, height).Contains(x, y)) return ResizeEdges.Right | ResizeEdges.Bottom;
-            if (layout.SettingsButton(width).Contains(x, y) || layout.CloseButton(width).Contains(x, y)) return ResizeEdges.None;
+            if (layout.HeaderButtons(width).Contains(x, y)) return ResizeEdges.None;
 
             int band = layout.ResizeBand;
             bool left = x < band, right = x >= width - band, top = y < band, bottom = y >= height - band;

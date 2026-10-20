@@ -347,8 +347,9 @@ namespace kOS.Screen
 
         /// <summary>
         /// Whether a point (absolute GUI coordinates) is on this window: its rectangle, and
-        /// for a window that draws a part outside it (the terminal's settings popover), that
-        /// part too, so a click there keeps the keyboard focus.
+        /// for a window that draws a part outside it, that part too, so a click there keeps
+        /// the keyboard focus. (The terminal's settings popover, Phase 4 step 1, did; step 3
+        /// removed it.)
         /// </summary>
         protected virtual bool ContainsPoint(Vector2 posAbsolute)
         {

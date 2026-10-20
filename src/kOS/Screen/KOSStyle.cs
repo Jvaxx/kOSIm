@@ -19,34 +19,30 @@ namespace kOS.Screen
     /// </summary>
     public static class KOSStyle
     {
-        // The palette (classic green; other themes are step 3):
-        public static readonly Color WindowBackground = new Color(0.09f, 0.10f, 0.10f, 1f);
-        public static readonly Color ChromeBackground = new Color(0.14f, 0.15f, 0.15f, 1f);
-        public static readonly Color PanelBackground = new Color(0.12f, 0.13f, 0.13f, 1f);
-        public static readonly Color ChipBackground = new Color(0.22f, 0.24f, 0.24f, 1f);
-        public static readonly Color ChromeText = new Color(0.84f, 0.88f, 0.85f, 1f);
-        public static readonly Color DimText = new Color(0.58f, 0.63f, 0.60f, 1f);
-        public static readonly Color FrameColor = new Color(0.30f, 0.33f, 0.32f, 1f);
-        /// <summary>The terminal's green: the focus border, a toggle that is on, the slider.</summary>
-        public static readonly Color Accent = new Color(0.5f, 1.0f, 0.5f, 1f);
-        public static readonly Color Warning = new Color(1.0f, 0.62f, 0.45f, 1f);
-        public static readonly Color Hover = new Color(1f, 1f, 1f, 0.10f);
+        // The palette (step 3: one modern green look), from TerminalPalette, where its contrast is tested:
+        public static readonly Color WindowBackground = ToColor(TerminalPalette.WindowBackground);
+        public static readonly Color ChromeBackground = ToColor(TerminalPalette.Chrome);
+        public static readonly Color PanelBackground = ToColor(TerminalPalette.Panel);
+        public static readonly Color ChipBackground = ToColor(TerminalPalette.Chip);
+        public static readonly Color ChromeText = ToColor(TerminalPalette.ChromeText);
+        public static readonly Color DimText = ToColor(TerminalPalette.DimText);
+        public static readonly Color FrameColor = ToColor(TerminalPalette.Frame);
+        /// <summary>The terminal's green: the focus border, a resize edge, a toggle that is on, the slider.</summary>
+        public static readonly Color Accent = ToColor(TerminalPalette.Accent);
+        public static readonly Color Warning = ToColor(TerminalPalette.Warning);
+        public static readonly Color Hover = ToColor(TerminalPalette.Hover);
         /// <summary>The scroll bar's track, faint over the characters' background.</summary>
-        public static readonly Color ScrollTrack = new Color(1f, 1f, 1f, 0.08f);
+        public static readonly Color ScrollTrack = ToColor(TerminalPalette.ScrollTrack);
 
         /// <summary>The dot before the terminal's state.</summary>
         public static Color StatusColor(StatusKind kind)
         {
-            switch (kind)
-            {
-                case StatusKind.Ready: return new Color(0.45f, 0.88f, 0.45f, 1f);
-                case StatusKind.Running: return new Color(0.42f, 0.72f, 1.0f, 1f);
-                case StatusKind.Sending: return new Color(0.42f, 0.88f, 0.92f, 1f);
-                case StatusKind.Waiting:
-                case StatusKind.Starting: return new Color(0.96f, 0.80f, 0.32f, 1f);
-                case StatusKind.NoPower: return new Color(0.95f, 0.40f, 0.35f, 1f);
-                default: return new Color(0.45f, 0.47f, 0.46f, 1f);
-            }
+            return ToColor(TerminalPalette.Status(kind));
+        }
+
+        public static Color ToColor(PaletteColor color)
+        {
+            return new Color(color.R / 255f, color.G / 255f, color.B / 255f, color.A);
         }
 
         /// <summary>KSP's UI scale (Settings, Graphics), which the chrome follows.</summary>
@@ -57,7 +53,6 @@ namespace kOS.Screen
 
         public enum Icon
         {
-            Settings,
             Close,
             Grip,
             Dot
@@ -114,6 +109,7 @@ namespace kOS.Screen
         private static readonly Dictionary<int, GUIStyle> labels = new Dictionary<int, GUIStyle>();
         private static readonly Dictionary<int, GUIStyle> titles = new Dictionary<int, GUIStyle>();
         private static readonly Dictionary<int, GUIStyle> centered = new Dictionary<int, GUIStyle>();
+        private static readonly Dictionary<int, GUIStyle> centeredBold = new Dictionary<int, GUIStyle>();
         private static readonly GUIContent measured = new GUIContent();
 
         /// <summary>One line of chrome text, vertically centered in its rectangle.</summary>
@@ -130,6 +126,11 @@ namespace kOS.Screen
         public static GUIStyle CenteredLabel(int fontSize)
         {
             return TextStyle(centered, fontSize, TextAnchor.MiddleCenter, FontStyle.Normal);
+        }
+
+        public static GUIStyle CenteredBoldLabel(int fontSize)
+        {
+            return TextStyle(centeredBold, fontSize, TextAnchor.MiddleCenter, FontStyle.Bold);
         }
 
         private static GUIStyle TextStyle(Dictionary<int, GUIStyle> cache, int fontSize, TextAnchor alignment, FontStyle fontStyle)
@@ -227,13 +228,27 @@ namespace kOS.Screen
             return Event.current != null && where.Contains(Event.current.mousePosition);
         }
 
-        /// <summary>A flat square button showing <paramref name="icon"/>; <paramref name="active"/> keeps it lit.</summary>
-        public static bool IconButton(Rect where, Icon icon, int iconSize, bool active)
+        /// <summary>A flat square button showing <paramref name="icon"/>.</summary>
+        public static bool IconButton(Rect where, Icon icon, int iconSize)
         {
-            if (active || IsHovered(where))
+            if (IsHovered(where))
                 Fill(where, Hover);
-            DrawIcon(where, icon, iconSize, active ? Accent : ChromeText);
+            DrawIcon(where, icon, iconSize, ChromeText);
             return GUI.Button(where, GUIContent.none, GUIStyle.none);
+        }
+
+        /// <summary>
+        /// A flat button showing a short bold <paramref name="text"/> in the chrome font (plain
+        /// ASCII, which KSP's font always has). One that is not <paramref name="enabled"/> is
+        /// dim, not lit when hovered, and reports no click (it still takes the press, so the
+        /// window does not move).
+        /// </summary>
+        public static bool TextButton(Rect where, string text, int fontSize, bool enabled)
+        {
+            if (enabled && IsHovered(where))
+                Fill(where, Hover);
+            Text(where, text, CenteredBoldLabel(fontSize), enabled ? ChromeText : DimText);
+            return GUI.Button(where, GUIContent.none, GUIStyle.none) && enabled;
         }
 
         /// <summary>A flat text button.</summary>
@@ -354,15 +369,6 @@ namespace kOS.Screen
             float half = Math.Max(0.065f, 0.65f / size);
             switch (icon)
             {
-                case Icon.Settings:
-                    return (u, v) =>
-                    {
-                        float dx = u - 0.5f, dy = v - 0.5f;
-                        float r = (float)Math.Sqrt(dx * dx + dy * dy);
-                        double angle = Math.Atan2(dy, dx);
-                        float outer = Math.Cos(8 * angle) > 0.1 ? 0.48f : 0.36f; // eight teeth
-                        return r <= outer && r >= 0.15f;
-                    };
                 case Icon.Close:
                     return (u, v) =>
                     {
