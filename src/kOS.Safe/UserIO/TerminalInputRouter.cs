@@ -73,6 +73,15 @@ namespace kOS.Safe.UserIO
         /// <returns>how many keys were processed</returns>
         public int ProcessClientInput(TClient[] clients)
         {
+            if (clients.Length == 0)
+                return 0; // nearly always: no key sources, budgets or closures to make (P-02)
+            return DrainClients(clients);
+        }
+
+        // Apart from ProcessClientInput: a method's captured variables are allocated on
+        // entering it, before any early return.
+        private int DrainClients(TClient[] clients)
+        {
             IScreenBuffer screen = host.Screen;
             var sources = new TerminalInputPump.KeySource[clients.Length];
             for (int i = 0; i < clients.Length; ++i)
@@ -110,24 +119,30 @@ namespace kOS.Safe.UserIO
                 return 0; // Fix race condition (Github issue #2925) where Update() calls this before FixedUpdate() has set up the CPU.
             }
             IScreenBuffer screen = host.Screen;
+            if (screen == null || screen.CharInputQueue.Count == 0)
+                return 0; // nearly always: no budget or closures to make for nothing (P-01)
             IInterpreter interpreter = host.Interpreter;
-            if (screen != null && interpreter != null && interpreter.IsWaitingForCommand())
-            {
-                // Setting doQueuing to false here just as an
-                // additional safety measure.  Hypothetically it
-                // should never re-queue this input because we're
-                // in the condition where it will consume it right
-                // away.  But just in case there's some error in
-                // that logic, we want to avoid an infinite loop here
-                // (which could happen if we kept re-queuing the
-                // chars every time we processed one in this loop.)
-                // The budget keeps a long pasted line from stalling one frame; the rest
-                // is typed in the following frames.
-                return TerminalInputPump.FeedPrompt(screen.CharInputQueue, () => interpreter.IsWaitingForCommand(),
-                    key => ProcessOneInputChar(key, null, false, false),
-                    new InputBudget(PromptCharsPerUpdate, TimePerUpdate));
-            }
+            if (interpreter != null && interpreter.IsWaitingForCommand())
+                return FeedPrompt(screen, interpreter);
             return 0;
+        }
+
+        // Apart from ProcessUnconsumedInput, for the reason given at DrainClients.
+        private int FeedPrompt(IScreenBuffer screen, IInterpreter interpreter)
+        {
+            // Setting doQueuing to false here just as an
+            // additional safety measure.  Hypothetically it
+            // should never re-queue this input because we're
+            // in the condition where it will consume it right
+            // away.  But just in case there's some error in
+            // that logic, we want to avoid an infinite loop here
+            // (which could happen if we kept re-queuing the
+            // chars every time we processed one in this loop.)
+            // The budget keeps a long pasted line from stalling one frame; the rest
+            // is typed in the following frames.
+            return TerminalInputPump.FeedPrompt(screen.CharInputQueue, () => interpreter.IsWaitingForCommand(),
+                key => ProcessOneInputChar(key, null, false, false),
+                new InputBudget(PromptCharsPerUpdate, TimePerUpdate));
         }
 
         /// <summary>
@@ -202,7 +217,7 @@ namespace kOS.Safe.UserIO
 
                     case (char)0x0004/*control-D*/: // How users of unix shells are used to doing this.
                     case (char)0x0018/*control-X*/: // How kOS did it in the past in the GUI window.
-                        if (host.Interpreter.IsAtStartOfCommand())
+                        if (host.Interpreter != null && host.Interpreter.IsAtStartOfCommand()) // null-checked as the other paths are (R-05)
                         {
                             if (whichClient == null)
                                 host.CloseWindow();

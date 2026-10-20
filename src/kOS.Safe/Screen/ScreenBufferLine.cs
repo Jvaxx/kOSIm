@@ -57,6 +57,19 @@ namespace kOS.Safe.Screen
             TouchTime();
         }
 
+        // Takes the array as its own (no copy):
+        private ScreenBufferLine(char[] characters)
+        {
+            charArray = characters;
+            TouchTime();
+        }
+
+        /// <summary>A new line with a copy of <paramref name="source"/>'s characters, copied once.</summary>
+        public static ScreenBufferLine CopyOf(IScreenBufferLine source)
+        {
+            return new ScreenBufferLine(source.ToArray());
+        }
+
         /// <summary>
         /// Perform the Array.Copy() function.
         /// Copies a subrange of values from a source array into this array,

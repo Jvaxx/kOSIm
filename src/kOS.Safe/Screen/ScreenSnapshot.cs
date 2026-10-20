@@ -79,20 +79,38 @@ namespace kOS.Safe.Screen
                 CursorColumn = CursorColumn,
                 CursorRow = CursorRow,
                 RowCount = RowCount,
-                Buffer = new List<IScreenBufferLine>()
+                Buffer = new List<IScreenBufferLine>(Buffer.Count)
             };
 
             // This will probably reset the timestamps on the rows, but for our purposes that's actually fine - we call this
             // when we want to get a fully sync'ed copy:
             foreach (IScreenBufferLine line in Buffer)
-            {
-                ScreenBufferLine newLine = new ScreenBufferLine(line.Length);
-                newLine.ArrayCopyFrom(line.ToArray(), 0, 0);
-                newCopy.Buffer.Add(newLine);
-            }
+                newCopy.Buffer.Add(ScreenBufferLine.CopyOf(line)); // one copy of the characters (P-03), not two
             return newCopy;
         }
-        
+
+        /// <summary>
+        /// True if the two snapshots have the same rows, row lengths, top row and cursor, so
+        /// that one whose cells show the same text as the other (<see cref="DiffFrom"/> found
+        /// nothing to send) can stand in for a copy of it as a later diff's base.
+        /// </summary>
+        public static bool SameLayout(IScreenSnapShot a, IScreenSnapShot b)
+        {
+            if (a == null || b == null || a.Buffer == null || b.Buffer == null)
+                return false;
+            if (a.TopRow != b.TopRow || a.RowCount != b.RowCount || a.CursorRow != b.CursorRow ||
+                a.CursorColumn != b.CursorColumn || a.Buffer.Count != b.Buffer.Count)
+                return false;
+            for (int row = 0; row < a.Buffer.Count; ++row)
+            {
+                IScreenBufferLine lineA = a.Buffer[row];
+                IScreenBufferLine lineB = b.Buffer[row];
+                if (lineA == null || lineB == null || lineA.Length != lineB.Length)
+                    return false;
+            }
+            return true;
+        }
+
         /// <summary>
         /// Get a list of the operations that would make a terminal window look like this snapshot
         /// if you assume that beforehand it looked like the older snapshot you pass in.
@@ -109,9 +127,9 @@ namespace kOS.Safe.Screen
 
             // First, output the command to make the terminal scroll to match:
             if (verticalScroll > 0) // scrolling text up (eyeballs panning down)
-                output.Append(new String((char)UnicodeCommand.SCROLLSCREENUPONE, verticalScroll)); // A run of scrollup chars
+                output.Append((char)UnicodeCommand.SCROLLSCREENUPONE, verticalScroll); // A run of scrollup chars
             else if (verticalScroll < 0) // scrolling text down (eyeballs panning up)
-                output.Append(new String((char)UnicodeCommand.SCROLLSCREENDOWNONE, -verticalScroll)); // A run of scrolldown chars
+                output.Append((char)UnicodeCommand.SCROLLSCREENDOWNONE, -verticalScroll); // A run of scrolldown chars
 
             // Check each row:
             for (int newRowNum = 0 ; newRowNum < RowCount ; ++newRowNum)
@@ -120,102 +138,87 @@ namespace kOS.Safe.Screen
                 int oldRowNum = newRowNum + verticalScroll;
 
                 IScreenBufferLine newRow = Buffer[newRowNum];
-                bool oldRowExists = (oldRowNum >= 0 && oldRowNum < older.Buffer.Count);
-                IScreenBufferLine olderRow = oldRowExists ? older.Buffer[oldRowNum] : new ScreenBufferLine(0);
+                // A missing old row reads as blanks:
+                IScreenBufferLine olderRow = (oldRowNum >= 0 && oldRowNum < older.Buffer.Count) ? older.Buffer[oldRowNum] : null;
+                int olderLength = olderRow == null ? 0 : olderRow.Length;
                 
-                // if new row is an empty dummy, then pad it out so it gets properly diffed against the old row:
-                if (newRow.Length == 0)
-                    newRow = new ScreenBufferLine(olderRow.Length);
+                // if new row is an empty dummy, then it is diffed as blanks the old row's length:
+                int width = newRow.Length == 0 ? olderLength : newRow.Length;
                 // Every row is checked by content (VIEW-05). Upstream skipped a row unless it
                 // changed after the older snapshot was copied, but a row can show other text
                 // without being edited: the input line's overlay moves down when text is
                 // printed above it (its rows keep their change time), an overlay moving away
                 // uncovers a base row, the view moves. Comparing costs about what the
                 // DeepCopy of every row after each diff already costs.
-                List<DiffChunk> diffs = new List<DiffChunk>();
+                // The changes are written as they are found, a chunk at a time (P-04: an
+                // unchanged row allocates nothing).
+                int chunkStart = -1;
+                int chunkEnd = -1;
                 
-                for (int newCol = 0 ; newCol < newRow.Length ; ++newCol)
+                for (int newCol = 0 ; newCol < width ; ++newCol)
                 {
                     // Check if they differ, but in a way that treats ' ' and 0x00 as identical, and treats a shorter
                     // old row as if it has been padded with spaces:
-                    bool oldRowTooShort = newCol >= olderRow.Length;
-                    char newChar = (newRow[newCol] == '\0' ? ' ' : newRow[newCol]);
-                    char oldChar = (oldRowTooShort ? ' ' : (olderRow[newCol] == '\0' ? ' ' : olderRow[newCol]));
-                    if (newChar != oldChar)
+                    if (Cell(newRow, newCol) != Cell(olderRow, newCol))
                     {
                         // Start a new diff chunk if there isn't one yet, or the diff is a long enough distance from the existing one:
-                        if (diffs.Count == 0 || diffs[diffs.Count-1].EndCol < newCol - JOIN_DIFF_DIST)
+                        if (chunkStart < 0 || chunkEnd < newCol - JOIN_DIFF_DIST)
                         {
-                            DiffChunk newChunk = new DiffChunk
-                            {
-                                StartCol = newCol, 
-                                EndCol = newCol
-                            };
-                            diffs.Add(newChunk);
+                            if (chunkStart >= 0)
+                                WriteChunk(output, newRow, newRowNum, chunkStart, chunkEnd, ref trackCursorColumn, ref trackCursorRow);
+                            chunkStart = newCol;
                         }
-                        else // stretch the existing diff chunk to here.
-                        {
-                            diffs[diffs.Count-1].EndCol = newCol;
-                        }
+                        chunkEnd = newCol; // else stretch the existing diff chunk to here.
                     }
                 }
-                
-                string newRowText = newRow.ToString();
-
-                foreach (DiffChunk diff in diffs)
-                {
-                    /* comment-out -----------------
-                    // If we're lucky enough that the current cursor happens to be right where we need it to
-                    // be, some of these are more efficient.  Else it does TELEPORTCURSOR's:
-                    
-                    // Just one char removed to the left of current cursor pos - do a backspace instead of the ugly work:
-                    if (trackCursorRow == newRowNum && (diff.EndCol == trackCursorColumn - 1 && diff.StartCol == diff.EndCol))
-                    {
-                        output.Append(String.Format("{0}{1}{2}", (char)0x08, newRowText.Substring(diff.StartCol,1), (char)0x08));
-                        trackCursorColumn = diff.EndCol;
-                        trackCursorRow = newRowNum;
-                    }
-                    else
-                    {
-                    --------------------------- */
-                        // If the change starts right where the cursor happens to be (i.e. when typing, one char
-                        // at current cursor position will typically be the only diff from one update to the next),
-                        // then don't bother moving the cursor first, else move it to the new pos:
-                        string moveString;
-                        if (trackCursorRow == newRowNum && diff.StartCol == trackCursorColumn)
-                            moveString = "";
-                        else
-                            moveString = String.Format("{0}{1}{2}",
-                                                       (char)UnicodeCommand.TELEPORTCURSOR,
-                                                       (char)diff.StartCol,
-                                                       (char)newRowNum);
-                        
-                        // content = the bit of string to print at this location, with nulls made into spaces so the 
-                        // telnet terminal will print correctly.
-                        string content = newRowText.Substring(diff.StartCol, diff.EndCol - diff.StartCol + 1).Replace('\0',' ');
-
-                        output.Append(String.Format("{0}{1}", moveString, content));
- 
-                        trackCursorColumn = diff.EndCol+1;
-                        trackCursorRow = newRowNum;
-                    /* comment-out -----------------
-                    }
-                    --------------------------- */
-                }
-                
-                    
+                if (chunkStart >= 0)
+                    WriteChunk(output, newRow, newRowNum, chunkStart, chunkEnd, ref trackCursorColumn, ref trackCursorRow);
             }
                     
             // Now set the cursor back to the right spot one more time, unless it's already there:
             int cursorRow = TeleportRow(CursorRow, RowCount);
             if (trackCursorRow != cursorRow || trackCursorColumn != CursorColumn)
             {
-                output.Append(String.Format("{0}{1}{2}",
-                                            (char)UnicodeCommand.TELEPORTCURSOR,
-                                            (char)CursorColumn,
-                                            (char)cursorRow));
+                output.Append((char)UnicodeCommand.TELEPORTCURSOR);
+                output.Append((char)CursorColumn);
+                output.Append((char)cursorRow);
             }
             return output.ToString();
+        }
+
+        /// <summary>A cell as a viewer shows it: a null, or a cell past the row's end (or of no row), is a space.</summary>
+        private static char Cell(IScreenBufferLine row, int column)
+        {
+            if (row == null || column >= row.Length)
+                return ' ';
+            char ch = row[column];
+            return ch == '\0' ? ' ' : ch;
+        }
+
+        /// <summary>
+        /// Write one chunk of changes: the cells from <paramref name="startCol"/> to
+        /// <paramref name="endCol"/>, after moving the cursor there unless it already is.
+        /// </summary>
+        private static void WriteChunk(StringBuilder output, IScreenBufferLine row, int rowNum, int startCol, int endCol,
+            ref int trackCursorColumn, ref int trackCursorRow)
+        {
+            // If the change starts right where the cursor happens to be (i.e. when typing, one char
+            // at current cursor position will typically be the only diff from one update to the next),
+            // then don't bother moving the cursor first, else move it to the new pos:
+            if (trackCursorRow != rowNum || startCol != trackCursorColumn)
+            {
+                output.Append((char)UnicodeCommand.TELEPORTCURSOR);
+                output.Append((char)startCol);
+                output.Append((char)rowNum);
+            }
+
+            // the bit of the row to print at this location, with nulls made into spaces so the
+            // telnet terminal will print correctly.
+            for (int col = startCol; col <= endCol; ++col)
+                output.Append(Cell(row, col));
+
+            trackCursorColumn = endCol + 1;
+            trackCursorRow = rowNum;
         }
 
         /// <summary>
@@ -227,12 +230,6 @@ namespace kOS.Safe.Screen
         public static int TeleportRow(int cursorRow, int rowCount)
         {
             return Math.Max(0, Math.Min(cursorRow, rowCount - 1));
-        }
-        
-        private class DiffChunk
-        {
-            public int StartCol {get;set;}
-            public int EndCol {get;set;}
         }
 
     }

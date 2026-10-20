@@ -104,6 +104,8 @@ everything else go through the queue.
 
 ### R-04 (Low, inherited): `TermWindow.Update` continues after deciding to close
 
+**Status: done** (2026-10-20, with P-01 to P-06, R-04 and R-05). `Update` returns after `Close()`; the telnet detach still runs through `OnDestroy`. Built; no headless test (Unity).
+
 `TermWindow.Update` (`src/kOS/Screen/TermWindow.cs:372-378`) calls `Close()` when
 `shared`, the vessel or the parts are gone, but does not `return`. It goes on to:
 
@@ -122,6 +124,8 @@ one-line hardening, but check that the telnet detach path still runs, through
 `OnDestroy`.
 
 ### R-05 (Low, inherited): Ctrl-D path without a null check
+
+**Status: done** (2026-10-20, with P-01 to P-06, R-04 and R-05). Ctrl-D/Ctrl-X without an interpreter do nothing. Test: `TerminalInputRouterTest`.
 
 `TerminalInputRouter` (`src/kOS.Safe/UserIO/TerminalInputRouter.cs:205`) calls
 `host.Interpreter.IsAtStartOfCommand()` without checking `host.Interpreter`. The other
@@ -233,6 +237,8 @@ listed roughly by payoff.
 
 ### P-01 (Medium, kOSIm): allocations every frame per CPU while idle at the prompt
 
+**Status: done** (2026-10-20, with P-01 to P-06, R-04 and R-05). Early return on an empty type-ahead; the closures moved to a separate method, because C# allocates a method's captured variables on entry, before any early return (the allocation test caught it). Measured: 0 bytes per idle update. Details for all items: `testing-and-build.md`, "Fixes from the post-release review".
+
 `TerminalInputRouter.ProcessUnconsumedInput` (`TerminalInputRouter.cs:106-130`) builds
 `new InputBudget(…)` (which starts a `Stopwatch`) plus two closures every `Update` while
 the interpreter waits for a command. This happens even when `CharInputQueue` is empty,
@@ -242,6 +248,8 @@ Fix: return early when `screen.CharInputQueue.Count == 0`.
 
 ### P-02 (Medium, kOSIm): telnet input processing allocates every frame with no clients
 
+**Status: done** (2026-10-20, with P-01 to P-06, R-04 and R-05). Early returns in `TermWindow.ProcessTelnetInput` and the router (closures in a separate method, as P-01). Measured: 0 bytes per update without clients.
+
 `TermWindow.ProcessTelnetInput` (`TermWindow.cs:815-821`) runs
 `session.Viewers.Where(…).ToArray()` every frame per CPU. Then
 `ProcessClientInput` (`TerminalInputRouter.cs:~70-96`) builds arrays of delegates and
@@ -250,6 +258,8 @@ closures for each client, and a budget factory.
 Fix: return early when `session.ViewerCount == 0`. That covers 99% of play time.
 
 ### P-03 (Medium, kOSIm and inherited): every terminal takes a snapshot every 50 ms
+
+**Status: done** (2026-10-20, with P-01 to P-06, R-04 and R-05). Snapshot only while the window is open or a client is attached, taken at once when someone starts looking; one timer; a viewer's copy kept when nothing changed and the layout is the same; `DeepCopy` copies once; the `IScreenSnapShot` doc states that rows are live. Measured: 0 bytes per refresh with nobody looking. Checked: skipping snapshots does not leave the prompt overlay's position stale for any reader that matters (`TextEditor.UpdateSubBuffers` only feeds the merge; `MarkRowsDirty` only touches change times).
 
 `TerminalSession.Update` (`src/kOS.Safe/UserIO/TerminalSession.cs:106-125`) builds
 `new ScreenSnapShot(Screen)` every 50 ms for **every** CPU, whether or not its window is
@@ -280,6 +290,8 @@ can never skip rows by identity.
 
 ### P-04 (Low, kOSIm): `DiffFrom` allocates for unchanged rows
 
+**Status: done** (2026-10-20, with P-01 to P-06, R-04 and R-05). Chunks written as found (no list, no row string, no padding rows); the output is byte-identical to the previous code on 3,000 random screen pairs. Measured: an unchanged screen's diff allocates the same few bytes at 5×20 and 100×200.
+
 Since VIEW-05 removed the change-time skip, `ScreenSnapShot.DiffFrom`
 (`src/kOS.Safe/Screen/ScreenSnapshot.cs:102-218`) compares every row, which is correct.
 But for **every** row it also:
@@ -294,6 +306,8 @@ That is per viewer, every 50 ms. Fix:
 - call `ToString()` only when `diffs.Count > 0`.
 
 ### P-05 (Low, kOSIm and inherited): toolbar panel rebuilds its model several times per OnGUI event
+
+**Status: done** (2026-10-20, with P-01 to P-06, R-04 and R-05). The CPUs, their rows, the config keys and the settings sections are worked out once a frame (`Time.frameCount`). Built; no headless test (Unity).
 
 `KOSToolbarWindow.OnGUI` (`src/kOS/Screen/KOSToolbarWindow.cs:397-470`) runs
 `GatherCpus()` (`:476`) on **every** IMGUI event: Layout, Repaint and each input event.
@@ -315,6 +329,8 @@ Fix: gather once per frame (cache by `Time.frameCount`) and compute rows once pe
 event.
 
 ### P-06 (Low, kOSIm): the status refresh recomputes titles even when unseen
+
+**Status: done** (2026-10-20, with P-01 to P-06, R-04 and R-05). Titles and state only while someone looks; worked out again at once when a telnet client attaches, so it gets the current title. Built; no headless test (Unity).
 
 `TermWindow.RefreshStatus` (`TermWindow.cs:1745-1771`) gates `DescribeStatus` on
 `IsOpen || ViewerCount > 0 || StatusWanted`. But every 0.25 s per CPU, unconditionally, it:
@@ -480,7 +496,7 @@ and its loop body is empty.
     `File.Replace`/`Move` over the link.
   - Directory links are followed for writes; file links are not.
   - Fix the IO-04 line and the roadmap's binding decision to say so.
-- **K-02 (Low):** `testing-and-build.md:173` says the status refreshes "only while the
+- **K-02 (Low; done 2026-10-20 with P-06):** `testing-and-build.md:173` says the status refreshes "only while the
   GUI is open or a client is attached". It also refreshes while the toolbar's CPUs tab
   asks for it (`StatusWanted`, `TermWindow.cs:1753`). Title work runs unconditionally
   (P-06).
@@ -597,7 +613,7 @@ placement changes.
    bound.
 2. **L-01 (done):** `ListPickerDialog.Close()` destroys the component, and `GoAway` handles the
    IP picker. Then do the "list picker open-close object count" in-game check.
-3. **P-01, P-02, P-03 (gating), P-06:** early returns when there is no input, no viewer
+3. **P-01, P-02, P-03 (gating), P-06 (done, with P-04, P-05, R-04 and R-05):** early returns when there is no input, no viewer
    or no window. These are small, testable changes that remove most of the idle
    per-CPU work.
 4. **K-01** and **K-09–K-12:** doc fixes. The link policy is a stated binding decision,

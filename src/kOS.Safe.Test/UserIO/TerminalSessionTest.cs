@@ -220,6 +220,132 @@ namespace kOS.Safe.Test.UserIO
             AssertShowsScreen(a);
         }
 
+        // ---- Nobody looking (review P-03) ----
+
+        [Test]
+        public void NoSnapshotIsTakenWhileNobodyLooksButTheRefreshesKeepTheirPace()
+        {
+            screen.Print("hello");
+            Assert.IsTrue(session.Update(now + TimeSpan.FromMilliseconds(51), false), "a refresh: the window lets the beeps go");
+            Assert.IsNull(session.Snapshot, "closed window, no client: nothing to take it for");
+            Assert.IsFalse(session.Update(now + TimeSpan.FromMilliseconds(80), false));
+            Assert.IsTrue(session.Update(now + TimeSpan.FromMilliseconds(102), false));
+            Assert.IsNull(session.Snapshot);
+        }
+
+        [Test]
+        public void NothingIsAllocatedWhileNobodyLooks()
+        {
+            screen.Print("hello");
+            int refreshes = 0;
+            long bytes = AllocationCounter.BytesAllocated(() =>
+            {
+                now += TimeSpan.FromMilliseconds(51);
+                if (session.Update(now, false))
+                    ++refreshes;
+            });
+            Assert.AreEqual(101, refreshes, "each update was a refresh");
+            Assert.AreEqual(0, bytes, "bytes allocated by 100 refreshes with nobody looking");
+        }
+
+        [Test]
+        public void AWindowOpenedBetweenRefreshesGetsTheScreenAtOnce()
+        {
+            Assert.IsTrue(session.Update(now + TimeSpan.FromMilliseconds(51), true));
+            IScreenSnapShot first = session.Snapshot;
+            Assert.IsTrue(session.Update(now + TimeSpan.FromMilliseconds(102), false));
+            Assert.AreSame(first, session.Snapshot, "not retaken while the window is closed");
+
+            screen.Print("one\ntwo\nthree");
+            Assert.IsFalse(session.Update(now + TimeSpan.FromMilliseconds(110), true), "not a refresh");
+            IScreenSnapShot opened = session.Snapshot;
+            Assert.AreNotSame(first, opened, "taken for the opened window without waiting for the refresh");
+            Assert.AreEqual(screen.CursorRowShow, opened.CursorRow);
+            Assert.AreEqual(screen.CursorColumnShow, opened.CursorColumn);
+
+            Assert.IsFalse(session.Update(now + TimeSpan.FromMilliseconds(120), true));
+            Assert.AreSame(opened, session.Snapshot, "then retaken at the refreshes only");
+            Assert.IsTrue(session.Update(now + TimeSpan.FromMilliseconds(162), true));
+            Assert.AreNotSame(opened, session.Snapshot);
+        }
+
+        [Test]
+        public void AClientIsSentTheChangesWithTheWindowClosed()
+        {
+            Assert.IsTrue(session.Update(now + TimeSpan.FromMilliseconds(51), false));
+            RecordingViewer a = Attach("a", 40, 10);
+            a.TakeOutput();
+
+            screen.Print("over telnet");
+            Assert.IsTrue(session.Update(now + TimeSpan.FromMilliseconds(102), false));
+            StringAssert.Contains("over telnet", a.TakeOutput());
+            AssertShowsScreen(a);
+
+            screen.Print("again");
+            Assert.IsTrue(session.Update(now + TimeSpan.FromMilliseconds(153), false));
+            AssertShowsScreen(a);
+        }
+
+        [Test]
+        public void AnUnchangedScreenSendsNothingAndLaterChangesStillArrive()
+        {
+            RecordingViewer a = Attach("a", 40, 10);
+            screen.Print("one");
+            Refresh();
+            a.TakeOutput();
+            for (int i = 0; i < 3; ++i)
+            {
+                Assert.IsTrue(Refresh());
+                Assert.AreEqual("", a.TakeOutput(), "refresh " + i);
+            }
+
+            screen.Print("two");
+            Refresh();
+            StringAssert.Contains("two", a.TakeOutput());
+            AssertShowsScreen(a);
+            screen.PrintAt("three", 0, 30); // the cursor stays: the text alone changes
+            Refresh();
+            AssertShowsScreen(a);
+        }
+
+        [Test]
+        public void AScreenNarrowedWithoutARepaintIsDiffedAtItsNewWidthAfterwards()
+        {
+            RecordingViewer a = Attach("a", 40, 10);
+            screen.PrintAt(new string('w', 40), 2, 0);
+            screen.MoveCursor(5, 3);
+            Refresh();
+            a.TakeOutput();
+
+            // The client took the size before the screen (no repaint asked), and the screen's
+            // first 30 columns did not change: nothing to send, but the client's copy is
+            // retaken at the new width, as every refresh did before (P-03 keeps a copy only
+            // when its layout is the same).
+            a.UserResize(30, 10);
+            screen.SetSize(10, 30);
+            Refresh();
+            Assert.AreEqual("", a.TakeOutput(), "narrowed");
+            a.UserResize(40, 10);
+            screen.SetSize(10, 40);
+            Refresh();
+            Assert.AreEqual("", a.TakeOutput(), "widened: the columns past 30 were blank on both sides");
+            AssertShowsScreen(a);
+        }
+
+        [Test]
+        public void AnUnchangedScreenIsNotCopiedForTheClientAgain()
+        {
+            screen.SetSize(50, 200);
+            RecordingViewer a = Attach("a", 200, 50);
+            screen.Print("hello");
+            Refresh();
+            long perRefresh = AllocationCounter.BytesAllocated(() => Refresh(), 20) / 20;
+            // A copy of the text alone would be 50 * 200 * 2 bytes; the snapshot's row list,
+            // the diff's builder and the viewer list stay far below that.
+            Assert.Less(perRefresh, 2000, "bytes per refresh of an unchanged screen with a client");
+            Assert.AreEqual("hello", a.Model.Row(0).Substring(0, 5));
+        }
+
         [Test]
         public void ARefreshSendsOnlyTheChanges()
         {

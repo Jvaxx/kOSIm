@@ -60,13 +60,12 @@ namespace kOS.Safe.UserIO
         private readonly List<TViewer> viewers = new List<TViewer>();
         // What each viewer was last sent; null until its first full repaint.
         private readonly Dictionary<TViewer, IScreenSnapShot> previousScreens = new Dictionary<TViewer, IScreenSnapShot>();
-        private DateTime lastSnapshot;
         private DateTime lastRefresh;
+        private bool snapshotOutdated; // a refresh passed with nobody to show the screen to (P-03)
 
         /// <param name="now">the time the first refresh is counted from</param>
         public TerminalSession(DateTime now)
         {
-            lastSnapshot = now;
             lastRefresh = now;
         }
 
@@ -74,8 +73,11 @@ namespace kOS.Safe.UserIO
         public IScreenBuffer Screen { get; set; }
 
         /// <summary>
-        /// The screen as last taken by <see cref="Update"/>, for the GUI and every viewer.
-        /// Null until the first refresh.
+        /// The screen as last taken by <see cref="Update(DateTime, bool)"/>, for the GUI and
+        /// every viewer. Null until the first refresh. Not retaken while nobody looks (no GUI,
+        /// no viewer), so it may then be old; it is retaken by the first update that has
+        /// someone to show it to. Its rows are the screen's own lines (see
+        /// <see cref="IScreenSnapShot"/>): <see cref="IScreenSnapShot.DeepCopy"/> to keep them.
         /// </summary>
         public IScreenSnapShot Snapshot { get; private set; }
 
@@ -96,33 +98,50 @@ namespace kOS.Safe.UserIO
         }
 
         /// <summary>
+        /// <see cref="Update(DateTime, bool)"/> for a session whose GUI shows the screen.
+        /// </summary>
+        public bool Update(DateTime now)
+        {
+            return Update(now, true);
+        }
+
+        /// <summary>
         /// Once per update: retake the snapshot and send the viewers the changes, at most
         /// once per <see cref="RefreshInterval"/> (no faster than the fastest typist or script
         /// might change the screen). Taking the snapshot is not trivial, so it is taken once
-        /// for the GUI and all the viewers to share until the next refresh.
+        /// for the GUI and all the viewers to share until the next refresh, and only when the
+        /// GUI shows it or a viewer is attached (P-03: most CPUs have neither, nearly always).
+        /// A snapshot left out that way is taken by the next update that has someone to show
+        /// it to, between refreshes, so an opened window does not draw an old screen.
         /// </summary>
-        /// <returns>true if the viewers were sent the changes (with the screen's pending beeps)
-        /// in this update</returns>
-        public bool Update(DateTime now)
+        /// <param name="shownInGui">whether the GUI draws the snapshot (its window is open)</param>
+        /// <returns>true if this update was a refresh: the viewers, if any, were sent the
+        /// changes with the screen's pending beeps, which the owner may now clear</returns>
+        public bool Update(DateTime now, bool shownInGui)
         {
             if (IsDisposed)
                 return false;
-            if (now > lastSnapshot + RefreshInterval)
+            bool refresh = now > lastRefresh + RefreshInterval;
+            if (refresh)
+                lastRefresh = now;
+            if (!shownInGui && viewers.Count == 0)
             {
-                Snapshot = new ScreenSnapShot(Screen);
-                lastSnapshot = now;
+                snapshotOutdated |= refresh;
+                return refresh; // the beeps are still let go at each refresh, as before
             }
 
-            if (now > lastRefresh + RefreshInterval)
+            if (refresh || snapshotOutdated)
             {
-                lastRefresh = now;
-                foreach (TViewer viewer in Viewers)
-                {
-                    Repaint(viewer, false); // try the incremental differ update.
-                }
-                return true;
+                Snapshot = new ScreenSnapShot(Screen);
+                snapshotOutdated = false;
             }
-            return false;
+            if (!refresh)
+                return false;
+            foreach (TViewer viewer in Viewers)
+            {
+                Repaint(viewer, false); // try the incremental differ update.
+            }
+            return true;
         }
 
         /// <summary>
@@ -272,10 +291,14 @@ namespace kOS.Safe.UserIO
                 viewer.Write(Screen.VisualBeep ? ((char)UnicodeCommand.VISUALBEEPMODE) : ((char)UnicodeCommand.AUDIOBEEPMODE));
                 viewer.VisualBeep = Screen.VisualBeep;
             }
-            string updateText = Snapshot.DiffFrom(previousScreens[viewer]);
+            IScreenSnapShot previous = previousScreens[viewer];
+            string updateText = Snapshot.DiffFrom(previous);
             viewer.Write(updateText);
 
-            previousScreens[viewer] = Snapshot.DeepCopy();
+            // Nothing changed: the copy the viewer has is as good as a new one (P-03), unless
+            // its layout differs (a row count, a row length, the cursor's own row).
+            if (updateText.Length > 0 || !ScreenSnapShot.SameLayout(previous, Snapshot))
+                previousScreens[viewer] = Snapshot.DeepCopy();
             for (int i = 0 ; i < Screen.BeepsPending ; ++i)
                 viewer.Write((char)UnicodeCommand.BEEP); // The terminal's UnicodeMapper will convert this to ascii 0x07 if the right terminal type.
         }

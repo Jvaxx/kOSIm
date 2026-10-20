@@ -409,7 +409,10 @@ namespace kOS.Screen
 
             // Sorting the list is expensive.  Only do it when the window is first re-opened, not on every single repaint:
             if (!wasOpenLastPaint)
+            {
                 kOSProcessor.SortAllInstances();
+                gatheredFrame = -1; // gathered again in the new order
+            }
             wasOpenLastPaint = true;
 
             if (uiGloballyHidden && kOS.Safe.Utilities.SafeHouse.Config.ObeyHideUI)
@@ -454,6 +457,14 @@ namespace kOS.Screen
         private ToolbarSetting hoveredSetting; // in the current pass, for the description
         private readonly List<ToolbarCpuEntry> cpuEntries = new List<ToolbarCpuEntry>();
         private readonly List<kOSProcessor> cpuModules = new List<kOSProcessor>();
+        // OnGUI runs for every IMGUI event (layout, repaint, input), several a frame: the CPUs,
+        // their rows and the settings are worked out once a frame, not each time (P-05).
+        private int gatheredFrame = -1;
+        private List<ToolbarCpuRow> cpuRows; // null until needed after a gather
+        private ToolbarPanelLayout cpuRowsLayout;
+        private int settingsFrame = -1;
+        private IList<ConfigKey> settingKeys;
+        private List<ToolbarSettingSection> settingSections;
 
         private ToolbarPanelLayout Layout
         {
@@ -476,9 +487,13 @@ namespace kOS.Screen
             return StatusStrip.Shorten(text ?? string.Empty, width, measured => KOSStyle.Measure(style, measured), KOSStyle.Ellipsis);
         }
 
-        /// <summary>The CPUs in kOS's order, each with what its row shows.</summary>
+        /// <summary>The CPUs in kOS's order, each with what its row shows; once a frame.</summary>
         private void GatherCpus()
         {
+            if (gatheredFrame == Time.frameCount)
+                return;
+            gatheredFrame = Time.frameCount;
+            cpuRows = null;
             cpuEntries.Clear();
             cpuModules.Clear();
             foreach (kOSProcessor module in kOSProcessor.AllInstances())
@@ -505,9 +520,41 @@ namespace kOS.Screen
             }
         }
 
+        /// <summary>The CPUs tab's rows for the CPUs last gathered, worked out once for them.</summary>
+        private List<ToolbarCpuRow> CpuRows(ToolbarPanelLayout panel)
+        {
+            if (cpuRows == null || cpuRowsLayout != panel)
+            {
+                cpuRows = ToolbarCpuList.Rows(cpuEntries, panel);
+                cpuRowsLayout = panel;
+            }
+            return cpuRows;
+        }
+
+        /// <summary>The config keys, once a frame; null without a config.</summary>
+        private IList<ConfigKey> SettingKeys()
+        {
+            if (settingsFrame != Time.frameCount)
+            {
+                settingsFrame = Time.frameCount;
+                settingKeys = SafeHouse.Config == null ? null : SafeHouse.Config.GetConfigKeys();
+                settingSections = null;
+            }
+            return settingKeys;
+        }
+
+        /// <summary>The settings tab's sections, once a frame (the values are read as they are drawn); null without a config.</summary>
+        private List<ToolbarSettingSection> SettingSections()
+        {
+            IList<ConfigKey> keys = SettingKeys();
+            if (settingSections == null && keys != null)
+                settingSections = ToolbarSettings.Sections(keys);
+            return settingSections;
+        }
+
         private float ContentHeight(ToolbarPanelLayout panel, bool settings)
         {
-            return settings ? DrawSettings(panel, 0, 0, false, false) : ToolbarCpuList.Height(ToolbarCpuList.Rows(cpuEntries, panel), panel);
+            return settings ? DrawSettings(panel, 0, 0, false, false) : ToolbarCpuList.Height(CpuRows(panel), panel);
         }
 
         public void DrawWindow(int windowID)
@@ -605,7 +652,7 @@ namespace kOS.Screen
 
         private void DrawCpus(ToolbarPanelLayout panel, float rowWidth, float top, float viewHeight, bool mouseInView)
         {
-            List<ToolbarCpuRow> rows = ToolbarCpuList.Rows(cpuEntries, panel);
+            List<ToolbarCpuRow> rows = CpuRows(panel);
             if (rows.Count == 0)
             {
                 KOSStyle.Text(new Rect(0, top, rowWidth, panel.SettingRowHeight), ToolbarCpuList.EMPTY_TEXT, KOSStyle.Label(panel.FontSize), KOSStyle.ChromeText);
@@ -679,10 +726,10 @@ namespace kOS.Screen
         /// </summary>
         private float DrawSettings(ToolbarPanelLayout panel, float rowWidth, float top, bool draw, bool mouseInView)
         {
-            if (SafeHouse.Config == null) return 0;
-            IList<ConfigKey> keys = SafeHouse.Config.GetConfigKeys();
+            List<ToolbarSettingSection> sections = SettingSections();
+            if (sections == null) return 0;
             float y = top;
-            foreach (ToolbarSettingSection section in ToolbarSettings.Sections(keys))
+            foreach (ToolbarSettingSection section in sections)
             {
                 if (draw) DrawHeading(panel, new Rect(0, y, rowWidth, panel.HeadingHeight), section.Title);
                 y += panel.HeadingHeight;
@@ -926,7 +973,8 @@ namespace kOS.Screen
             KOSStyle.Fill(footer, KOSStyle.ChromeBackground);
             KOSStyle.Fill(new Rect(footer.x, footer.y, footer.width, panel.Border), KOSStyle.FrameColor);
 
-            ConfigKey suppress = SafeHouse.Config == null ? null : ToolbarSettings.FooterKey(SafeHouse.Config.GetConfigKeys());
+            IList<ConfigKey> keys = SettingKeys();
+            ConfigKey suppress = keys == null ? null : ToolbarSettings.FooterKey(keys);
             if (suppress != null && suppress.Value is bool)
                 DrawSuppressAutopilotField(suppress, ToRect(panel.SuppressButton(height)), panel);
 

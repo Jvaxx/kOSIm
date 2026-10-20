@@ -375,6 +375,7 @@ namespace kOS.Screen
             {
                 // Holding onto a vessel instance that no longer exists?
                 Close();
+                return; // nothing below works without it (R-04); OnDestroy still detaches the telnet clients
             }
             RefreshStatus();
             if (selection.IsDragging && !Input.GetMouseButton(0))
@@ -382,8 +383,9 @@ namespace kOS.Screen
             if (scrollDragging && !Input.GetMouseButton(0))
                 scrollDragging = false;
             SaveGeometryIfChanged(false);
-            // The snapshot for the GUI, and the telnet clients' output, at most every 1/20th second:
-            bool telnetsGotRepainted = session.Update(DateTime.Now);
+            // The snapshot for the GUI, and the telnet clients' output, at most every 1/20th second
+            // (the snapshot only while the window is open or a client is attached: P-03):
+            bool telnetsGotRepainted = session.Update(DateTime.Now, IsOpen);
             ProcessTelnetInput(); // want to do this even when the terminal isn't actually displaying.
             ProcessUnconsumedInput(); // Moved here from OnGUI because it needs to run even when the GUI terminal is closed.
             if (telnetsGotRepainted)
@@ -814,6 +816,8 @@ namespace kOS.Screen
         /// </summary>
         private void ProcessTelnetInput()
         {
+            if (session.ViewerCount == 0)
+                return; // nearly always: nothing to copy or route (P-02)
             // It's possible to close and remove telnets from the list during the processing
             // of input (if the detach signal Ctrl-D is sent).  Therefore we have to
             // make this temp copy to prorect against the C# error "Collection was Modified"
@@ -1740,32 +1744,39 @@ namespace kOS.Screen
         
         /// <summary>
         /// Work out the title and the CPU state again (at most every <see cref="statusInterval"/>),
-        /// and give telnet clients the title with the state after it.
+        /// and give telnet clients the title with the state after it; only while someone looks:
+        /// the window is open, a telnet client is attached, or the toolbar panel's CPUs tab shows
+        /// (P-06). Nobody else needs them, and the first update with someone to look works them
+        /// out again (an interval has passed by then, or <see cref="Open"/> asked for it).
         /// </summary>
         private void RefreshStatus()
         {
-            if (shared == null || shared.Vessel == null || shared.KSPPart == null) return;
+            if (!IsOpen && session.ViewerCount == 0 && !StatusWanted)
+                return; // nobody to show it to
             DateTime now = DateTime.Now;
             if (now < nextStatusTime) return;
+            RefreshStatusNow(now);
+        }
+
+        private void RefreshStatusNow(DateTime now)
+        {
+            if (shared == null || shared.Vessel == null || shared.KSPPart == null) return;
             nextStatusTime = now + statusInterval;
             baseTitle = CalcualteTitle();
             headerTitle = CalculateHeaderTitle();
-            if (IsOpen || session.ViewerCount > 0 || StatusWanted) // nobody to show it to otherwise
+            try
             {
-                try
+                status = DescribeStatus();
+                statusText = status.Text;
+            }
+            catch (Exception ex) when (!(ex is OutOfMemoryException))
+            {
+                status = null;
+                statusText = string.Empty; // the state must never stop the terminal
+                if (!reportedStatusFailure)
                 {
-                    status = DescribeStatus();
-                    statusText = status.Text;
-                }
-                catch (Exception ex) when (!(ex is OutOfMemoryException))
-                {
-                    status = null;
-                    statusText = string.Empty; // the state must never stop the terminal
-                    if (!reportedStatusFailure)
-                    {
-                        reportedStatusFailure = true;
-                        UnityEngine.Debug.LogException(ex, this);
-                    }
+                    reportedStatusFailure = true;
+                    UnityEngine.Debug.LogException(ex, this);
                 }
             }
             session.ChangeTitle(TerminalStatus.TitleWithStatus(baseTitle, statusText));
@@ -1832,7 +1843,10 @@ namespace kOS.Screen
         /// </summary>
         internal void AttachTelnet(TelnetSingletonServer server)
         {
+            // The title it is sent is worked out now: nobody may have looked for a while (P-06).
+            RefreshStatusNow(DateTime.Now);
             session.AttachViewer(server);
+            nextStatusTime = DateTime.MinValue; // the state again at the next update, counting this client
         }
 
         internal void DetachTelnet(TelnetSingletonServer server)
