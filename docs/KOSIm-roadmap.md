@@ -40,7 +40,7 @@ Commands, behavior changes, limits and open issues: [testing-and-build.md](testi
 | 1 — Correctness and safety | Complete (2026-10-19): every P0/P1 review finding checked; fixes headless-tested and passed in game. |
 | 2 — Structural boundaries | Complete (2026-10-19): input router, `TerminalSession` fan-out, explicit lifecycle, screen/view split ([phase2-contracts.md](phase2-contracts.md)). |
 | 3 — Workflow quality of life | Complete (2026-10-20): history (draft, Ctrl+R search, saved history), paste, copy, CPU state, wheel, follow-output, mouse selection. STATUS-01 fix awaits its in-game check. |
-| 4 — Modern, simpler UI | Next; needs a plan approved by the user. |
+| 4 — Modern, simpler UI | Decisions agreed 2026-10-20; step 1 planned, awaiting approval. |
 
 What each item changed, and what was never checked in game: [testing-and-build.md](testing-and-build.md), "Behavior changes from upstream" and "In-game coverage". Detailed step plans and exit reviews of Phases 0–3 are in git history (this file at `876e1a29`).
 
@@ -116,6 +116,50 @@ Start with disciplined IMGUI. Evaluate another renderer only if a scoped prototy
 Carried in from Phase 3 (user decision 2026-10-20): **BAR-01**, the bottom bar's "N telnet clients attached" label overlaps the "Keyclicker" toggle and the D2 state text; fix it as part of the status strip, not as a patch to the current bar. Also open in the UI: G3-UI (controls overlap at 20 columns), PASTE-UI-01 (translucent paste box), the narrow-width bar (never checked).
 
 No UI redesign without a plan approved by the user; no wholesale terminal rewrite or embedded IDE.
+
+### Decisions (agreed with the user 2026-10-20)
+
+- **Renderer:** IMGUI. One shared style module (palette, metrics, fonts, UI-scale factor) for every kOS window; layout logic that can be tested (strip truncation, layout ↔ cell counts, on-screen clamping, geometry file) lives in `kOS.Safe` with headless tests.
+- **Terminal window:** our own flat header (vessel and CPU name, settings button, close button) and frame instead of KSP's window skin and the monitor bezel; a thin accent border shows keyboard focus. The grid fills the window with small even padding.
+- **Status strip** (one line, replaces the bottom bar): the D2 state with a colored dot on the left; chips only when they apply (`New output`, which jumps to the bottom when clicked; `Delay`; `No connection`; telnet client count); size and resize grip on the right. When narrow, chips drop lowest priority first, never overlapping (fixes BAR-01). Copy notices show briefly without hiding the size.
+- **Settings popover** (from the header button): reverse screen, visual beep, key click, a horizontal brightness slider, character size. Nothing else on the working surface. Script API unchanged (`TERMINAL:REVERSE`, `VISUALBEEP`, `BRIGHTNESS`, `CHARHEIGHT`, …).
+- **Chrome scale:** header, strip and popover follow KSP's UI scale; cells follow `CHARHEIGHT`.
+- **Geometry:** each CPU's terminal position and size saved in the save folder next to its history (`saves/<save>/kOS/…`, by `persistentId`); a window that would open off screen is moved back on, also after a resolution or UI-scale change. Resizing by the grip or an edge, snapped to whole cells, with a size overlay while dragging.
+- **Scroll bar:** thin, shown only while the view is scrolled back; draggable.
+- **Themes:** classic green stays the default; Amber and a modern neutral theme (light grey on near-black) as options.
+- **Toolbar panel:** two tabs. *CPUs* (default): per vessel, each CPU's D2 state, power and Open/Close; hovering highlights the part; *Suppress autopilot* stays visible in the footer with the telnet status. *Settings*: grouped Terminal defaults, Telnet (live status, "restart to apply"), Boot (reread boot folder); the hovered setting's description inline. Config keys and `config.xml` stay compatible.
+- **Other windows:** the paste box (PASTE-UI-01), the editor, the name tag and dialogs adopt the style; **EDIT-03** (the editor follows the caret on every repaint) is fixed with the editor.
+- Telnet is unchanged (its title already carries the state).
+
+### Steps
+
+Each with headless tests first, then a Proton check:
+
+1. **Terminal chrome:** style module, header, flat frame, status strip, settings popover, chrome UI scale.
+2. **Geometry and scrolling:** saved geometry, keep on screen, edge resizing with the size overlay, the scroll bar.
+3. **Themes.**
+4. **Toolbar panel** tabs.
+5. **Other windows** (paste box, editor with EDIT-03, name tag, dialogs).
+
+### Step 1 plan (proposed 2026-10-20, awaiting approval)
+
+Headless (`kOS.Safe`):
+
+- `TerminalChromeLayout`: from the window size, UI scale and cell size, the rectangles of the header, character field, strip, grip and the gutter reserved for the step 2 scroll bar; the rows/columns that fit; the window size for given rows/columns. It replaces the fixed offsets in `TermWindow` (`CharacterField`, `HowManyRowsFit/ColumnsFit`, `NotifyOfScreenResize`, the wheel field), so drawing, selection, wheel and resize use one layout. Tests: size ↔ cells round trips at several scales and cell sizes, minimum sizes, no negative field.
+- `StatusStrip`: items with priority (state, chips, copy notice, size) and a width measurer; returns what fits and where; the state text is shortened with `…` last. Tests with a fake measurer, including BAR-01's case.
+- `TerminalStatus` also gives its parts separately (activity kind for the dot, chips); `Text` (telnet title) unchanged.
+
+Game side (`TermWindow`, new `KOSStyle`):
+
+- The window draws with an empty KSP title and our header; dragging moves the window from the header (and the strip's empty space); the grid keeps mouse selection.
+- Icons (gear, close, grip) are small textures generated in code (no new binary assets; Unicode glyphs may be missing from KSP's font under Proton). The old bezel textures stay in `GFX/` unused.
+- Removed from the working surface: the bottom toggles, vertical brightness slider, font −/+ buttons, bottom Close button, the "N telnet clients attached" label.
+- The popover is drawn after the terminal like the paste box, closes on the gear, Esc, a click outside, or closing the terminal; it is covered by the `kOSMouseOver` lock and must not take the keyboard from the terminal (to verify in game).
+- Unchanged: the render-fault fallback and missing-texture screens, the paste box (step 5), the telnet title text, focus and lock behavior, the grid rendering.
+
+Intentional differences: the window's pixel size for a given cell count changes (different chrome); the window moves only by its header/strip, not by the old frame; the in-game title reads `test-vessel · CX-4181 · tag` (telnet keeps its title).
+
+In game (Proton): layout at 50×36 and at the script minimum width, UI scale 1.0 and another, focus border, every popover control, popover close paths and keyboard focus, strip chips (telnet attached, New output click, copy notice), drag and grip resize, selection and wheel still aligned, Alt+F12 locks.
 
 ### Exit criterion
 

@@ -9,7 +9,7 @@ The docs were trimmed on 2026-10-20 (user request): `docs/testing-and-build.md` 
 **Next actions, in order:**
 
 1. **STATUS-01 in-game check, when the user allows in-game testing** (can be folded into the first Phase 4 pass): deploy the fix build (game closed, backup `kOS-before-status01-<date>`), then over telnet on CPU 1 with `kd.py` title logging: `runpath("0:/kosim-check/p3r/slow2.ks").` should log `Running …` then `Waiting in …` once and stay there until `Ready` (was 177 changes in 90 s); `main.ks` still `Running` → `Waiting in` → `Ready`. Needs the user only to load the save and open the terminal.
-2. **Then Phase 4 planning** (`docs/KOSIm-roadmap.md`, "Phase 4 — Modern, simpler UI"): UI redesign needs explicit user approval of a plan first; start by agreeing the direction and first step with the user. BAR-01 is part of it.
+2. **Phase 4** (`docs/KOSIm-roadmap.md`, "Phase 4 — Modern, simpler UI"): decisions agreed with the user 2026-10-20 (IMGUI, flat header and frame, status strip, settings popover, saved geometry per CPU, scroll bar, themes with green default, tabbed toolbar panel, other windows restyled with EDIT-03). **Step 1 (terminal chrome) is planned there and awaits the user's approval**; implement nothing before it.
 3. Minor, optional: POWER-01 (a CPU powering itself off with `DOEVENT("Toggle Power")` logs `KOSBadJumpException`; compare with an upstream build first); the checks never performed (`docs/testing-and-build.md`, "In-game coverage").
 
 ## Workspace state (2026-10-20)
