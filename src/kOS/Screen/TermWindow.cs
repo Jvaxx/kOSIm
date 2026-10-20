@@ -139,6 +139,15 @@ namespace kOS.Screen
         // out at most every statusInterval, which also bounds the title updates telnet clients get:
         private string baseTitle;
         private TerminalStatus status; // null until worked out, or when that failed
+
+        /// <summary>The CPU's state as last worked out (every 0.25 s); null before that or when it failed. Read by the toolbar panel.</summary>
+        public TerminalStatus Status { get { return status; } }
+
+        /// <summary>
+        /// Set by the toolbar panel while its CPUs tab shows (Phase 4 step 4): every terminal then
+        /// works out its state, also with its window closed and no telnet client.
+        /// </summary>
+        internal static bool StatusWanted { get; set; }
         private string statusText = string.Empty; // its text, after the telnet title
         private DateTime nextStatusTime;
         private static readonly TimeSpan statusInterval = TimeSpan.FromSeconds(0.25);
@@ -1681,7 +1690,7 @@ namespace kOS.Screen
             nextStatusTime = now + statusInterval;
             baseTitle = CalcualteTitle();
             headerTitle = CalculateHeaderTitle();
-            if (IsOpen || session.ViewerCount > 0) // nobody to show it to otherwise
+            if (IsOpen || session.ViewerCount > 0 || StatusWanted) // nobody to show it to otherwise
             {
                 try
                 {

@@ -115,6 +115,11 @@ namespace kOS.Safe.Test.Terminal
             }
             AssertAtLeast(4.5, Contrast(TerminalPalette.Accent, TerminalPalette.Chrome), "a notice in the strip");
             AssertAtLeast(7, Contrast(TerminalPalette.ChromeText, TerminalPalette.Panel), "panel text");
+            // The toolbar panel (step 4): notes, a selected tab and a hovered row on the panel.
+            AssertAtLeast(4.5, Contrast(TerminalPalette.DimText, TerminalPalette.Panel), "dim panel text");
+            AssertAtLeast(4.5, Contrast(TerminalPalette.Accent, TerminalPalette.Panel), "accent text on the panel");
+            AssertAtLeast(7, Contrast(TerminalPalette.ChromeText, TerminalPalette.Hover.Over(TerminalPalette.Panel)), "a hovered row's text");
+            AssertAtLeast(4.5, Contrast(TerminalPalette.DimText, TerminalPalette.Hover.Over(TerminalPalette.Panel)), "a hovered row's state");
         }
 
         [Test]

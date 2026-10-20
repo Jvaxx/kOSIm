@@ -14,23 +14,50 @@ make the kOS App Control Panel appear at the same time as the stock
 Resource display panel. Opening one toggles the other one off,
 and visa versa.)
 
-Here is an annotated image of the control panel and what it does:
+The panel has a header with the kOS version number, two tabs, and a
+footer shown on both tabs.  It opens on the **CPUs** tab each time.
 
-.. figure:: /_images/general/controlPanelWindow.png
-    :width: 80 %
+**CPUs** tab:
 
-Key Notes:
+- Every vessel and its kOS processors that are currently fully loaded
+  into the game, the vessel nearest to you first.  kOS processors that
+  are not in "physics range" (far enough away to be unloaded) are not
+  listed, as they are not loaded and cannot do anything.  The editor
+  (VAB/SPH) lists none.
+- For each processor: its part name and name tag; under it, its state as
+  the terminal's status strip shows it (``Ready``, ``Running ...``,
+  ``Waiting in ...``, ``No power``, ``Off``, ...) after a colored dot, and
+  the number of telnet clients attached.  Power is shown, not switched
+  here, so as not to bypass attempts to lock out control of
+  events/actions.
+- An **Open**/**Close** button opens or closes its terminal window.
+- Hovering over a processor highlights its part purple.
 
-1. Contains every vessel and associated kOS processor that is currently fully loaded into the game.  kOS processors that are not currently in "physics range" because they are far enough away to be unloaded will not appear in the list, as they are not loaded and thus cannot do anything.
-2. kOS version number.
-3. kOS processor part name and name tag.
-4. Power status display.  This is not an interactable button so as not to bypass attempts to lock out control of events/actions.
-5. Toggle button to open or close the terminal window.
-6. Toolbar button, click to toggle the control panel window on and off.
-7. Toggle button to activate or deactivate telnet. See :attr:`Config:TELNET`.
-8. Displays or sets the port that the telnet server will listen on. See :attr:`Config:TPORT`.
-9. Toggle button to enable or disable forcing the telnet server to only listen on the local loopback address. See :attr:`Config:LOOPBACK`.
-10. When you hover your cursor over a processor it will be highlighted purple.
+**Settings** tab (saved for all games in ``config.xml``; the same values
+as the :struct:`Config` suffixes):
+
+- **Terminal defaults**: font, character size
+  (:attr:`Config:DEFAULTFONTSIZE`), width and height
+  (:attr:`Config:DEFAULTWIDTH`, :attr:`Config:DEFAULTHEIGHT`), brightness
+  (:attr:`Config:BRIGHTNESS`), visual beep (:attr:`Config:VISUALBEEP`)
+  and key click (:attr:`Config:KEYCLICK`).
+- **Telnet**: the telnet server on or off (:attr:`Config:TELNET`), its
+  address (:attr:`Config:IPADDRESS`) and port (:attr:`Config:TPORT`).  A
+  new port is used when the server starts: while it is listening on
+  another port, a button restarts it (clients are disconnected, and a
+  one-time permission is asked again).
+- **Boot** (in the editor only): reread the archive's boot folder, for
+  files added to it after entering the editor.
+- A number field applies its value when you press Enter or click
+  elsewhere in the panel.
+- Hovering over a setting shows its description and its script name
+  (such as ``CONFIG:TPORT``) under the list.
+
+The footer holds the **Emergency suppress autopilot** button
+(:attr:`Config:SUPPRESSAUTOPILOT`; it closes the panel when pressed on)
+and the telnet server's status.
+
+The toolbar button toggles the panel on and off.
 
 .. _settingsWindow:
 

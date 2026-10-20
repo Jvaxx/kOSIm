@@ -280,6 +280,42 @@ namespace kOS.Screen
             return GUI.Toggle(where, value, GUIContent.none, GUIStyle.none);
         }
 
+        /// <summary>A tab (step 4, the toolbar panel): the selected one in the chrome text over an accent line.</summary>
+        /// <returns>true when clicked</returns>
+        public static bool Tab(Rect where, string text, int fontSize, bool selected, int border)
+        {
+            if (!selected && IsHovered(where))
+                Fill(where, Hover);
+            Text(where, text, selected ? CenteredBoldLabel(fontSize) : CenteredLabel(fontSize), selected ? ChromeText : DimText);
+            Fill(new Rect(where.x, where.yMax - (selected ? 2 * border : border), where.width, selected ? 2 * border : border),
+                selected ? Accent : FrameColor);
+            return GUI.Button(where, GUIContent.none, GUIStyle.none) && !selected;
+        }
+
+        private static readonly Dictionary<int, GUIStyle> textFields = new Dictionary<int, GUIStyle>();
+
+        /// <summary>
+        /// A one-line text field named <paramref name="controlName"/> (for <c>GUI.GetNameOfFocusedControl</c>),
+        /// on the chip color, framed in the accent while it has the keyboard.
+        /// </summary>
+        /// <returns>the text it holds now</returns>
+        public static string TextField(Rect where, string controlName, string text, int maxLength, int fontSize, int border, bool focused)
+        {
+            GUIStyle style;
+            if (!textFields.TryGetValue(fontSize, out style) || style.font != ChromeFont)
+            {
+                style = new GUIStyle(Label(fontSize)) { padding = new RectOffset(4, 4, 0, 0) };
+                style.hover.textColor = ChromeText;
+                style.focused.textColor = ChromeText;
+                style.active.textColor = ChromeText;
+                textFields[fontSize] = style;
+            }
+            Fill(where, ChipBackground);
+            Frame(where, border, focused ? Accent : FrameColor);
+            GUI.SetNextControlName(controlName);
+            return GUI.TextField(where, text ?? string.Empty, maxLength, style);
+        }
+
         private static GUIStyle sliderStyle;
         private static GUIStyle thumbStyle;
         private static Texture2D thumbTexture;

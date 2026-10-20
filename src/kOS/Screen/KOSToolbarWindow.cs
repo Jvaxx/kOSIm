@@ -1,6 +1,7 @@
 using kOS.Module;
 using kOS.Safe.Encapsulation.Suffixes;
 using kOS.Safe.Module;
+using kOS.Safe.Screen;
 using kOS.Safe.UserIO;
 using kOS.Safe.Utilities;
 using kOS.UserIO;
@@ -31,36 +32,15 @@ namespace kOS.Screen
             ApplicationLauncher.AppScenes.MAPVIEW;
 
         private static Texture2D launcherButtonTexture;
-        private static Texture2D terminalClosedIconTexture;
-        private static Texture2D terminalOpenIconTexture;
-        private static Texture2D terminalClosedTelnetIconTexture;
-        private static Texture2D terminalOpenTelnetIconTexture;
 
         // ReSharper disable once RedundantDefaultFieldInitializer
         private bool clickedOn = false;
 
         private Rect rectToFit = new Rect(0, 0, 1, 1); // will be changed in Open()
 
-        // ReSharper disable RedundantDefaultFieldInitializer
-        private int verticalSectionCount = 0;
-
-        private int horizontalSectionCount = 0;
-
-        // ReSharper restore RedundantDefaultFieldInitializer
-        private Vector2 scrollPos = new Vector2(200, 350);
-
         private static Rect windowRect; // does anybody know why this is static?
         private MouseBlocking.Area mouseArea;
         private const int UNIQUE_ID = 8675309; // Jenny, I've got your number.
-        private static GUISkin panelSkin;
-        private static GUIStyle headingLabelStyle;
-        private static GUIStyle vesselNameStyle;
-        private static GUIStyle partNameStyle;
-        private static GUIStyle tooltipLabelStyle;
-        private static GUIStyle smallLabelStyle;
-        private static GUIStyle boxDisabledStyle;
-        private static GUIStyle boxOffStyle;
-        private static GUIStyle boxOnStyle;
         private static string versionString;
 
         ///<summary>Which CPU part description in the gui panel was the mouse hovering over during the current OnGUI call?</summary>
@@ -84,10 +64,6 @@ namespace kOS.Screen
         private kOS.Screen.ListPickerDialog fontPicker;
         private kOS.Screen.ListPickerDialog ipAddrPicker;
 
-        private DateTime prevConfigTimeStamp = DateTime.MinValue;
-
-        private List<int> backingConfigInts;
-
         private bool uiGloballyHidden = false;
 
 
@@ -98,13 +74,9 @@ namespace kOS.Screen
         public static void FirstTimeSetup()
         {
             launcherButtonTexture = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_launcher-button", false);
-            terminalOpenIconTexture = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_terminal-icon-open", false);
-            terminalClosedIconTexture = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_terminal-icon-closed", false);
-            terminalOpenTelnetIconTexture = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_terminal-icon-open-telnet", false);
-            terminalClosedTelnetIconTexture = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_terminal-icon-closed-telnet", false);
+            // The panel's terminal icons (dds_terminal-icon-*) are unused since Phase 4 step 4 (Open/Close buttons).
 
             windowRect = new Rect(0, 0, 1f, 1f); // this origin point will move when opened/closed.
-            panelSkin = BuildPanelSkin();
             versionString = Utils.GetAssemblyFileVersion();
             //UnityEngine.Debug.Log("[kOSToolBarWindow] FirstTimeSetup Finished, v=" + versionString);
         }
@@ -204,22 +176,6 @@ namespace kOS.Screen
         /// official integer value of the field, but just stores the value the user
         /// is temporarily typing:
         /// </summary>
-        public void SetupBackingConfigInts()
-        {
-            if (SafeHouse.Config.TimeStamp <= prevConfigTimeStamp)
-                return;
-            prevConfigTimeStamp = DateTime.Now;
-
-            IList<ConfigKey> keys = SafeHouse.Config.GetConfigKeys();
-            backingConfigInts = new List<int>();
-            // Fills exactly the expected number of needed ints, in the same
-            // order they will be encountered in when iterating over GetConfigKeys later
-            // in the gui drawing method:
-            foreach (ConfigKey key in keys)
-                if (key.Value is int)
-                    backingConfigInts.Add((int)(key.Value));
-        }
-
         public void GoAway()
         {
             if (isOpen) Close();
@@ -326,6 +282,13 @@ namespace kOS.Screen
         {
             SafeHouse.Logger.SuperVerbose("KOSToolBarWindow: PROOF: Open()");
 
+            if (!isOpen)
+            {
+                tab = PanelTab.Cpus; // the CPUs tab each time the panel opens
+                contentScroll = 0;
+                scrollDragging = false;
+            }
+
             float assumeStagingListWidth = 64f; // hardcoded for now.  Might try to see how to read it on the fly later.
 
             bool isTop = ApplicationLauncher.Instance.IsPositionedAtTop;
@@ -342,6 +305,7 @@ namespace kOS.Screen
                     rectToFit = new Rect(0, 0, UnityEngine.Screen.width - assumeStagingListWidth, UnityEngine.Screen.height - assumeStagingListWidth);
                     windowRect = new Rect(UnityEngine.Screen.width, UnityEngine.Screen.height, 0, 0);
                 }
+                anchorBottom = !isTop;
                 isOpen = true;
                 return;
             }
@@ -376,7 +340,8 @@ namespace kOS.Screen
             float leftEdge = UnityEngine.Screen.width;
             float topEdge = isTop ? 0f : UnityEngine.Screen.height;
 
-            windowRect = new Rect(leftEdge, topEdge, 0, 0); // will resize and move upon first GUILayout-ing.
+            windowRect = new Rect(leftEdge, topEdge, 0, 0); // sized and placed at the next OnGUI
+            anchorBottom = !isTop;
 
             isOpen = true;
         }
@@ -387,6 +352,9 @@ namespace kOS.Screen
             if (!isOpen)
                 return;
 
+            ApplyPendingNumber(); // typing left in a number field counts, as when it loses the keyboard
+            ClearPartHighlight();
+            TermWindow.StatusWanted = false;
             isOpen = false;
         }
 
@@ -428,12 +396,10 @@ namespace kOS.Screen
 
         public void OnGUI()
         {
-            horizontalSectionCount = 0;
-            verticalSectionCount = 0;
-
             if (!isOpen)
             {
                 wasOpenLastPaint = false;
+                TermWindow.StatusWanted = false;
                 return;
             }
 
@@ -442,124 +408,438 @@ namespace kOS.Screen
                 kOSProcessor.SortAllInstances();
             wasOpenLastPaint = true;
 
-            if (uiGloballyHidden && kOS.Safe.Utilities.SafeHouse.Config.ObeyHideUI) return;
+            if (uiGloballyHidden && kOS.Safe.Utilities.SafeHouse.Config.ObeyHideUI)
+            {
+                ClearPartHighlight(); // not drawn, so no hover can end it
+                return;
+            }
 
-            GUI.skin = HighLogic.Skin;
+            // The terminals work out their state for the CPUs tab, also with their windows closed:
+            TermWindow.StatusWanted = tab == PanelTab.Cpus;
 
-            windowRect = GUILayout.Window(UNIQUE_ID, windowRect, DrawWindow, "kOS " + versionString);
+            GUI.skin = HighLogic.Skin; // the text fields' cursor and selection, the pickers
+
+            // Fixed width; as high as the content up to the room the launcher leaves, at the
+            // corner the launcher is at (as upstream's auto-sized window ended up):
+            ToolbarPanelLayout panel = Layout;
+            GatherCpus();
+            bool settings = tab == PanelTab.Settings;
+            float height = panel.WindowHeight(ContentHeight(panel, settings), settings, rectToFit.height);
+            windowRect = new Rect(rectToFit.xMax - panel.Width, anchorBottom ? rectToFit.yMax - height : rectToFit.y, panel.Width, height);
             windowRect = RectExtensions.ClampToRectAngle(windowRect, rectToFit);
+            windowRect = GUI.Window(UNIQUE_ID, windowRect, DrawWindow, GUIContent.none, GUIStyle.none);
             KOSMouseBlocking.Show(ref mouseArea, "kOS toolbar panel", windowRect);
+        }
+
+        // The panel (Phase 4 step 4): two tabs in the terminal's flat style; layout and texts
+        // in kOS.Safe.Screen (ToolbarPanelLayout, ToolbarCpuList, ToolbarSettings, TelnetPanelStatus).
+
+        private enum PanelTab
+        {
+            Cpus,
+            Settings
+        }
+
+        private static readonly string[] tabNames = { "CPUs", "Settings" };
+        private PanelTab tab = PanelTab.Cpus;
+        private bool anchorBottom; // the launcher is at the bottom: the panel grows upwards
+        private ToolbarPanelLayout layout;
+        private float contentScroll;
+        private bool scrollDragging;
+        private float scrollGrabOffset;
+        private readonly ToolbarNumberField numberField = new ToolbarNumberField();
+        private ToolbarSetting hoveredSetting; // in the current pass, for the description
+        private readonly List<ToolbarCpuEntry> cpuEntries = new List<ToolbarCpuEntry>();
+        private readonly List<kOSProcessor> cpuModules = new List<kOSProcessor>();
+
+        private ToolbarPanelLayout Layout
+        {
+            get
+            {
+                float scale = TerminalChromeLayout.ClampScale(KOSStyle.UiScale);
+                if (layout == null || layout.Scale != scale)
+                    layout = new ToolbarPanelLayout(scale);
+                return layout;
+            }
+        }
+
+        private static Rect ToRect(ScreenRect rect)
+        {
+            return new Rect(rect.X, rect.Y, rect.Width, rect.Height);
+        }
+
+        private static string Fit(string text, float width, GUIStyle style)
+        {
+            return StatusStrip.Shorten(text ?? string.Empty, width, measured => KOSStyle.Measure(style, measured), KOSStyle.Ellipsis);
+        }
+
+        /// <summary>The CPUs in kOS's order, each with what its row shows.</summary>
+        private void GatherCpus()
+        {
+            cpuEntries.Clear();
+            cpuModules.Clear();
+            foreach (kOSProcessor module in kOSProcessor.AllInstances())
+            {
+                Part part = module == null ? null : module.part;
+                if (part == null) continue;
+                Vessel vessel = part.vessel;
+                TermWindow window = module.GetWindow();
+                TerminalStatus status = window == null ? null : window.Status;
+                KOSNameTag tag = part.Modules.OfType<KOSNameTag>().FirstOrDefault();
+                cpuEntries.Add(new ToolbarCpuEntry
+                {
+                    Vessel = vessel,
+                    VesselName = vessel == null ? null : vessel.GetName(),
+                    PartTitle = part.partInfo == null ? null : part.partInfo.title,
+                    Tag = tag == null ? null : tag.nameTag,
+                    HasStatus = status != null,
+                    Kind = status == null ? StatusKind.Off : status.Kind,
+                    StateText = status == null ? null : status.StateText,
+                    WindowOpen = window != null && window.IsOpen,
+                    TelnetClients = window == null ? 0 : window.NumTelnets()
+                });
+                cpuModules.Add(module);
+            }
+        }
+
+        private float ContentHeight(ToolbarPanelLayout panel, bool settings)
+        {
+            return settings ? DrawSettings(panel, 0, 0, false, false) : ToolbarCpuList.Height(ToolbarCpuList.Rows(cpuEntries, panel), panel);
         }
 
         public void DrawWindow(int windowID)
         {
+            ToolbarPanelLayout panel = Layout;
+            bool settings = tab == PanelTab.Settings;
+            var whole = new Rect(0, 0, windowRect.width, windowRect.height);
+
+            // IMGUI keeps a text field's keyboard on a press elsewhere: a press anywhere in the
+            // panel lets go of a number field, which then applies its typing (Q3); a press on a
+            // field takes the keyboard again in this same pass.
+            if (Event.current.type == EventType.MouseDown && GUI.GetNameOfFocusedControl().StartsWith(NUMBER_FIELD_PREFIX, StringComparison.Ordinal))
+                GUIUtility.keyboardControl = 0;
+
+            KOSStyle.Fill(whole, KOSStyle.PanelBackground);
+
+            Rect header = ToRect(panel.Header());
+            KOSStyle.Fill(header, KOSStyle.ChromeBackground);
+            GUIStyle titleStyle = KOSStyle.TitleLabel(panel.FontSize);
+            var title = new Rect(panel.Padding, 0, header.width - 2 * panel.Padding, header.height);
+            KOSStyle.Text(title, Fit("kOS " + versionString, title.width, titleStyle), titleStyle, KOSStyle.ChromeText);
+            for (int i = 0; i < tabNames.Length; ++i)
+                if (KOSStyle.Tab(ToRect(panel.Tab(i, tabNames.Length)), tabNames[i], panel.FontSize, (int)tab == i, panel.Border))
+                    SwitchTab((PanelTab)i);
+
             BeginHoverHousekeeping();
-
-            CountBeginVertical();
-            CountBeginHorizontal();
-
-            DrawActiveCPUsOnPanel();
-
-            CountBeginVertical("", 155);
-            GUILayout.Label("CONFIG VALUES", headingLabelStyle);
-            GUILayout.Label("To access other settings, see the kOS section in KSP's difficulty settings.", smallLabelStyle);
-            GUILayout.Label("Global VALUES", headingLabelStyle);
-            GUILayout.Label("Changes to these settings are saved and globally affect all saved games.", smallLabelStyle);
-
-            int whichInt = 0; // increments only when an integer field is encountered in the config keys, else stays put.
-
-            SetupBackingConfigInts();
-
-            foreach (ConfigKey key in SafeHouse.Config.GetConfigKeys())
-            {
-                bool isFontField = key.StringKey.Equals("TerminalFontName");
-                bool isIPAddrField = key.StringKey.Equals("TelnetIPAddrString");
-                bool isSuppressAutopilotField = key.StringKey.Equals("SuppressAutopilot");
-
-                if (isFontField || isSuppressAutopilotField)
-                {
-                    CountBeginVertical();
-                    GUILayout.Label("_____", panelSkin.label);
-                }
-                else
-                    CountBeginHorizontal();
-
-                string labelText = key.Alias;
-                string toolTipText = key.Name;
-
-                if (isFontField)
-                {
-                    toolTipText += " is: " + key.Value;
-                    labelText = "     ^ " + labelText;
-                    DrawFontField(key);
-                }
-                else if (isIPAddrField)
-                {
-                    toolTipText += " is: " + key.Value;
-                    DrawIPAddrField(key);
-                }
-                else if (isSuppressAutopilotField)
-                {
-                    DrawSuppressAutopilotField(key);
-                }
-                else if (key.Value is bool)
-                {
-                    key.Value = GUILayout.Toggle((bool)key.Value, new GUIContent("", toolTipText), panelSkin.toggle);
-                }
-                else if (key.Value is int)
-                {
-                    key.Value = DrawConfigIntField(key, whichInt++);
-                }
-                else if (key.Value is float || key.Value is double) // if double, the UI will only handle it to float precisions, by the way.
-                {
-                    CountBeginVertical();
-                    float floatValue = Convert.ToSingle(key.Value);
-                    float floatMin = Convert.ToSingle(key.MinValue);
-                    float floatMax = Convert.ToSingle(key.MaxValue);
-                    //Mathf doesn't have a Round to hundreths place, so this is how I'm faking it:
-                    GUILayout.Label(new GUIContent((Mathf.Round(floatValue*100f)/100f).ToString()), panelSkin.label);
-                    floatValue = GUILayout.HorizontalSlider(floatValue, floatMin, floatMax,
-                        GUILayout.MinWidth(50), GUILayout.MaxHeight(4));
-                    if (key.Value is double)
-                        key.Value = (double)floatValue;
-                    else
-                        key.Value = floatValue;
-                    CountEndVertical();
-                }
-                else
-                {
-                    GUILayout.Label(key.Alias + " is a new type this dialog doesn't support.  Contact kOS devs.");
-                }
-
-                GUILayout.BeginHorizontal(GUILayout.ExpandWidth(true));
-                GUILayout.Label(new GUIContent(labelText, toolTipText), panelSkin.label);
-                GUILayout.EndHorizontal();
-
-                if (isFontField || isSuppressAutopilotField)
-                    CountEndVertical();
-                else
-                    CountEndHorizontal();
-            }
-            CountEndVertical();
-
-            CountEndHorizontal();
-
-            // This is where tooltip hover text will show up, rather than in a hover box wherever the pointer is like normal.
-            // Unity doesn't do hovering tooltips and you have to specify a zone for them to appear like this:
-            string whichMessage = (GUI.tooltip.Length > 0 ? GUI.tooltip : TelnetStatusMessage()); // when tooltip isn't showing, show telnet status instead.
-            GUILayout.Label(whichMessage, tooltipLabelStyle);
-
-            CountEndVertical();
-
+            hoveredSetting = null;
+            DrawContent(panel, settings);
+            if (settings)
+                DrawDescription(panel);
+            DrawFooter(panel);
             EndHoverHousekeeping();
+
+            KOSStyle.Frame(whole, panel.Border, KOSStyle.FrameColor);
             GUI.SetNextControlName(""); // because if you don't then there is no such thing as the "non" control to move the focus to.
             // This is an invisible dummy control to "focus on" to, basically, unfocus, because Unity didn't
             // provide an unfocus method.
         }
 
-        private void DrawFontField(ConfigKey key)
+        private void SwitchTab(PanelTab newTab)
         {
-            bool clicked = GUILayout.Button(key.Value.ToString(), panelSkin.button);
+            ApplyPendingNumber();
+            tab = newTab;
+            contentScroll = 0;
+            scrollDragging = false;
+            GUI.FocusControl("");
+        }
+
+        /// <summary>The tab's rows in the content area, clipped and scrolled; the scroll bar when they do not fit.</summary>
+        private void DrawContent(ToolbarPanelLayout panel, bool settings)
+        {
+            ScreenRect area = panel.Content(windowRect.height, settings);
+            Rect view = ToRect(area);
+            float contentHeight = ContentHeight(panel, settings);
+            bool scrolls = contentHeight > view.height;
+            contentScroll = ToolbarPanelLayout.ClampScroll(contentScroll, contentHeight, view.height);
+
+            Event e = Event.current;
+            if (e.type == EventType.ScrollWheel && scrolls && view.Contains(e.mousePosition))
+            {
+                contentScroll = ToolbarPanelLayout.ClampScroll(contentScroll + e.delta.y * panel.NoteHeight, contentHeight, view.height);
+                e.Use();
+            }
+
+            bool mouseInView = view.Contains(e.mousePosition);
+            float rowWidth = panel.RowWidth(scrolls);
+            GUI.BeginGroup(view);
+            try
+            {
+                // A press outside the view is not the rows' (one scrolled out of sight lies under
+                // the tabs or the footer, which would lose the press to it):
+                bool pressOutside = e.type == EventType.MouseDown && !mouseInView;
+                if (settings && !pressOutside)
+                    DrawSettings(panel, rowWidth, -contentScroll, true, mouseInView);
+                else if (!pressOutside)
+                    DrawCpus(panel, rowWidth, -contentScroll, view.height, mouseInView);
+            }
+            finally
+            {
+                GUI.EndGroup();
+            }
+            if (scrolls)
+                DrawScrollBar(panel, area, contentHeight);
+            else
+                scrollDragging = false;
+        }
+
+        /// <summary>A thin bar at the content's right edge: drag the thumb; a press beside it moves a page.</summary>
+        private void DrawScrollBar(ToolbarPanelLayout panel, ScreenRect area, float contentHeight)
+        {
+            ScreenRect track = panel.ScrollTrack(area);
+            Rect trackRect = ToRect(track);
+            Rect thumbRect = ToRect(panel.ScrollThumb(track, contentHeight, area.Height, contentScroll));
+            Event e = Event.current;
+            if (e.type == EventType.MouseDown && e.button == 0 && trackRect.Contains(e.mousePosition))
+            {
+                if (thumbRect.Contains(e.mousePosition))
+                {
+                    scrollDragging = true;
+                    scrollGrabOffset = e.mousePosition.y - thumbRect.y;
+                }
+                else
+                {
+                    float page = e.mousePosition.y < thumbRect.y ? -area.Height : area.Height;
+                    contentScroll = ToolbarPanelLayout.ClampScroll(contentScroll + page, contentHeight, area.Height);
+                }
+                e.Use();
+            }
+            else if (scrollDragging && !Input.GetMouseButton(0))
+            {
+                scrollDragging = false; // released, also outside the panel
+            }
+            else if (scrollDragging && e.type == EventType.MouseDrag)
+            {
+                contentScroll = panel.ScrollFor(e.mousePosition.y - scrollGrabOffset, track, contentHeight, area.Height);
+                e.Use();
+            }
+            KOSStyle.Fill(trackRect, KOSStyle.ScrollTrack);
+            KOSStyle.Fill(ToRect(panel.ScrollThumb(track, contentHeight, area.Height, contentScroll)), scrollDragging ? KOSStyle.ChromeText : KOSStyle.DimText);
+        }
+
+        // The CPUs tab:
+
+        private void DrawCpus(ToolbarPanelLayout panel, float rowWidth, float top, float viewHeight, bool mouseInView)
+        {
+            List<ToolbarCpuRow> rows = ToolbarCpuList.Rows(cpuEntries, panel);
+            if (rows.Count == 0)
+            {
+                KOSStyle.Text(new Rect(0, top, rowWidth, panel.SettingRowHeight), ToolbarCpuList.EMPTY_TEXT, KOSStyle.Label(panel.FontSize), KOSStyle.ChromeText);
+                GUIStyle noteStyle = KOSStyle.Label(panel.SmallFontSize);
+                string note = ToolbarCpuList.EmptyNote(HighLogic.LoadedSceneIsEditor);
+                KOSStyle.Text(new Rect(0, top + panel.SettingRowHeight, rowWidth, panel.NoteHeight), Fit(note, rowWidth, noteStyle), noteStyle, KOSStyle.DimText);
+                return;
+            }
+
+            string separator = KOSStyle.Separator;
+            foreach (ToolbarCpuRow row in rows)
+            {
+                var rect = new Rect(0, top + row.Y, rowWidth, row.Height);
+                if (rect.yMax <= 0 || rect.y >= viewHeight) continue; // scrolled out of view
+                ToolbarCpuEntry entry = cpuEntries[row.Entry];
+                if (row.Kind == ToolbarCpuRowKind.Vessel)
+                {
+                    GUIStyle vesselStyle = KOSStyle.TitleLabel(panel.FontSize);
+                    KOSStyle.Text(rect, Fit(entry.VesselName, rect.width, vesselStyle), vesselStyle, KOSStyle.ChromeText);
+                    KOSStyle.Fill(new Rect(rect.x, rect.yMax - panel.Border, rect.width, panel.Border), KOSStyle.FrameColor);
+                    continue;
+                }
+                DrawCpuRow(panel, rect, entry, cpuModules[row.Entry], separator, mouseInView);
+            }
+        }
+
+        /// <summary>A CPU: its name and tag, its state under it, the Open/Close button on the right; hovering highlights the part.</summary>
+        private void DrawCpuRow(ToolbarPanelLayout panel, Rect rect, ToolbarCpuEntry entry, kOSProcessor module, string separator, bool mouseInView)
+        {
+            Event e = Event.current;
+            if (mouseInView && rect.Contains(e.mousePosition))
+            {
+                KOSStyle.Fill(rect, KOSStyle.Hover);
+                if (e.type == EventType.Repaint)
+                    newHoverPart = module.part;
+            }
+
+            float lineHeight = Mathf.Floor(rect.height / 2f);
+            var button = new Rect(rect.xMax - panel.ButtonWidth, Mathf.Round(rect.y + (rect.height - panel.SettingRowHeight) / 2f),
+                panel.ButtonWidth, panel.SettingRowHeight);
+            float left = rect.x + panel.Padding / 2f;
+            float textWidth = Math.Max(0, button.x - panel.Padding - left);
+
+            GUIStyle nameStyle = KOSStyle.Label(panel.FontSize);
+            KOSStyle.Text(new Rect(left, rect.y, textWidth, lineHeight), Fit(ToolbarCpuList.CpuLabel(entry, separator), textWidth, nameStyle),
+                nameStyle, KOSStyle.ChromeText);
+
+            int dot = Math.Max(4, (int)Math.Round(panel.SmallFontSize * 0.6));
+            float detailX = left;
+            if (entry.HasStatus)
+            {
+                KOSStyle.DrawIcon(new Rect(left, rect.y + lineHeight, dot, lineHeight), KOSStyle.Icon.Dot, dot, KOSStyle.StatusColor(entry.Kind));
+                detailX += dot + panel.Padding / 2f;
+            }
+            GUIStyle detailStyle = KOSStyle.Label(panel.SmallFontSize);
+            float detailWidth = Math.Max(0, left + textWidth - detailX);
+            KOSStyle.Text(new Rect(detailX, rect.y + lineHeight, detailWidth, lineHeight),
+                Fit(ToolbarCpuList.Detail(entry, separator), detailWidth, detailStyle), detailStyle, KOSStyle.DimText);
+
+            // The user's click takes the keyboard, as upstream's terminal button:
+            if (KOSStyle.Button(button, entry.WindowOpen ? "Close" : "Open", panel.FontSize) && module.GetWindow() != null)
+                module.ToggleWindow();
+        }
+
+        // The settings tab:
+
+        /// <summary>
+        /// The settings' sections from <paramref name="top"/>, drawn when <paramref name="draw"/>
+        /// (else only measured); returns their height. Rows: a heading per section, a row per
+        /// setting; the telnet restart button when a new port waits; Boot in the editor.
+        /// </summary>
+        private float DrawSettings(ToolbarPanelLayout panel, float rowWidth, float top, bool draw, bool mouseInView)
+        {
+            if (SafeHouse.Config == null) return 0;
+            IList<ConfigKey> keys = SafeHouse.Config.GetConfigKeys();
+            float y = top;
+            foreach (ToolbarSettingSection section in ToolbarSettings.Sections(keys))
+            {
+                if (draw) DrawHeading(panel, new Rect(0, y, rowWidth, panel.HeadingHeight), section.Title);
+                y += panel.HeadingHeight;
+                foreach (ToolbarSetting setting in section.Settings)
+                {
+                    if (draw) DrawSetting(panel, new Rect(0, y, rowWidth, panel.SettingRowHeight), setting, mouseInView);
+                    y += panel.SettingRowHeight;
+                }
+                if (section.Group == ToolbarSettingGroup.Telnet && TelnetRestartNeeded())
+                {
+                    if (draw) DrawTelnetRestart(panel, new Rect(0, y, rowWidth, panel.SettingRowHeight));
+                    y += panel.SettingRowHeight;
+                }
+            }
+            if (HighLogic.LoadedSceneIsEditor)
+            {
+                if (draw)
+                {
+                    DrawHeading(panel, new Rect(0, y, rowWidth, panel.HeadingHeight), "Boot");
+                    DrawRereadBootButton(panel, new Rect(0, y + panel.HeadingHeight, rowWidth, panel.SettingRowHeight + panel.NoteHeight));
+                }
+                y += panel.HeadingHeight + panel.SettingRowHeight + panel.NoteHeight;
+            }
+            return y - top;
+        }
+
+        private static void DrawHeading(ToolbarPanelLayout panel, Rect where, string text)
+        {
+            GUIStyle style = KOSStyle.TitleLabel(panel.FontSize);
+            KOSStyle.Text(where, text, style, KOSStyle.Accent);
+        }
+
+        private const string NUMBER_FIELD_PREFIX = "kOSConfig_";
+
+        private static string NumberFieldName(ConfigKey key)
+        {
+            return NUMBER_FIELD_PREFIX + key.StringKey;
+        }
+
+        private void DrawSetting(ToolbarPanelLayout panel, Rect row, ToolbarSetting setting, bool mouseInView)
+        {
+            ConfigKey key = setting.Key;
+            bool hovered = mouseInView && row.Contains(Event.current.mousePosition);
+            if (hovered)
+                hoveredSetting = setting;
+
+            if (key.Value is bool)
+            {
+                bool value = (bool)key.Value;
+                bool picked = KOSStyle.Toggle(row, value, setting.Label, panel.FontSize, panel.Border);
+                if (picked != value)
+                    key.Value = picked; // set only when changed
+                return;
+            }
+
+            if (hovered)
+                KOSStyle.Fill(row, KOSStyle.Hover);
+            float labelWidth = Mathf.Round(row.width * 0.45f);
+            GUIStyle labelStyle = KOSStyle.Label(panel.FontSize);
+            var label = new Rect(row.x + 2, row.y, labelWidth - 2, row.height);
+            KOSStyle.Text(label, Fit(setting.Label, label.width, labelStyle), labelStyle, KOSStyle.ChromeText);
+            float inset = Math.Max(1, Mathf.Round(2 * panel.Scale));
+            var control = new Rect(row.x + labelWidth, row.y + inset, row.width - labelWidth, row.height - 2 * inset);
+
+            if (ToolbarSettings.Is(key, ToolbarSettings.FONT_NAME))
+                DrawFontField(key, control, panel);
+            else if (ToolbarSettings.Is(key, ToolbarSettings.TELNET_ADDRESS))
+                DrawIPAddrField(key, control, panel);
+            else if (key.Value is int)
+                DrawNumberField(key, control, panel);
+            else if (key.Value is double || key.Value is float)
+                DrawSlider(key, control, panel);
+            else
+                KOSStyle.Text(control, Fit(Convert.ToString(key.Value, CultureInfo.InvariantCulture), control.width, labelStyle), labelStyle, KOSStyle.DimText);
+        }
+
+        /// <summary>A number: applied on Enter or when the field loses the keyboard (Q3); <c>Config</c> clamps it.</summary>
+        private void DrawNumberField(ConfigKey key, Rect where, ToolbarPanelLayout panel)
+        {
+            string fieldName = NumberFieldName(key);
+            bool hasFocus = GUI.GetNameOfFocusedControl() == fieldName;
+            Event e = Event.current;
+            bool enter = hasFocus && (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter);
+            string shown = numberField.Shown(fieldName, (int)key.Value);
+            // PANEL-02: as long as the key's range needs (a fixed 4 rejected five-digit telnet ports):
+            string typed = KOSStyle.TextField(where, fieldName, shown, ConfigIntInput.MaxLength(key), panel.FontSize, panel.Border, hasFocus);
+            int value;
+            if (numberField.Edited(fieldName, typed, hasFocus, enter, out value))
+            {
+                key.Value = value;
+                if (enter)
+                    GUI.FocusControl(""); // the field lets go: the edit is applied
+            }
+        }
+
+        /// <summary>The typing of a number field that is no longer drawn (tab changed, panel closed) is applied.</summary>
+        private void ApplyPendingNumber()
+        {
+            string field;
+            int value;
+            if (!numberField.FinishPending(out field, out value) || SafeHouse.Config == null) return;
+            foreach (ConfigKey key in SafeHouse.Config.GetConfigKeys())
+                if (NumberFieldName(key) == field && key.Value is int)
+                    key.Value = value;
+        }
+
+        /// <summary>A fraction (brightness): the slider and its value, rounded to hundredths (as <c>CONFIG:BRIGHTNESS</c>'s step).</summary>
+        private static void DrawSlider(ConfigKey key, Rect where, ToolbarPanelLayout panel)
+        {
+            float value = Convert.ToSingle(key.Value);
+            float min = Convert.ToSingle(key.MinValue), max = Convert.ToSingle(key.MaxValue);
+            GUIStyle valueStyle = KOSStyle.Label(panel.FontSize);
+            float valueWidth = Mathf.Round(4 * panel.FontSize * 0.7f);
+            KOSStyle.Text(new Rect(where.xMax - valueWidth, where.y, valueWidth, where.height),
+                (Math.Round(value, 2)).ToString("0.00", CultureInfo.InvariantCulture), valueStyle, KOSStyle.ChromeText);
+            var slider = new Rect(where.x, where.y + Mathf.Round(where.height * 0.2f), where.width - valueWidth - panel.Padding, Mathf.Round(where.height * 0.6f));
+            float picked = KOSStyle.Slider(slider, value, min, max);
+            if (Math.Abs(picked - value) > 1e-6f)
+            {
+                double rounded = Math.Round(picked, 2);
+                if (key.Value is double)
+                    key.Value = rounded;
+                else
+                    key.Value = (float)rounded;
+            }
+        }
+
+        private void DrawFontField(ConfigKey key, Rect where, ToolbarPanelLayout panel)
+        {
+            string name = Convert.ToString(key.Value, CultureInfo.InvariantCulture);
+            string shown = TerminalFontChoice.IsPicked(name) ? name : "Default";
+            bool clicked = KOSStyle.Button(where, Fit(shown, where.width - 2 * panel.Padding, KOSStyle.CenteredLabel(panel.FontSize)), panel.FontSize);
             if (clicked)
             {
                 // Make a new picker if it's closed, or close it if it's already open.
@@ -592,9 +872,10 @@ namespace kOS.Screen
             }
         }
 
-        private void DrawIPAddrField(ConfigKey key)
+        private void DrawIPAddrField(ConfigKey key, Rect where, ToolbarPanelLayout panel)
         {
-            bool clicked = GUILayout.Button(key.Value.ToString(), panelSkin.button);
+            string address = Convert.ToString(key.Value, CultureInfo.InvariantCulture);
+            bool clicked = KOSStyle.Button(where, Fit(address, where.width - 2 * panel.Padding, KOSStyle.CenteredLabel(panel.FontSize)), panel.FontSize);
             if (clicked)
             {
                 // Make a new picker if it's closed, or close it if it's already open.
@@ -624,55 +905,77 @@ namespace kOS.Screen
             }
         }
 
-
-        private int DrawConfigIntField(ConfigKey key, int whichInt)
+        /// <summary>The server reads its port only when it starts; a new address restarts it by itself.</summary>
+        private static bool TelnetRestartNeeded()
         {
-            int keyVal = (int)key.Value;
-            int returnValue = keyVal; // no change, by default - return what was passed.
-            string fieldName = String.Format("CONFIG_intfield_{0}", whichInt);
-
-            bool hasFocus = GUI.GetNameOfFocusedControl().Equals(fieldName);
-            bool userHitReturnThisPass = hasFocus && (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
-            int backInt = backingConfigInts[whichInt];
-            string fieldValue = (backInt == 0) ? "" : backInt.ToString(); // this lets the user temporarily delete the whole value instead of having it become a zero.
-
-            GUI.SetNextControlName(fieldName);
-            // PANEL-02: as long as the key's range needs (a fixed 4 rejected five-digit telnet ports):
-            fieldValue = GUILayout.TextField(fieldValue, ConfigIntInput.MaxLength(key), panelSkin.textField, GUILayout.MinWidth(60));
-
-            int newInt;
-            // Empty or whitespace input reads as zero, so the user can clear the field while typing:
-            if (ConfigIntInput.TryParse(fieldValue, out newInt))
-            {
-                backingConfigInts[whichInt] = newInt;
-                // Don't commit the temp value back to the CONFIGs unless RETURN is being pressed right now:
-                if (userHitReturnThisPass)
-                {
-                    returnValue = backingConfigInts[whichInt];
-                    GUI.FocusControl(""); // unfocus this textfield - it should give the user a visual clue that the edit has been committed.
-                }
-                // (Upon committing the value back to config, config will range-check it and clamp it if its out of range).
-            }
-            // else it reverts to what it was and wipes the typing if you don't assign it to anything.
-
-            // Lastly, check for losing the focus - when focus is lost (i.e. user clicks outside the textfield), then
-            // revert the backing value to the config value, throwing away edits.
-            if (!hasFocus)
-                backingConfigInts[whichInt] = keyVal;
-
-            return returnValue;
+            TelnetMainServer server = TelnetMainServer.Instance;
+            return server != null && SafeHouse.Config != null &&
+                TelnetPanelStatus.RestartNeeded(server.IsListening, server.GetRunningPort(), SafeHouse.Config.TelnetPort);
         }
 
-        private void DrawSuppressAutopilotField(ConfigKey key)
+        /// <summary>
+        /// Stops the server; as telnet stays enabled, it starts again at the next update with the
+        /// new port, through the same permission checks as turning it on (a one-time permission
+        /// is asked again). Clients are disconnected, as by a change of address.
+        /// </summary>
+        private static void DrawTelnetRestart(ToolbarPanelLayout panel, Rect where)
+        {
+            if (KOSStyle.Button(where, TelnetPanelStatus.RestartText(SafeHouse.Config.TelnetPort), panel.FontSize) && TelnetMainServer.Instance != null)
+                TelnetMainServer.Instance.StopListening();
+        }
+
+        /// <summary>Under the settings: the hovered setting's description and script name, else what the settings are.</summary>
+        private void DrawDescription(ToolbarPanelLayout panel)
+        {
+            Rect area = ToRect(panel.Description(windowRect.height));
+            KOSStyle.Fill(new Rect(area.x, area.y, area.width, panel.Border), KOSStyle.FrameColor);
+            GUIStyle style = KOSStyle.Label(panel.SmallFontSize);
+            var first = new Rect(area.x, area.y + panel.Padding, area.width, panel.NoteHeight);
+            var second = new Rect(area.x, first.yMax, area.width, panel.NoteHeight);
+            if (hoveredSetting == null)
+            {
+                KOSStyle.Text(first, Fit(ToolbarSettings.GENERAL_NOTE, first.width, style), style, KOSStyle.DimText);
+                return;
+            }
+            KOSStyle.Text(first, Fit(hoveredSetting.Key.Name, first.width, style), style, KOSStyle.ChromeText);
+            KOSStyle.Text(second, Fit(ToolbarSettings.Detail(hoveredSetting, KOSStyle.Separator), second.width, style), style, KOSStyle.DimText);
+        }
+
+        // Both tabs:
+
+        /// <summary>The footer: emergency suppress (in the warning color while on) and the telnet line.</summary>
+        private void DrawFooter(ToolbarPanelLayout panel)
+        {
+            float height = windowRect.height;
+            Rect footer = ToRect(panel.Footer(height));
+            KOSStyle.Fill(footer, KOSStyle.ChromeBackground);
+            KOSStyle.Fill(new Rect(footer.x, footer.y, footer.width, panel.Border), KOSStyle.FrameColor);
+
+            ConfigKey suppress = SafeHouse.Config == null ? null : ToolbarSettings.FooterKey(SafeHouse.Config.GetConfigKeys());
+            if (suppress != null && suppress.Value is bool)
+                DrawSuppressAutopilotField(suppress, ToRect(panel.SuppressButton(height)), panel);
+
+            GUIStyle style = KOSStyle.Label(panel.SmallFontSize);
+            Rect line = ToRect(panel.TelnetLine(height));
+            KOSStyle.Text(line, Fit(TelnetStatusMessage(), line.width, style), style, KOSStyle.DimText);
+        }
+
+        private void DrawSuppressAutopilotField(ConfigKey key, Rect where, ToolbarPanelLayout panel)
         {
             bool prevValue = (bool)key.Value;
-            key.Value = GUILayout.Toggle(
-                (bool)key.Value,
-                new GUIContent("Emergency Suppress", key.Name),
-                panelSkin.button);
+            KOSStyle.Fill(where, KOSStyle.ChipBackground);
+            if (where.Contains(Event.current.mousePosition))
+                KOSStyle.Fill(where, KOSStyle.Hover);
+            KOSStyle.Frame(where, panel.Border, prevValue ? KOSStyle.Warning : KOSStyle.FrameColor);
+            GUIStyle style = KOSStyle.CenteredBoldLabel(panel.FontSize);
+            string text = prevValue ? "Autopilot suppressed (click to resume)" : "Emergency suppress autopilot";
+            KOSStyle.Text(where, Fit(text, where.width - 2 * panel.Padding, style), style, prevValue ? KOSStyle.Warning : KOSStyle.ChromeText);
+            if (!GUI.Button(where, GUIContent.none, GUIStyle.none))
+                return;
+            key.Value = !prevValue;
 
             // When the button just got pressed in this pass (went from false to true):
-            if ((bool)key.Value && !prevValue)
+            if (!prevValue)
             {
                 Close();
                 clickedOn = false;
@@ -681,155 +984,28 @@ namespace kOS.Screen
 
         private string TelnetStatusMessage()
         {
-            if (TelnetMainServer.Instance == null) // We can't control the order in which monobeavhiors are loaded, so TelnetMainServer might not be there yet.
-                return "TelnetMainServer object not found"; // hopefully the user never sees this.  It should stop happening the the time the loading screen is over.
-            bool isOn = TelnetMainServer.Instance.IsListening;
-            if (!isOn)
-                return "Telnet server disabled.";
-
-            string addr = TelnetMainServer.Instance.GetRunningAddress().ToString();
-            int port = TelnetMainServer.Instance.GetRunningPort();
-            int numClients = TelnetMainServer.Instance.ClientCount;
-
-            return String.Format("Telnet server listening on {0} port {1}. ({2} client{3} connected).",
-                                 addr, port, (numClients == 0 ? "no" : numClients.ToString()), (numClients == 1 ? "" : "s"));
+            TelnetMainServer server = TelnetMainServer.Instance; // might not exist yet: we can't control the order in which monobehaviours are loaded
+            if (server == null)
+                return TelnetPanelStatus.Text(false, false, null, 0, 0, KOSStyle.Separator);
+            bool isOn = server.IsListening;
+            System.Net.IPAddress address = isOn ? server.GetRunningAddress() : null;
+            return TelnetPanelStatus.Text(true, isOn, address == null ? null : address.ToString(), isOn ? server.GetRunningPort() : 0,
+                server.ClientCount, KOSStyle.Separator);
         }
 
-        private void DrawActiveCPUsOnPanel()
+        private void DrawRereadBootButton(ToolbarPanelLayout panel, Rect where)
         {
-            scrollPos = GUILayout.BeginScrollView(scrollPos, panelSkin.scrollView, GUILayout.MinWidth(260), GUILayout.Height(windowRect.height - 60));
-
-            CountBeginVertical();
-            Vessel prevVessel = null;
-            bool atLeastOne = false;
-
-            foreach (kOSProcessor kModule in kOSProcessor.AllInstances())
-            {
-                atLeastOne = true;
-                Part thisPart = kModule.part;
-                Vessel thisVessel = (thisPart == null) ? null : thisPart.vessel;
-
-                // For each new vessel in the list, start a new vessel section:
-                if (thisVessel != null && thisVessel != prevVessel)
-                {
-                    GUILayout.Box(thisVessel.GetName(), vesselNameStyle);
-                    prevVessel = thisVessel;
-                }
-                DrawPartRow(thisPart);
-            }
-            if (!atLeastOne)
-                GUILayout.Label("No Loaded CPUs Found.\n" +
-                                "-------------------------\n" +
-                                "There are either no kOS CPU's\n" +
-                                "in this universe, or there are\n " +
-                                "but they are all \"on rails\".", panelSkin.label);
-
-            if (HighLogic.LoadedSceneIsEditor)
-            {
-                DrawRereadBootButton();
-            }
-            CountEndVertical();
-
-            GUILayout.EndScrollView();
-        }
-
-        private void DrawPartRow(Part part)
-        {
-            CountBeginHorizontal();
-
-            DrawPart(part);
-
-            kOSProcessor processorModule = part.Modules.OfType<kOSProcessor>().FirstOrDefault();
-
-            if (processorModule == null)
-            {
-                throw new ArgumentException(@"Part does not have a kOSProcessor module", "part");
-            }
-
-            GUIStyle powerBoxStyle;
-            string powerLabelText;
-            string powerLabelTooltip;
-            if (processorModule.ProcessorMode == ProcessorModes.STARVED)
-            {
-                powerBoxStyle = boxDisabledStyle;
-                powerLabelText = "power\n<starved>";
-                powerLabelTooltip = "Highlighted CPU has no ElectricCharge.";
-            }
-            else if (processorModule.ProcessorMode == ProcessorModes.READY)
-            {
-                powerBoxStyle = boxOnStyle;
-                powerLabelText = "power\non";
-                powerLabelTooltip = "Highlighted CPU is turned on and running.\n";
-            }
-            else
-            {
-                powerBoxStyle = boxOffStyle;
-                powerLabelText = "power\noff";
-                powerLabelTooltip = "Highlighted CPU is turned off.";
-            }
-
-            GUILayout.Box(new GUIContent(powerLabelText, powerLabelTooltip), powerBoxStyle);
-
-            if (GUILayout.Button((processorModule.WindowIsOpen() ?
-                                  new GUIContent((processorModule.TelnetIsAttached() ? terminalOpenTelnetIconTexture : terminalOpenIconTexture),
-                                                 "Click to close terminal window.") :
-                                  new GUIContent((processorModule.TelnetIsAttached() ? terminalClosedTelnetIconTexture : terminalClosedIconTexture),
-                                                 "Click to open terminal window.")),
-                                  panelSkin.button))
-                processorModule.ToggleWindow();
-
-            CountEndHorizontal();
-
-            CheckHoverOnPreviousGUIElement(part);
-        }
-
-        private void DrawPart(Part part)
-        {
-            // Someday we may work on making this into something that
-            // actually draws out the part image like in the editor icons, however
-            // there appears to be no KSP API to do this for us, and it's a bit messy
-            // and there's more important other stuff to do first.
-            //
-            // In the meantime, this is as far as my research has taken me:
-            // Step 1: get a Unity GameObject from the part prototype, like so:
-            //    GameObject prototypeGO = part.partInfo.iconPrefab;
-
-            // Also, it seems to be using some proprietary extension to Unity's GUI
-            // called EZGui to render some sort of camera view of the gameobject inside the
-            // button, and EZGui is even worse for online documentation than Unity itself,
-            // so whatever the technique is, it's hidden behind a wall of impenetrable
-            // documentation with zero examples.
-
-            // So for the meantime let's use our own text label and leave it at that.
-
-            KOSNameTag partTag = part.Modules.OfType<KOSNameTag>().FirstOrDefault();
-
-            string labelText = String.Format("{0}\n({1})",
-                                             part.partInfo.title.Split(' ')[0], // just the first word of the name, i.e "CX-4181"
-                                             ((partTag == null) ? "" : partTag.nameTag)
-                                            );
-            GUILayout.Box(new GUIContent(labelText, "This is the currently highlighted part on the vessel"), partNameStyle);
-        }
-
-        private void DrawRereadBootButton()
-        {
-            CountBeginVertical();
-            GUILayout.Box(" "); // just putting a bar above the button and text.
-            CountBeginHorizontal();
-            bool clicked = GUILayout.Button("Reread\nBoot\nFolder", panelSkin.button);
-            GUILayout.Label(
-                "If you added new files to the archive\n" +
-                "boot folder after entering this\n" +
-                "Editor scene, they won't show up in the\n" +
-                "part window unless you click here.\n", panelSkin.label);
-
-            if (clicked)
-            {
+            var button = new Rect(where.x, where.y, where.width, panel.SettingRowHeight);
+            if (KOSStyle.Button(button, "Reread boot folder", panel.FontSize))
                 kOSProcessor.SetBootListDirty();
-            }
-            CountEndHorizontal();
-            GUILayout.Box(" "); // just putting a bar below the button and text.
-            CountEndVertical();
+            GUIStyle style = KOSStyle.Label(panel.SmallFontSize);
+            var note = new Rect(where.x, button.yMax, where.width, panel.NoteHeight);
+            KOSStyle.Text(note, Fit("For files added to the archive's boot folder in this editor.", note.width, style), style, KOSStyle.DimText);
+        }
+
+        /// <summary>Kept for mods that may call it; since Phase 4 step 4 the number fields keep their own typing.</summary>
+        public void SetupBackingConfigInts()
+        {
         }
 
         public void BeginHoverHousekeeping()
@@ -875,8 +1051,24 @@ namespace kOS.Screen
             prevHoverPart = newHoverPart;
         }
 
+        /// <summary>
+        /// The part highlighted for a hovered row goes back to normal when the panel is not drawn
+        /// (closed, or hidden with the UI): upstream left it highlighted.
+        /// </summary>
+        private void ClearPartHighlight()
+        {
+            if (prevHoverPart != null)
+            {
+                prevHoverPart.SetHighlightColor(originalPartHighlightColor);
+                prevHoverPart.SetHighlight(false, false);
+            }
+            prevHoverPart = null;
+            newHoverPart = null;
+        }
+
         /// <summary>Whatever the most recent GUILayout element was, remember the part it was for
-        /// if the mouse was hovering in it.</summary>
+        /// if the mouse was hovering in it. (Unused since Phase 4 step 4, which draws without
+        /// GUILayout; kept as it is public.)</summary>
         /// <param name="part">The part that just had info drawn for it</param>
         public void CheckHoverOnPreviousGUIElement(Part part)
         {
@@ -887,123 +1079,6 @@ namespace kOS.Screen
 
             if (GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition))
                 newHoverPart = part;
-        }
-
-        // Tracking the count to help detect when there's a mismatch:
-        // To help detect if a begin matches with an end, put the same
-        // string in both of them and see if they get the same count here.
-        private void CountBeginVertical(string debugHelp = "", float minWidth = -1)
-        {
-            if (!String.IsNullOrEmpty(debugHelp))
-                SafeHouse.Logger.SuperVerbose("BeginVertical(\"" + debugHelp + "\") Nest " + verticalSectionCount);
-            if (minWidth < 0)
-                GUILayout.BeginVertical();
-            else
-                GUILayout.BeginVertical(GUILayout.MinWidth(minWidth));
-            ++verticalSectionCount;
-        }
-
-        // Tracking the count to help detect when there's a mismatch:
-        // To help detect if a begin matches with an end, put the same
-        // string in both of them and see if they get the same count here.
-        private void CountEndVertical(string debugHelp = "")
-        {
-            GUILayout.EndVertical();
-            --verticalSectionCount;
-            if (!String.IsNullOrEmpty(debugHelp))
-                SafeHouse.Logger.SuperVerbose("EndVertical(\"" + debugHelp + "\") Nest " + verticalSectionCount);
-        }
-
-        // Tracking the count to help detect when there's a mismatch:
-        // To help detect if a begin matches with an end, put the same
-        // string in both of them and see if they get the same count here.
-        private void CountBeginHorizontal(string debugHelp = "")
-        {
-            if (!String.IsNullOrEmpty(debugHelp))
-                SafeHouse.Logger.SuperVerbose("BeginHorizontal(\"" + debugHelp + "\"): Nest " + horizontalSectionCount);
-            GUILayout.BeginHorizontal();
-            ++horizontalSectionCount;
-        }
-
-        // Tracking the count to help detect when there's a mismatch:
-        // To help detect if a begin matches with an end, put the same
-        // string in both of them and see if they get the same count here.
-        private void CountEndHorizontal(string debugHelp = "")
-        {
-            GUILayout.EndHorizontal();
-            --horizontalSectionCount;
-            if (!String.IsNullOrEmpty(debugHelp))
-                SafeHouse.Logger.SuperVerbose("EndHorizontal(\"" + debugHelp + "\"): Nest " + horizontalSectionCount);
-        }
-
-        private static GUISkin BuildPanelSkin()
-        {
-            GUISkin theSkin = Instantiate(HighLogic.Skin); // Use Instantiate to make a copy of the Skin Object
-
-            // Now alter the parts of theSkin that we want to change:
-            //
-            theSkin.window = new GUIStyle(HighLogic.Skin.window);
-            theSkin.box.fontSize = 11;
-            theSkin.box.padding = new RectOffset(5, 3, 3, 5);
-            theSkin.box.margin = new RectOffset(1, 1, 1, 1);
-            theSkin.label.fontSize = 11;
-            theSkin.textField.fontSize = 11;
-            theSkin.textField.padding = new RectOffset(0, 0, 0, 0);
-            theSkin.textField.margin = new RectOffset(1, 1, 1, 1);
-            theSkin.textArea.fontSize = 11;
-            theSkin.textArea.padding = new RectOffset(0, 0, 0, 0);
-            theSkin.textArea.margin = new RectOffset(1, 1, 1, 1);
-            theSkin.toggle.fontSize = 10;
-            theSkin.button.fontSize = 11;
-            theSkin.button.active.textColor = Color.yellow;
-            theSkin.button.normal.textColor = Color.white;
-
-            // And these are new styles for our own use in special cases:
-            //
-            headingLabelStyle = new GUIStyle(theSkin.label)
-            {
-                fontSize = 13,
-                padding = new RectOffset(2, 2, 2, 2)
-            };
-            vesselNameStyle = new GUIStyle(theSkin.box)
-            {
-                fontSize = 12,
-                normal = { textColor = Color.white }
-            };
-            tooltipLabelStyle = new GUIStyle(theSkin.label)
-            {
-                fontSize = 11,
-                padding = new RectOffset(0, 2, 0, 2),
-                normal = { textColor = Color.white },
-                wordWrap = false
-            };
-            smallLabelStyle = new GUIStyle(theSkin.label)
-            {
-                fontSize = 11,
-                padding = new RectOffset(0, 2, 0, 2),
-                normal = { textColor = Color.white },
-                wordWrap = true
-            };
-            partNameStyle = new GUIStyle(theSkin.box)
-            {
-                hover = { textColor = new Color(0.6f, 1.0f, 1.0f) }
-            };
-            boxOnStyle = new GUIStyle(theSkin.box)
-            {
-                hover = { textColor = new Color(0.6f, 1.0f, 1.0f) },
-                normal = { textColor = new Color(0.4f, 1.0f, 0.4f) } // brighter green, higher saturation.
-            };
-            boxOffStyle = new GUIStyle(theSkin.box)
-            {
-                hover = { textColor = new Color(0.6f, 1.0f, 1.0f) },
-                normal = { textColor = new Color(0.6f, 0.7f, 0.6f) } // dimmer green, more washed out and grey.
-            };
-            boxDisabledStyle = new GUIStyle(theSkin.box)
-            {
-                hover = { textColor = new Color(0.6f, 1.0f, 1.0f) },
-                normal = { textColor = Color.white }
-            };
-            return theSkin;
         }
     }
 }
