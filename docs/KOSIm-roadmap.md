@@ -40,7 +40,7 @@ Commands, behavior changes, limits and open issues: [testing-and-build.md](testi
 | 1 — Correctness and safety | Complete (2026-10-19): every P0/P1 review finding checked; fixes headless-tested and passed in game. |
 | 2 — Structural boundaries | Complete (2026-10-19): input router, `TerminalSession` fan-out, explicit lifecycle, screen/view split ([phase2-contracts.md](phase2-contracts.md)). |
 | 3 — Workflow quality of life | Complete (2026-10-20): history (draft, Ctrl+R search, saved history), paste, copy, CPU state, wheel, follow-output, mouse selection. STATUS-01 fix awaits its in-game check. |
-| 4 — Modern, simpler UI | Decisions agreed 2026-10-20. Step 1 (terminal chrome) approved and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. Step 2 (geometry and scrolling) approved and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. Step 3 re-decided with the user (one modern green look, niche settings to mod options, bundled-font prototype); 3a font prototype run 2026-10-20 (approved "go for step 3a"): no run-time way to load a bundled font, user decision no-go. 3b (look and settings) approved ("go for step 3b") and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. 3c (font fallback order) approved ("let's go do it") and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. Step 4 (toolbar panel) planned with Q1–Q4 chosen, approved ("go for it, implement step 4 thoroughly") and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. Step 5 (other windows) next, not planned. |
+| 4 — Modern, simpler UI | Decisions agreed 2026-10-20. Step 1 (terminal chrome) approved and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. Step 2 (geometry and scrolling) approved and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. Step 3 re-decided with the user (one modern green look, niche settings to mod options, bundled-font prototype); 3a font prototype run 2026-10-20 (approved "go for step 3a"): no run-time way to load a bundled font, user decision no-go. 3b (look and settings) approved ("go for step 3b") and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. 3c (font fallback order) approved ("let's go do it") and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. Step 4 (toolbar panel) planned with Q1–Q4 chosen, approved ("go for it, implement step 4 thoroughly") and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. Step 5 (other windows) planned and approved 2026-10-20 (Q1–Q4 as recommended), **in progress**. |
 
 What each item changed, and what was never checked in game: [testing-and-build.md](testing-and-build.md), "Behavior changes from upstream" and "In-game coverage". Detailed step plans and exit reviews of Phases 0–3 are in git history (this file at `876e1a29`).
 
@@ -285,6 +285,38 @@ As implemented (2026-10-20; behavior in `testing-and-build.md`, "Toolbar panel (
 - Game side: `KOSToolbarWindow` (drawing replaced: `GUI.Window` without a skin, `DrawContent` in a clipped group, own scroll bar, `DrawCpuRow`, `DrawSettings` measuring and drawing in one routine, `DrawNumberField`, `DrawSlider`, `DrawTelnetRestart`, `DrawDescription`, `DrawFooter`; `ClearPartHighlight`; `ApplyPendingNumber` on tab change and close); `TermWindow.Status`/`StatusWanted`; `KOSStyle.Tab`/`TextField`. The skin, GUILayout counters and the power/icon styles are gone.
 - Choices made while implementing (within the plan): a press anywhere in the panel takes the keyboard from a number field (IMGUI keeps it otherwise), so Q3's "click away" works inside the panel; a press outside the panel leaves the field typing until the panel closes; a press outside the content does not reach rows scrolled out of view; `Reread boot folder` moved to Settings, Boot (the CPUs tab says so in the editor); the restart button goes through the existing stop/start path (permission dialogs as for turning telnet on); the brightness slider rounds to hundredths.
 
+
+### Step 5 plan (2026-10-20; approved by the user with Q1–Q4 as recommended; in progress)
+
+The windows besides the terminal and the toolbar panel adopt the flat style (`KOSStyle`, KSP's UI scale), from the Phase 4 decision "Other windows". User approval (2026-10-20): "Go with recommended … things must be simple, elegant and modern", Q1–Q4 as recommended:
+
+- **Q1 (EDIT-04):** the editor is a free window: moved by its header, resized by its edges and corners like the terminal (not snapped to cells); it opens under its terminal when there is room, otherwise where it fits, and stays wholly on screen.
+- **Q2:** the editor's geometry is kept for the session only (not saved; the per-CPU geometry file is unchanged).
+- **Q3:** the editor's confirmations name their actions (`Save and close` / `Close without saving` / `Cancel`; `Save, then open` / `Open without saving` / `Cancel`; `Discard and reload` / `Cancel`; `Retry` / `Cancel`).
+- **Q4:** Esc cancels in the editor's confirmation and in the name tag; the editor has a one-line strip with the caret's line and column and a modified mark.
+
+Today (upstream): the paste box is a translucent default-skin `GUILayout.Window` with a 10 px hint (PASTE-UI-01). The editor (`KOSTextEditPopup`) uses KSP's skin with yellow text and its own font list (no Lucida Console), is glued under the terminal (EDIT-04: at 1024×768 with a 50×36 terminal its lower part is off screen), pulls the view back to the caret on every repaint (EDIT-03), and a failed save from its Save button or Ctrl+S rethrows out of `OnGUI`. Its confirmation (`DelegateDialog`) is a KSP-skin window at a fixed offset with Yes/No/Cancel. The name tag (`KOSNameTagWindow`) opens at the part's screen position, maybe off screen, and shows `part.name`. The pickers (`ListPickerDialog`: font, address) open under the toolbar panel in KSP's skin and may leave the screen.
+
+Headless (`kOS.Safe.Screen`, each with tests):
+
+- `EditorScrollFollow` (EDIT-03): the view follows the caret only when the caret or the text changed since the last frame; a wheel or scroll-bar move is kept until the next caret move or edit; a resize clamps the scroll position without resetting it.
+- `EditorCaretPosition`: the caret's line and column from its index.
+- `FlatWindowLayout`: a small flat window's parts at a UI scale (header, content, button row, minimum size), shared by the editor, its confirmation, the name tag, the pickers and the paste box.
+- `WindowPlacement` additions: below an anchor or wherever it fits (the editor), beside an anchor on either side (the pickers), centered over a window (confirmations, the paste box); every result wholly on screen.
+
+Game side:
+
+1. **Paste box:** an opaque flat panel over the terminal; the preview in the terminal's font and colors, the hint at the chrome's size, `Run`/`Cancel` buttons. Behavior and keys unchanged.
+2. **Editor:** flat header (path, modified mark, `Reload`, `Save`, `Close`; Ctrl+R/S/E kept), a flat text area in the palette with the terminal's font choice (step 3c order), the strip (`Ln 12, Col 4 · modified`; a save error shown there, still printed on the terminal, not thrown out of `OnGUI`), EDIT-03, Q1 and Q2.
+3. **Confirmation** (`DelegateDialog`): flat, centered over the editor, on screen, Q3 labels, Esc cancels.
+4. **Name tag:** flat, the part's title, on screen, Esc cancels; Enter, the first focus, the editor lock and input ownership unchanged.
+5. **Pickers:** flat, beside the toolbar panel and on screen; the current entry in the accent color, rows lit on hover, the wheel and our scroll bar, a close button in the header.
+
+Not in this step: script GUIs (`GUIWindow`; their skin is script API), KSP's `PopupDialog`s (telnet permission, settings checker, bootstrapper alerts: KSP's own UI), the rest of EDIT-05 (find/replace, line numbers, highlighting), font previews or a filter in the pickers.
+
+Intentional differences: these windows' look; the editor's placement and resizing (EDIT-04), its scrolling (EDIT-03), its strip and save errors; the confirmation labels; Esc in the confirmation and the name tag; the name tag shows the part's title; the editor uses the terminal's font order.
+
+In game (end-of-Phase-4 pass): each window at UI scale 1.0 and 1.3; the editor opened with `edit` from CPU 1 (placed on screen at 1024×768, moved, resized by each edge, kept on screen after a resolution change), the wheel and scroll bar reading far from the caret without being pulled back, typing and arrows bringing the caret back, Ctrl+S/R/E and the buttons, each confirmation with its labels and Esc, a save error (read-only volume or a bad path) shown in the strip; the paste box readable and answered by Enter, Esc and the buttons; the name tag in flight and in the VAB (Enter, Esc, Cancel, Accept, no part detached in the VAB, on screen near the edges); the font and address pickers beside the panel, picking, scrolling, closing; Alt+F12 `kOSMouseOver` over each.
 
 ### Exit criterion
 

@@ -20,7 +20,7 @@ The docs were trimmed on 2026-10-20 (user request): `docs/testing-and-build.md` 
 
 **Next actions, in order:**
 
-1. **Step 5 (other windows)** has decisions (`docs/KOSIm-roadmap.md`, "Decisions (agreed with the user 2026-10-20)", "Other windows": the paste box PASTE-UI-01, the editor with **EDIT-03**, the name tag, dialogs including `ListPickerDialog` (font and address pickers) adopt `KOSStyle`) but **no step plan yet**: write the plan, get the user's approval, implement nothing before it. After step 5: the end-of-Phase-4 Proton pass (item 2).
+1. **Step 5 (other windows) is approved and in progress** (2026-10-20, user: "Go with recommended … things must be simple, elegant and modern"; Q1 free editor window kept on screen (EDIT-04), Q2 editor geometry for the session only, Q3 confirmation labels in words, Q4 Esc cancels and the editor's `Ln/Col · modified` strip). Plan: `docs/KOSIm-roadmap.md`, "Step 5 plan". Paste box, editor (EDIT-03), confirmation, name tag, pickers in `KOSStyle`. Check the working tree for partial work before resuming. After step 5: the end-of-Phase-4 Proton pass (item 2), with the step 5 items from the plan's "In game" paragraph.
 2. **One Proton pass at the end of Phase 4** (user decision 2026-10-20; needs the user: main menu, loading `kOSIM-dev`, opening the terminal, all mouse steps). Deploy the last committed build with the game closed (backup `kOS-GameData-backups/kOS-before-p4-<date>`). Step 1 items, on CPU 1 at 50×36 and UI scale 1.3 (add the later steps' items when they are done):
    - Player.log has `kOS: chrome font …` (which of `…`/`·` the font has) and no exception; screenshot the window.
    - Header title shortening, smaller/larger text and close buttons; frame green with the keyboard, grey after a click outside.
