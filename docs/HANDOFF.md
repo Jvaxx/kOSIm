@@ -6,11 +6,13 @@
 
 **Phase 4 step 1 (terminal chrome) is implemented** (2026-10-20, user approval "go for the first step"): our own header (`vessel · CX-4181 · tag`, settings and close buttons), flat frame with a green focus border, one-line status strip (state dot and text, chips by priority, copy notice, size, grip: fixes **BAR-01**), settings popover (reverse, visual beep, key click, brightness slider, character size), chrome following KSP's UI scale. Headless gate **1194/1194**, mutations caught, full build clean. Committed; **not deployed, not checked in game**: the user decided (2026-10-20) that the in-game checks of Phase 4 are done **once, at the end of Phase 4**, together with STATUS-01. What changed: `docs/testing-and-build.md`, "Terminal window (Phase 4, step 1)"; plan and as-implemented notes: `docs/KOSIm-roadmap.md`, "Step 1 plan".
 
+**Phase 4 step 2 (geometry and scrolling) is implemented** (2026-10-20, user approval "I approve", with Q1–Q3 as proposed): per-CPU saved geometry (`saves/<save>/kOS/terminal/<persistentId>.txt`: position, cells, character height), window kept wholly on screen at every draw, resizing by any edge or corner (not top-right) snapped live to cells with a size box and one `SetSize` on release, scroll bar in the gutter while scrolled back (thumb drag, track press pages). Headless gate **1228/1228**, mutations caught, full build clean. Committed; **not deployed, not checked in game** (end-of-phase pass). What changed: `docs/testing-and-build.md`, "Terminal window geometry and scroll bar (Phase 4, step 2)"; plan and as-implemented notes: `docs/KOSIm-roadmap.md`, "Step 2 plan".
+
 The docs were trimmed on 2026-10-20 (user request): `docs/testing-and-build.md` holds the setup, test method, behavior changes by area, limits, open issues and in-game coverage; `docs/KOSIm-roadmap.md` the phase status, binding decisions and Phase 4. Per-step history is in git (both files and this one at `876e1a29`).
 
 **Next actions, in order:**
 
-1. **Step 2 plan** (geometry and scrolling: saved geometry per CPU next to its history, keep on screen also after a resolution or UI-scale change, edge resize with a size overlay, the scroll bar in the gutter `TerminalChromeLayout` reserves): write it in `docs/KOSIm-roadmap.md` for the user's approval; implement nothing before it. Then steps 3–5, each with its plan approved and headless tests.
+1. **Step 3 plan** (themes: classic green default, Amber, a modern neutral; decisions in `docs/KOSIm-roadmap.md`, "Phase 4 — Decisions"): write it in the roadmap for the user's approval; implement nothing before it. Then steps 4–5 the same way.
 2. **One Proton pass at the end of Phase 4** (user decision 2026-10-20; needs the user: main menu, loading `kOSIM-dev`, opening the terminal, all mouse steps). Deploy the last committed build with the game closed (backup `kOS-GameData-backups/kOS-before-p4-<date>`). Step 1 items, on CPU 1 at 50×36 and UI scale 1.3 (add the later steps' items when they are done):
    - Player.log has `kOS: chrome font …` (which of `…`/`·` the font has) and no exception; screenshot the window.
    - Header title shortening, settings/close buttons; frame green with the keyboard, grey after a click outside.
@@ -18,13 +20,18 @@ The docs were trimmed on 2026-10-20 (user request): `docs/testing-and-build.md` 
    - Strip: `kd.py` client attached → `1 telnet client` chip; `p3r/fill.ks`, PageUp, then output → `New output` chip, a click brings the view back; Ctrl+Shift+C → notice beside the size; `set terminal:width to 15.` and `to 20.` → nothing overlaps (BAR-01, G3-UI).
    - Moving by header and strip only; grip resize snaps to cells and stops at 15×3; selection and wheel aligned with the characters.
    - KSP UI scale changed (settings) → chrome resizes, cells kept; another scale back.
+   - Step 2: move and resize CPU 1, quit to the main menu and load `kOSIM-dev` again → same place, cells and char size; `saves/kOSIM-dev/kOS/terminal/80427209.txt` exists and reads right; deleted → defaults (50,60, config size).
+   - Step 2: resolution set smaller in KSP settings (the dev instance is 1024×768; try 800×600 and back) → window back wholly on screen, cells kept; a window larger than the screen sits at the top left with its header visible; UI scale changed → refit and on screen; moving by the header stops at the screen edges.
+   - Step 2: each edge and corner (top-right excluded) highlights on hover and resizes, snapped live with the `NxM` box, minimum 15 × 3, left/top keep the opposite edge; one resize on release (`kd.py` client sees one); close/settings buttons and the `New output` chip still clickable; selection still starts at column 0; Alt+F12 `kOSMouseOver` held during an edge drag.
+   - Step 2: `p3r/fill.ks`, PageUp → scroll bar shows; thumb drag moves the view (telnet client follows); press above/below the thumb pages; back at the bottom it hides after release; right edge beside the bar does not resize while it shows.
    - STATUS-01: over telnet with `kd.py` title logging, `runpath("0:/kosim-check/p3r/slow2.ks").` logs `Running …` then `Waiting in …` once and stays until `Ready`; `main.ks` `Running` → `Waiting in` → `Ready`.
 3. Minor, optional: POWER-01 (a CPU powering itself off with `DOEVENT("Toggle Power")` logs `KOSBadJumpException`; compare with an upstream build first); the checks never performed (`docs/testing-and-build.md`, "In-game coverage").
 
 ## Workspace state (2026-10-20)
 
 - Branch `kosim/test-baseline`, local only, never pushed (origin is upstream <https://github.com/KSP-KOS/KOS>). Base: upstream `develop` at `8f281a45`.
-- Last code commit: **Phase 4 step 1** (terminal chrome): new `src/kOS.Safe/Screen/TerminalChromeLayout.cs`, `StatusStrip.cs`, `src/kOS/Screen/KOSStyle.cs`, `src/kOS.Safe.Test/Screen/TerminalChromeLayoutTest.cs`; changed `TerminalStatus.cs`, `TermWindow.cs`, `KOSManagedWindow.cs`, `TerminalStatusTest.cs`, `.ci/known-test-failures.json` (`minimum_tests` 1194). **Commit `965bd7ce`**; a build of it (0 errors, 44 warnings) gives `kOS.dll a67abb7d…`, `kOS.Safe.dll 3362b0a2…`. Since then: docs only (these hashes). Previous code commit: STATUS-01 `c8ec39f4` (`kOS.dll f3d7df79…`, `kOS.Safe.dll 698a6291…`).
+- Last code commit: **Phase 4 step 2** (geometry and scrolling): new `src/kOS.Safe/Screen/CpuTextFile.cs`, `TerminalGeometry.cs`, `WindowPlacement.cs`, `TerminalResize.cs`, `TerminalScrollBar.cs`, `src/kOS.Safe.Test/Screen/TerminalGeometryTest.cs`, `TerminalResizeTest.cs`; changed `CommandHistoryFile.cs`, `TerminalChromeLayout.cs`, `src/kOS/Screen/TermWindow.cs`, `KOSStyle.cs`, `src/kOS/Module/kOSProcessor.cs`, `.ci/known-test-failures.json` (`minimum_tests` 1228). Its build hashes are recorded in the docs commit after it (below).
+- Previous code commits: **Phase 4 step 1** (terminal chrome) `965bd7ce` (`kOS.dll a67abb7d…`, `kOS.Safe.dll 3362b0a2…`); STATUS-01 `c8ec39f4` (`kOS.dll f3d7df79…`, `kOS.Safe.dll 698a6291…`).
 - **Deployed in the dev instance: the `77d858f9` build** (O3; `kOS.dll 8a5f7bb8…`, `kOS.Safe.dll b2fb1bcf…`), checked in game 2026-10-20. Latest backup `kOS-GameData-backups/kOS-before-p3rest-20261020`. Game closed (not started this session); Player.log of the last pass kept as `dev-logs/Player.log.p3rest-pass-20261020`.
 - The dev save has history files `saves/kOSIM-dev/kOS/history/80427209.txt` (CPU 1) and `80427999.txt` (CPU 2) and a `quicksave.sfs`. Dev `settings.cfg`: 1024×768 fullscreen, `UI_SCALE = 1.3`.
 
@@ -70,6 +77,7 @@ Behavior per area: `docs/testing-and-build.md`, "Behavior changes from upstream"
 | O3 GUI mouse selection | `TerminalSelection`, `ScreenBuffer.GetLineAt`, `TerminalCopy.SelectionText`, `TermWindow.SelectWithMouse`/`DrawSelection` | 2026-10-20 |
 | STATUS-01 | `WaitingDisplay` (kOS.Safe), `TermWindow.DescribeStatus` | **not yet** |
 | Phase 4 step 1: terminal chrome, BAR-01 | `TerminalChromeLayout`, `StatusStrip`, `TerminalStatus.Kind`/`StateText`/`Chips` (kOS.Safe); `KOSStyle`, `TermWindow` header/strip/popover, `KOSManagedWindow.ContainsPoint` | **not yet** (end of Phase 4) |
+| Phase 4 step 2: geometry, edge resize, scroll bar | `TerminalGeometry`/`TerminalGeometryFile`, `CpuTextFile`, `WindowPlacement`, `TerminalResize`, `TerminalScrollBar` (kOS.Safe); `TermWindow` (`AttachTo` restore, `SaveGeometryIfChanged`, `BeginResizeAtEdge`/`FollowResizeDrag`, `KeepOnScreen`, `DrawScrollBar`), `kOSProcessor.CpuFilePath` | **not yet** (end of Phase 4) |
 
 Test fixtures to keep in step with game code: `docs/testing-and-build.md`, "Test harness".
 
@@ -81,6 +89,6 @@ bash .ci/test.sh                                   # headless gate (Mono 6.12; P
 dotnet build kOS.sln -c Release --no-incremental  # full build against the dev game's assemblies (kOS.props.user)
 ```
 
-Results this session (2026-10-20, step 1 tree before committing): gate before the work 1175/1175; after it **1194/1194** passed, 0 skipped, exit 0; mutation run (chip priority, ellipsis trim, telnet count in the title, gutter) 6 failures, as expected, sources restored; full build **0 errors, 44 warnings** (unchanged count). No in-game check.
+Results this session (2026-10-20, step 2 working tree): gate before the work 1194/1194; after it **1228/1228** passed, 0 skipped, exit 0; mutation run: 12 mutations, 11 caught (1–2 failures each), the survivor equivalent (`WindowPlacement`'s larger-than-screen line is redundant), sources restored; full build **0 errors, 44 warnings** (unchanged count; none in the changed files except the old unused `TermWindow.root`). No in-game check. Previous session (step 1): 1175 → 1194, its mutations caught, same build counts.
 
 Deploy procedure, launch, logs, the dev save, the remote-testing tools (`dev-tools/kt.py`, `kd.py`, `vw.sh`, `hk.sh`) and what needs the user: `docs/testing-and-build.md`, "Full build and deployment" and "In-game testing".

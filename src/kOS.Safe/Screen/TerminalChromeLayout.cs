@@ -7,8 +7,9 @@ namespace kOS.Safe.Screen
     /// <summary>
     /// Where the GUI terminal's parts go (Phase 4, step 1), in window coordinates (origin top
     /// left, as Unity's GUI): a header on top (title, settings and close buttons), the
-    /// character field below it with even padding, a gutter on its right kept for the scroll
-    /// bar (step 2), and the status strip at the bottom with the resize grip at its right end.
+    /// character field below it with even padding, a gutter on its right for the scroll bar
+    /// (step 2), and the status strip at the bottom with the resize grip at its right end. A
+    /// band along the frame resizes the window (step 2, <see cref="TerminalResize"/>).
     /// <para>
     /// The chrome follows KSP's UI scale; the field follows the cell size (<c>CHARHEIGHT</c>).
     /// Drawing, selection, the wheel and resizing all use this one layout, and the window size
@@ -24,6 +25,11 @@ namespace kOS.Safe.Screen
         public const int BASE_PADDING = 6;
         public const int BASE_SCROLL_BAR_WIDTH = 6;
         public const int BASE_FONT_SIZE = 11;
+        /// <summary>How far in from the frame a press resizes the window.</summary>
+        public const int BASE_RESIZE_BAND = 4;
+        /// <summary>How far along an edge from a corner a press takes the corner.</summary>
+        public const int BASE_RESIZE_CORNER = 12;
+        public const int BASE_MINIMUM_THUMB = 16;
         /// <summary>What the header (title, two buttons) and the strip (state, size, grip) need at least.</summary>
         public const int BASE_MINIMUM_WIDTH = 150;
 
@@ -50,6 +56,10 @@ namespace kOS.Safe.Screen
         public int ButtonWidth { get; private set; }
         public int FontSize { get; private set; }
         public int MinimumWidth { get; private set; }
+        public int ResizeBand { get; private set; }
+        public int ResizeCorner { get; private set; }
+        /// <summary>The scroll bar's thumb is at least this long (shorter only in a shorter track).</summary>
+        public int MinimumThumb { get; private set; }
 
         /// <param name="uiScale">KSP's UI scale; clamped to <see cref="MINIMUM_SCALE"/>..<see cref="MAXIMUM_SCALE"/>, 1 when not a number</param>
         /// <param name="cellWidth">a character cell's width in pixels (none fit when not positive)</param>
@@ -68,6 +78,9 @@ namespace kOS.Safe.Screen
             ButtonWidth = HeaderHeight;
             FontSize = Scaled(BASE_FONT_SIZE);
             MinimumWidth = Scaled(BASE_MINIMUM_WIDTH);
+            ResizeBand = Scaled(BASE_RESIZE_BAND);
+            ResizeCorner = Scaled(BASE_RESIZE_CORNER);
+            MinimumThumb = Scaled(BASE_MINIMUM_THUMB);
         }
 
         public static float ClampScale(float uiScale)
@@ -159,6 +172,18 @@ namespace kOS.Safe.Screen
         {
             ScreenRect body = Body(windowWidth, windowHeight);
             return new ScreenRect(Math.Max(0, body.Width - GutterWidth), body.Y, Math.Min(GutterWidth, body.Width), body.Height);
+        }
+
+        /// <summary>
+        /// Where the scroll bar runs: centered in the gutter, as high as the field's rows can be
+        /// (the body less its padding). A press anywhere in the gutter goes to the scroll bar.
+        /// </summary>
+        public ScreenRect ScrollTrack(float windowWidth, float windowHeight)
+        {
+            ScreenRect gutter = Gutter(windowWidth, windowHeight);
+            float width = Math.Min(ScrollBarWidth, gutter.Width);
+            float x = gutter.X + (float)Math.Floor((gutter.Width - width) / 2f);
+            return new ScreenRect(x, gutter.Y + Padding, width, NonNegative(gutter.Height - 2 * Padding));
         }
 
         public ScreenRect Strip(float windowWidth, float windowHeight)

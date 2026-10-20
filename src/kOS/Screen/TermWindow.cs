@@ -105,6 +105,28 @@ namespace kOS.Screen
         private float fittedScale = float.NaN; // the UI scale the window size was last worked out for
         private string headerTitle = string.Empty;
 
+        // Geometry and scrolling (Phase 4, step 2). The window's position, cells and character
+        // height are saved per CPU (TerminalGeometryFile) when they change, at most every
+        // geometrySaveInterval and not during a drag, and once more when the window goes:
+        private ITerminalGeometryStore geometryStore;
+        private TerminalGeometry savedGeometry; // what the store holds, as far as this window knows
+        private DateTime nextGeometryCheck;
+        private static readonly TimeSpan geometryCheckInterval = TimeSpan.FromSeconds(0.5);
+        private static readonly TimeSpan geometrySaveInterval = TimeSpan.FromSeconds(2);
+
+        // A resize drag by an edge, a corner or the grip, while resizeEdges is not None. The
+        // window follows it snapped to cells; the screen takes the new size on release.
+        private ResizeEdges resizeEdges;
+        private Rect resizeStartRect;
+        private Vector2 resizeStartMouse; // absolute
+        private int resizeStartColumns;
+        private int resizeStartRows;
+        private ResizeResult resizeTarget;
+
+        // The scroll bar's thumb being dragged, and where on it the press was:
+        private bool scrollDragging;
+        private float scrollGrabOffset;
+
         // The settings popover, from the header's settings button:
         private bool settingsOpen;
         private Rect settingsRect; // absolute, where it was last drawn
@@ -195,6 +217,7 @@ namespace kOS.Screen
         /// </summary>
         new public void OnDestroy()
         {
+            SaveGeometryIfChanged(true); // scene change, vessel unloaded: the last move is kept
             LoseFocus();
             guiPaste.Cancel();
             KOSMouseBlocking.Unregister(ref pasteConfirmationMouseArea);
@@ -271,6 +294,8 @@ namespace kOS.Screen
             // Diable GUI and release all locks
             guiPaste.Cancel(); // a paste waiting for confirmation is dropped with the window
             settingsOpen = false;
+            resizeEdges = ResizeEdges.None; // a drag cut short changes nothing
+            scrollDragging = false;
             base.Close();
         }
 
@@ -334,8 +359,12 @@ namespace kOS.Screen
             
             GUI.color = color;
 
+            FollowResizeDrag();
+            // Restored, the resolution or UI scale changed, resized: the window stays on screen (step 2).
+            KeepOnScreen();
             // No KSP window skin or title: the window draws its own header and frame (Phase 4).
             WindowRect = GUI.Window(UniqueId, WindowRect, TerminalGui, GUIContent.none, GUIStyle.none);
+            KeepOnScreen(); // moved by its header or strip
             BlockMouseOver(WindowRect);
             if (settingsOpen)
                 DrawSettings();
@@ -359,6 +388,9 @@ namespace kOS.Screen
             RefreshStatus();
             if (selection.IsDragging && !Input.GetMouseButton(0))
                 selection.EndDrag(); // released outside the window
+            if (scrollDragging && !Input.GetMouseButton(0))
+                scrollDragging = false;
+            SaveGeometryIfChanged(false);
             // The snapshot for the GUI, and the telnet clients' output, at most every 1/20th second:
             bool telnetsGotRepainted = session.Update(DateTime.Now);
             ProcessTelnetInput(); // want to do this even when the terminal isn't actually displaying.
@@ -872,6 +904,8 @@ namespace kOS.Screen
         {
             // Under everything, the fallback screens too (no window skin draws a background):
             KOSStyle.Fill(new Rect(0, 0, WindowRect.width, WindowRect.height), KOSStyle.WindowBackground);
+            if (!renderFaultRecovery.IsFaulted)
+                BeginResizeAtEdge(); // before the selection and DragWindow see the press
             ScrollViewWithWheel();
             SelectWithMouse(); // before DragWindow sees the drag
             Color previousColor = GUI.color;
@@ -1130,13 +1164,13 @@ namespace kOS.Screen
             TerminalChromeLayout chrome = Layout;
             float width = WindowRect.width, height = WindowRect.height;
             DrawCharacters(screen, chrome, width, height);
+            DrawScrollBar(screen, chrome, width, height);
             DrawHeader(chrome, width);
             DrawStrip(screen, chrome, width, height);
             // The frame, over everything: the accent color says the terminal has the keyboard.
             KOSStyle.Frame(new Rect(0, 0, width, height), chrome.Border, HasKeyboard ? KOSStyle.Accent : KOSStyle.FrameColor);
+            DrawResizeFeedback(chrome, width, height);
 
-            if (!fontGotResized)
-                CheckResizeDrag(); // Has to occur before DragWindow or else DragWindow will consume the event and prevent drags from being seen by the resize icon.
             // The window moves by its header and the strip, after their buttons took their own
             // clicks; a drag over the characters selects (O3).
             GUI.DragWindow(ToRect(chrome.Header(width)));
@@ -1165,7 +1199,10 @@ namespace kOS.Screen
             }
             Rect field = CharacterField(screen);
             Color previousTextColor = terminalLetterSkin.label.normal.textColor;
-            GUI.BeginGroup(new Rect(field.x, field.y, field.width + 2, field.height + 4)); // +4 so descenders and underscores visible on bottom row.
+            // +4 so descenders and underscores visible on bottom row; within the body, so that while
+            // a resize drag shrinks the window the old rows do not run over the strip and gutter.
+            GUI.BeginGroup(new Rect(field.x, field.y, Math.Max(0, Math.Min(field.width + 2, body.xMax - field.x)),
+                Math.Max(0, Math.Min(field.height + 4, body.yMax - field.y))));
             try
             {
                 terminalLetterSkin.label.normal.textColor = AdjustColor(reversingScreen ? bgColor : currentTextColor, screen.Brightness);
@@ -1294,17 +1331,8 @@ namespace kOS.Screen
             if (GUI.Button(newOutputChip, GUIContent.none, GUIStyle.none) && newOutputChip.width > 0)
                 ShowNewOutput(screen);
 
-            Rect grip = ToRect(chrome.Grip(width, height));
-            KOSStyle.DrawIcon(grip, KOSStyle.Icon.Grip, IconSize(chrome), KOSStyle.DimText);
-            if (GUI.RepeatButton(grip, GUIContent.none, GUIStyle.none))
-            {
-                if (! resizeMouseDown)
-                {
-                    // Remember the fact that this mouseDown started on the resize button:
-                    resizeMouseDown = true;
-                    resizeOldSize = new Vector2(WindowRect.width, WindowRect.height);
-                }
-            }
+            // A press on the grip is the bottom-right corner's (BeginResizeAtEdge):
+            KOSStyle.DrawIcon(ToRect(chrome.Grip(width, height)), KOSStyle.Icon.Grip, IconSize(chrome), KOSStyle.DimText);
         }
 
         /// <summary>The <c>New output</c> chip was clicked: the view goes back to the screen, as typing brings it.</summary>
@@ -1418,6 +1446,207 @@ namespace kOS.Screen
             return newColor;
         }
 
+        private static Vector2 MouseOnScreen()
+        {
+            return new Vector2(Input.mousePosition.x, UnityEngine.Screen.height - Input.mousePosition.y);
+        }
+
+        private static ScreenRect ToScreenRect(Rect rect)
+        {
+            return new ScreenRect(rect.x, rect.y, rect.width, rect.height);
+        }
+
+        private bool ScrollBarShown()
+        {
+            var buffer = shared == null ? null : shared.Screen as ScreenBuffer;
+            return buffer != null && TerminalScrollBar.IsShown(buffer.ViewOffset, scrollDragging);
+        }
+
+        /// <summary>
+        /// The edges a press at <paramref name="point"/> (window coordinates) would resize; none
+        /// under the settings popover, which can reach over a narrow terminal's left edge.
+        /// </summary>
+        private ResizeEdges EdgesUnder(Vector2 point)
+        {
+            if (settingsOpen && settingsRect.Contains(MouseOnScreen())) return ResizeEdges.None;
+            return TerminalResize.EdgesAt(Layout, WindowRect.width, WindowRect.height, point.x, point.y, ScrollBarShown());
+        }
+
+        /// <summary>
+        /// A press on the frame's band, a corner or the grip starts a resize drag (Phase 4, step 2),
+        /// followed in <see cref="FollowResizeDrag"/>. The press is used, so the selection and
+        /// DragWindow do not see it.
+        /// </summary>
+        private void BeginResizeAtEdge()
+        {
+            Event current = Event.current;
+            if (current == null || current.type != EventType.MouseDown || current.button != 0) return;
+            if (shared == null || shared.Screen == null || resizeEdges != ResizeEdges.None) return;
+            ResizeEdges edges = EdgesUnder(current.mousePosition);
+            if (edges == ResizeEdges.None) return;
+            resizeEdges = edges;
+            resizeStartRect = WindowRect;
+            resizeStartMouse = MouseOnScreen();
+            resizeStartColumns = shared.Screen.ColumnCount;
+            resizeStartRows = shared.Screen.RowCount;
+            resizeTarget = new ResizeResult(ToScreenRect(WindowRect), resizeStartColumns, resizeStartRows);
+            current.Use();
+        }
+
+        /// <summary>
+        /// While a resize drag goes on, the window takes the size of the nearest whole cells,
+        /// from the mouse's position on the screen (not the window's events, which move with the
+        /// window). On release the screen takes the new size once, so scripts' resize watchers
+        /// and telnet clients see one resize. Called from OnGUI before the window is drawn.
+        /// </summary>
+        private void FollowResizeDrag()
+        {
+            if (resizeEdges == ResizeEdges.None) return;
+            if (shared == null || shared.Screen == null)
+            {
+                resizeEdges = ResizeEdges.None;
+                return;
+            }
+            if (Input.GetMouseButton(0))
+            {
+                Vector2 delta = MouseOnScreen() - resizeStartMouse;
+                resizeTarget = TerminalResize.Drag(Layout, ToScreenRect(resizeStartRect), resizeStartColumns, resizeStartRows,
+                    resizeEdges, delta.x, delta.y, UnityEngine.Screen.width, UnityEngine.Screen.height);
+                WindowRect = ToRect(resizeTarget.Window);
+                return;
+            }
+            resizeEdges = ResizeEdges.None;
+            shared.Screen.SetSize(resizeTarget.Rows, resizeTarget.Columns);
+            FitWindowToScreen(shared.Screen); // also when the cells did not change (SetSize then does not notify)
+        }
+
+        /// <summary>The window moved onto the screen if it is off it, its size kept (step 2, Q2).</summary>
+        private void KeepOnScreen()
+        {
+            WindowRect = ToRect(WindowPlacement.KeepOnScreen(ToScreenRect(WindowRect), UnityEngine.Screen.width, UnityEngine.Screen.height));
+        }
+
+        /// <summary>
+        /// Over the frame: the edges a press would resize, or are resizing, in the accent color;
+        /// during a resize drag, the size it gives in the middle of the body.
+        /// </summary>
+        private void DrawResizeFeedback(TerminalChromeLayout chrome, float width, float height)
+        {
+            Event current = Event.current;
+            if (current == null || current.type != EventType.Repaint) return;
+            ResizeEdges edges = resizeEdges;
+            if (edges == ResizeEdges.None && !Input.GetMouseButton(0) && !selection.IsDragging && !scrollDragging &&
+                IsInsideMyExposedPortion(MouseOnScreen()))
+                edges = EdgesUnder(current.mousePosition);
+            float thickness = Math.Max(2, 2 * chrome.Border);
+            if ((edges & ResizeEdges.Left) != 0)
+                KOSStyle.Fill(new Rect(0, 0, thickness, height), KOSStyle.Accent);
+            if ((edges & ResizeEdges.Right) != 0)
+                KOSStyle.Fill(new Rect(width - thickness, 0, thickness, height), KOSStyle.Accent);
+            if ((edges & ResizeEdges.Top) != 0)
+                KOSStyle.Fill(new Rect(0, 0, width, thickness), KOSStyle.Accent);
+            if ((edges & ResizeEdges.Bottom) != 0)
+                KOSStyle.Fill(new Rect(0, height - thickness, width, thickness), KOSStyle.Accent);
+
+            if (resizeEdges == ResizeEdges.None) return;
+            string size = resizeTarget.Columns + "x" + resizeTarget.Rows; // as the strip shows it
+            GUIStyle label = KOSStyle.CenteredLabel(chrome.FontSize);
+            float boxWidth = Mathf.Round(KOSStyle.Measure(label, size) + 4 * chrome.Padding);
+            float boxHeight = chrome.HeaderHeight;
+            Rect body = ToRect(chrome.Body(width, height));
+            var box = new Rect(Mathf.Round(body.center.x - boxWidth / 2f), Mathf.Round(body.center.y - boxHeight / 2f), boxWidth, boxHeight);
+            KOSStyle.Fill(box, KOSStyle.ChromeBackground);
+            KOSStyle.Frame(box, chrome.Border, KOSStyle.Accent);
+            KOSStyle.Text(box, size, label, KOSStyle.ChromeText);
+        }
+
+        /// <summary>
+        /// The scroll bar (Phase 4, step 2), in the gutter while the view is scrolled back: the
+        /// thumb drags the shared view (telnet clients follow it, as with the wheel), a press
+        /// above or below it moves a screen's rows. Back at the bottom it goes once released.
+        /// </summary>
+        private void DrawScrollBar(IScreenBuffer screen, TerminalChromeLayout chrome, float width, float height)
+        {
+            // Asked on every event, so the id is the same in each; the drag holds it as the hot control.
+            int controlId = GUIUtility.GetControlID(FocusType.Passive);
+            var buffer = screen as ScreenBuffer;
+            Event current = Event.current;
+            if (buffer == null || current == null || !TerminalScrollBar.IsShown(buffer.ViewOffset, scrollDragging)) return;
+            ScreenRect track = chrome.ScrollTrack(width, height);
+            ScreenRect thumb = TerminalScrollBar.Thumb(track, buffer.ScrollbackRows, buffer.RowCount, buffer.ViewOffset, chrome.MinimumThumb);
+            switch (current.GetTypeForControl(controlId))
+            {
+                case EventType.MouseDown:
+                    if (current.button != 0 || !ToRect(chrome.Gutter(width, height)).Contains(current.mousePosition)) return;
+                    int side = TerminalScrollBar.SideOfThumb(thumb, current.mousePosition.y);
+                    if (side == 0)
+                    {
+                        scrollDragging = true;
+                        scrollGrabOffset = current.mousePosition.y - thumb.Y;
+                        GUIUtility.hotControl = controlId;
+                    }
+                    else
+                    {
+                        screen.ScrollVertical(side * screen.RowCount); // a page
+                    }
+                    current.Use();
+                    break;
+                case EventType.MouseDrag:
+                    if (!scrollDragging) return;
+                    int offset = TerminalScrollBar.ViewOffsetFor(track, buffer.ScrollbackRows, buffer.RowCount, chrome.MinimumThumb,
+                        current.mousePosition.y - scrollGrabOffset, buffer.ViewOffset);
+                    if (offset != buffer.ViewOffset)
+                        screen.ScrollVertical(buffer.ViewOffset - offset);
+                    current.Use();
+                    break;
+                case EventType.MouseUp:
+                    if (!scrollDragging) return;
+                    scrollDragging = false;
+                    if (GUIUtility.hotControl == controlId)
+                        GUIUtility.hotControl = 0;
+                    current.Use();
+                    break;
+                case EventType.Repaint:
+                    Rect thumbRect = new Rect(track.X, Mathf.Round(thumb.Y), track.Width, Mathf.Round(thumb.Height));
+                    KOSStyle.Fill(ToRect(track), KOSStyle.ScrollTrack);
+                    KOSStyle.Fill(thumbRect, scrollDragging || thumbRect.Contains(current.mousePosition) ? KOSStyle.ChromeText : KOSStyle.DimText);
+                    break;
+            }
+        }
+
+        /// <summary>The window as it is now, to save (step 2).</summary>
+        private TerminalGeometry CurrentGeometry()
+        {
+            IScreenBuffer screen = shared.Screen;
+            return new TerminalGeometry
+            {
+                X = (int)Math.Round(WindowRect.x),
+                Y = (int)Math.Round(WindowRect.y),
+                Columns = screen.ColumnCount,
+                Rows = screen.RowCount,
+                CharacterHeight = screen.CharacterPixelHeight
+            };
+        }
+
+        /// <summary>
+        /// Save the geometry if it changed: looked at every <see cref="geometryCheckInterval"/>,
+        /// saved at most every <see cref="geometrySaveInterval"/>, not while the mouse button is
+        /// held (a move or a resize in progress). <paramref name="now"/> skips those waits.
+        /// Every change counts: moving, resizing, the character size, a script's TERMINAL suffixes.
+        /// </summary>
+        private void SaveGeometryIfChanged(bool now)
+        {
+            if (geometryStore == null || shared == null || shared.Screen == null) return;
+            DateTime time = DateTime.Now;
+            if (!now && (time < nextGeometryCheck || resizeEdges != ResizeEdges.None || Input.GetMouseButton(0))) return;
+            nextGeometryCheck = time + geometryCheckInterval;
+            TerminalGeometry current = CurrentGeometry();
+            if (current.Equals(savedGeometry)) return;
+            geometryStore.Save(current); // never throws for I/O; a failure is logged once
+            savedGeometry = current;
+            nextGeometryCheck = time + geometrySaveInterval;
+        }
+
         protected void CheckResizeDrag()
         {
             CheckResizeDrag(true);
@@ -1525,18 +1754,32 @@ namespace kOS.Screen
 
         internal void AttachTo(SharedObjects sharedObj)
         {
+            AttachTo(sharedObj, null);
+        }
+
+        /// <param name="geometryStore">where this CPU's window geometry is kept (Phase 4, step 2);
+        /// null for none: the window opens at the defaults, as before</param>
+        internal void AttachTo(SharedObjects sharedObj, ITerminalGeometryStore geometryStore)
+        {
             shared = sharedObj;
             shared.Window = this;
             session.Screen = shared.Screen;
+
+            // The saved geometry, value by value, else the defaults. A boot script that sets the
+            // size runs later and wins (D3: the last resize).
+            this.geometryStore = geometryStore;
+            TerminalGeometry saved = (geometryStore == null ? null : geometryStore.Load()) ?? new TerminalGeometry();
             
             shared.Screen.CharacterPixelWidth = 8; // will be overridden later when drawing the font.
-            shared.Screen.CharacterPixelHeight = SafeHouse.Config.TerminalFontDefaultSize;
+            shared.Screen.CharacterPixelHeight = saved.CharacterHeight ?? SafeHouse.Config.TerminalFontDefaultSize;
             shared.Screen.Brightness = SafeHouse.Config.TerminalBrightness;
             formerCharPixelWidth = shared.Screen.CharacterPixelWidth;
             formerCharPixelHeight = shared.Screen.CharacterPixelHeight;
-            shared.Screen.SetSize(SafeHouse.Config.TerminalDefaultHeight, SafeHouse.Config.TerminalDefaultWidth);
+            shared.Screen.SetSize(saved.Rows ?? SafeHouse.Config.TerminalDefaultHeight, saved.Columns ?? SafeHouse.Config.TerminalDefaultWidth);
+            WindowRect = new Rect(saved.X ?? WindowRect.x, saved.Y ?? WindowRect.y, WindowRect.width, WindowRect.height); // kept on screen when drawn
 
             NotifyOfScreenResize(shared.Screen);
+            savedGeometry = CurrentGeometry(); // only a change is saved: a window nobody touched leaves no file
             shared.Screen.AddResizeNotifier(NotifyOfScreenResize);
             baseTitle = CalcualteTitle();
             headerTitle = CalculateHeaderTitle();

@@ -31,6 +31,8 @@ namespace kOS.Screen
         public static readonly Color Accent = new Color(0.5f, 1.0f, 0.5f, 1f);
         public static readonly Color Warning = new Color(1.0f, 0.62f, 0.45f, 1f);
         public static readonly Color Hover = new Color(1f, 1f, 1f, 0.10f);
+        /// <summary>The scroll bar's track, faint over the characters' background.</summary>
+        public static readonly Color ScrollTrack = new Color(1f, 1f, 1f, 0.08f);
 
         /// <summary>The dot before the terminal's state.</summary>
         public static Color StatusColor(StatusKind kind)

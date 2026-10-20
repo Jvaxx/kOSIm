@@ -576,13 +576,28 @@ namespace kOS.Module
         /// </summary>
         private string CommandHistoryPath()
         {
+            return CpuFilePath("history");
+        }
+
+        /// <summary>This CPU's terminal geometry file (Phase 4, step 2), next to its history.</summary>
+        private string TerminalGeometryPath()
+        {
+            return CpuFilePath("terminal");
+        }
+
+        /// <summary>
+        /// <c>saves/&lt;save&gt;/kOS/&lt;folder&gt;/&lt;persistentId&gt;[-&lt;index&gt;].txt</c>, or null
+        /// outside the flight scene or without a <c>persistentId</c>.
+        /// </summary>
+        private string CpuFilePath(string folder)
+        {
             if (!HighLogic.LoadedSceneIsFlight || string.IsNullOrEmpty(HighLogic.SaveFolder) ||
                 part == null || part.persistentId == 0)
                 return null;
             int index = part.Modules.GetModules<kOSProcessor>().IndexOf(this);
             string name = part.persistentId.ToString(System.Globalization.CultureInfo.InvariantCulture) +
                 (index > 0 ? "-" + index.ToString(System.Globalization.CultureInfo.InvariantCulture) : "") + ".txt";
-            return System.IO.Path.Combine(KSPUtil.ApplicationRootPath, "saves", HighLogic.SaveFolder, "kOS", "history", name);
+            return System.IO.Path.Combine(KSPUtil.ApplicationRootPath, "saves", HighLogic.SaveFolder, "kOS", folder, name);
         }
 
         public void InitObjects()
@@ -619,7 +634,7 @@ namespace kOS.Module
 
             // Make the window that is going to correspond to this kOS part:
             shared.Window = gameObject.AddComponent<Screen.TermWindow>();
-            shared.Window.AttachTo(shared);
+            shared.Window.AttachTo(shared, new TerminalGeometryFile(TerminalGeometryPath)); // read now, saved on change
             shared.SoundMaker = shared.Window.GetSoundMaker();
 
             // initialize archive
