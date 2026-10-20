@@ -43,6 +43,35 @@ Proposed by the user 2026-10-20 for later; decisions agreed the same day. A step
 - **A preset holds** position, columns, rows and character height. Applying one is a resize like any other (resize watchers fire, telnet clients are asked to resize: D3) and is brought wholly on screen by the existing keep-on-screen rule.
 - **Not included:** the editor window, keyboard shortcuts, anything telnet-side.
 
+### Step plan (proposed 2026-10-20; awaiting the user's approval)
+
+Choices marked **(Q)** are proposals for the user to confirm.
+
+**Headless (`kOS.Safe.Screen`), each with tests:**
+
+- **`TerminalPresets`**: three slots, each a `TerminalGeometry` or empty. `Format`/`Parse` for a small text file: a header line, then `1.x = 120`, `1.y = 80`, `1.columns = 50`, `1.rows = 36`, `1.charheight = 14`, the same for `2.` and `3.`, invariant culture. The per-value range checks are shared with `TerminalGeometry.Parse` (moved into one helper, no change to the geometry file). Tolerant as the geometry file: CR LF, blank and `#` lines, unknown keys and slot numbers ignored. **(Q1)** A slot counts only when all five values are valid; otherwise it is empty, so a preset never applies half a geometry.
+- **`TerminalPresetFile`**: the store, on the existing `CpuTextFile` (atomic save through `ArchiveFileWriter`, a failed save keeps the old file, failures logged once, files over 4 KiB not read). Read once on first use and kept in memory; each save writes the whole file at once. Its `Save` reports failure so the window can say so.
+- **`TerminalChromeLayout`**: `PresetButton(slot, width)` (three buttons the size of the others, left of the smaller-text button, with a small gap), `ShowsPresets(width)`: shown only when the title keeps at least a minimum room (proposed 60 px at UI scale 1, so about 260 px of window at scale 1; the 15-column minimum window hides them). `HeaderButtons` then starts at the first preset button, so the title shrinks to its left, `TerminalResize.EdgesAt` does not resize under them, and a window pushed off the left keeps them on screen too (DRAG-01's 48 px rule counts from there). Hidden, everything is as today.
+
+**Game side:**
+
+- **Shared presets:** one `TerminalPresetFile` for the game, owned statically by `TermWindow` (or a small holder), so a save from one terminal shows at once in every other one. Path `GameData/kOS/Plugins/PluginData/kOS/terminal-presets.txt`, next to `config.xml`; the release zip leaves `Plugins/PluginData/` out, so an update keeps the presets.
+- **`TermWindow.DrawHeader`**: the three buttons labelled `1`, `2`, `3` in the chrome font, dim when empty (`KOSStyle.TextButton`'s dim look, still clickable). A new `KOSStyle` helper reports which mouse button pressed it: the right button is caught at `MouseDown` over the button and the event used, before `GUI.DragWindow`, the selection and the edge resize see it.
+- **Left-click** on a filled slot: the character height, the cells and the position are applied together between passes (the path the size buttons already use, `postponedCharPixelHeight`, then `SetSize(rows, columns)`, then the position). The size change makes `WindowKeeper` bring the window wholly on screen. Saved to the CPU's own geometry file as any other change. On an empty slot: the notice `Preset 3 is empty`, nothing else.
+- **Right-click:** `CurrentGeometry()` into the slot, saved at once; notice `Saved preset 2`, or `Preset save failed (see KSP.log)` (the slot is then still updated for this session).
+- **Notices** reuse the copy notice in the strip (2 s); `ShowCopyNotice` becomes a general notice. **(Q2)** No notice when a preset is applied: the window moving is the feedback.
+- User doc: a short paragraph on the presets in `doc/source/structures/misc/terminal.rst` (near `CHARHEIGHT`), and the behavior entry in `docs/testing-and-build.md`.
+
+**Unchanged:** the per-CPU geometry file and its format, script suffixes, telnet (beyond the usual resize request to attached clients, D3), the editor, the toolbar panel, `config.xml`.
+
+**Intentional differences:** three new header buttons on windows wide enough; a new file in `PluginData`; applying a preset is a resize, so running scripts' resize watchers fire and telnet clients are asked to resize.
+
+**Tests and gate:** `TerminalPresetsTest` (round trip, partial and invalid slots empty, unknown keys and slots, CR LF, the size limit, the store's single read, atomic save and failure report with the existing fake file operations), layout cases (button order and tiling, the gap, no overlap with the title or size buttons, hidden below the threshold at UI scales 1, 1.3 and 2, `HeaderButtons` and the resize exclusion with and without presets); a mutation run; `minimum_tests` raised.
+
+**In game (Proton):** left and right clicks reach the buttons under Wine (right-click in IMGUI), without moving the window, starting a selection or reaching a part behind it (raycast blockers); the notices; the dim empty slots; hidden at a narrow width and back when widened; a preset saved by `cpu down` applied on `cpu top`; a preset saved at 2560×1440 applied at a smaller resolution comes back wholly on screen; presets kept after a game restart (the file); a script's resize watcher and a telnet client see one resize on apply; Alt+F12 locks over the buttons.
+
+**Not in this step:** names or more than three slots, per-save or per-vessel presets, the editor, keyboard shortcuts, telnet commands, a preset for the toolbar panel.
+
 ## Binding decisions
 
 Agreed with the user. Later work keeps them unless the user changes them.
