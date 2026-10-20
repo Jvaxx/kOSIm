@@ -163,43 +163,28 @@ namespace kOS.Safe.Screen
             return new ScreenRect(content.X + content.Width - width, content.Y, width, content.Height);
         }
 
-        // Scrolling, in pixels from the content's top:
+        // Scrolling, in pixels from the content's top (PixelScroll):
 
         public static float MaximumScroll(float contentHeight, float viewHeight)
         {
-            return NonNegative(contentHeight - viewHeight);
+            return PixelScroll.Maximum(contentHeight, viewHeight);
         }
 
         public static float ClampScroll(float scroll, float contentHeight, float viewHeight)
         {
-            if (float.IsNaN(scroll) || float.IsInfinity(scroll)) return 0;
-            return Math.Max(0, Math.Min(MaximumScroll(contentHeight, viewHeight), scroll));
+            return PixelScroll.Clamp(scroll, contentHeight, viewHeight);
         }
 
         /// <summary>The thumb in <paramref name="track"/>: as long as the share in view (at least the minimum, at most the track), placed by the scroll.</summary>
         public ScreenRect ScrollThumb(ScreenRect track, float contentHeight, float viewHeight, float scroll)
         {
-            float length = ThumbLength(track, contentHeight, viewHeight);
-            float range = track.Height - length;
-            float maximum = MaximumScroll(contentHeight, viewHeight);
-            float fraction = maximum > 0 ? ClampScroll(scroll, contentHeight, viewHeight) / maximum : 0;
-            return new ScreenRect(track.X, track.Y + (float)Math.Round(range * fraction), track.Width, length);
+            return PixelScroll.Thumb(track, contentHeight, viewHeight, scroll, MinimumThumb);
         }
 
         /// <summary>The scroll for a thumb whose top is at <paramref name="thumbTop"/> (the inverse of <see cref="ScrollThumb"/>).</summary>
         public float ScrollFor(float thumbTop, ScreenRect track, float contentHeight, float viewHeight)
         {
-            float range = track.Height - ThumbLength(track, contentHeight, viewHeight);
-            if (!(range > 0)) return 0;
-            float fraction = Math.Max(0, Math.Min(1, (thumbTop - track.Y) / range));
-            return ClampScroll(fraction * MaximumScroll(contentHeight, viewHeight), contentHeight, viewHeight);
-        }
-
-        private float ThumbLength(ScreenRect track, float contentHeight, float viewHeight)
-        {
-            if (!(contentHeight > 0) || contentHeight <= viewHeight) return track.Height;
-            float length = (float)Math.Round(track.Height * viewHeight / contentHeight);
-            return Math.Min(track.Height, Math.Max(MinimumThumb, length));
+            return PixelScroll.ScrollFor(thumbTop, track, contentHeight, viewHeight, MinimumThumb);
         }
 
         private static float NonNegative(float value)

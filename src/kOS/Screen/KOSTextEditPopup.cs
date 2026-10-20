@@ -1,5 +1,7 @@
 using kOS.Safe.Encapsulation;
 using kOS.Safe.Persistence;
+using kOS.Safe.Screen;
+using kOS.Safe.UserIO;
 using EditorDocument = kOS.Safe.Screen.EditorDocument;
 using System;
 using System.Collections.Generic;
@@ -12,30 +14,31 @@ namespace kOS.Screen
     /// <summary>
     /// A Unity window that contains the text editor for kOS inside it.  It should only be
     /// popped into existence when you feed it a file using the AttachTo call.
+    /// <para>
+    /// Phase 4, step 5: drawn in the flat style (<see cref="KOSStyle"/>, <see cref="FlatWindowLayout"/>):
+    /// a header with the path and its buttons, the text in the terminal's font and colors, and a
+    /// strip with the caret's line and column. It is a window of its own (EDIT-04): it opens
+    /// next to its terminal where there is room, moves by its header, resizes by its edges and
+    /// stays on screen; its place and size are kept while the terminal exists (not saved). The
+    /// view follows the caret only when the caret moves or the text changes (EDIT-03).
+    /// </para>
     /// </summary>
     public class KOSTextEditPopup : KOSManagedWindow
     {
-        private const int FRAME_THICKNESS = 8;
-        private const string EXIT_BUTTON_TEXT = "(E)xit";
-        private const string SAVE_BUTTON_TEXT = "(S)ave";
-        private const string RELOAD_BUTTON_TEXT = "(R)eload";
+        private const string TEXT_CONTROL = "kOSEditorText";
+        private const string RELOAD_BUTTON_TEXT = "Reload";
+        private const string SAVE_BUTTON_TEXT = "Save";
+        private static readonly TimeSpan noticeDuration = TimeSpan.FromSeconds(2);
+
+        private static readonly Color textColor = KOSStyle.ToColor(TerminalPalette.Text);
+        private static readonly Color backgroundColor = KOSStyle.ToColor(TerminalPalette.Background);
+        private static readonly Color caretColor = KOSStyle.ToColor(TerminalPalette.Cursor);
+        private static readonly Color selectionColor = KOSStyle.ToColor(TerminalPalette.Text.WithAlpha(TerminalPalette.SELECTION_ALPHA));
 
         private int fontHeight = 12;
         private Font font;
-        // A list of fonts including the user's choice plus a few fallback options if the user's choice isn't working:
-        private string[] tryFontNames =
-            new string[] {
-               "_User's choice_",
-               "Consolas Bold", "Consolas", "Monaco Bold", "Monaco", "Liberation Mono Bold", "Liberation Mono",
-               "Courier New Bold", "Courier Bold", "Courier New", "Courier", "Arial" };
-        private string prevConfigFontName = "";
-        private int prevConfigFontSize = 12;
-        private Rect innerCoords;
-        private Rect saveCoords;
-        private Rect exitCoords;
-        private Rect labelCoords;
-        private Rect reloadCoords;
-        private Rect resizeButtonCoords;
+        private string pickedFontName; // the TerminalFontName the font was looked up for
+        private GUIStyle textStyle;
         private TermWindow term; // The terminal that this popup is attached to.
         private readonly EditorDocument document = new EditorDocument();
         private string contents
@@ -43,18 +46,30 @@ namespace kOS.Screen
             get { return document.Contents; }
             set { document.Contents = value; }
         }
-        private Texture2D resizeImage;
-        private bool resizeMouseDown;
-        private Vector2 resizeOldSize; // width and height it had when the mouse button went down on the resize button.
         private bool isDirty { get { return document.IsDirty; } }
         // Without the keyboard focus (another window has it, or input is suspended) the editor is frozen, as
         // losing focus always did; it now also takes the terminal's control lock while focused (INPUT-01).
-        private bool InteractionFrozen { get { return frozen || !HasKeyboard || (dialog != null && dialog.IsInvoked); } }
+        private bool InteractionFrozen { get { return frozen || !HasKeyboard || DialogShown; } }
         private bool frozen;
         private DelegateDialog dialog;
-        private Vector2 scrollPosition; // tracks where within the text box it's scrolled to.
-        private bool consumeEvent;
-        private GUIStyle textWidgetStyle;
+        private bool DialogShown { get { return dialog != null && dialog.IsInvoked; } }
+
+        private FlatWindowLayout layout;
+        private bool placed; // the first Open put the window next to its terminal; later ones keep its place
+        private float scroll; // pixels from the text's top
+        private float viewHeight;
+        private readonly EditorScrollFollow follow = new EditorScrollFollow();
+        private readonly FlatScrollBar scrollBar = new FlatScrollBar();
+        private int caretIndex;
+        private bool caretHome; // a file was loaded: the caret goes to its start
+        private bool focusTextPending; // opened by the user: the text takes the keyboard
+        private string saveError; // shown in the strip until the next edit or save
+        private string notice;
+        private DateTime noticeEnd;
+
+        private ResizeEdges resizeEdges = ResizeEdges.None;
+        private Rect resizeStartRect;
+        private Vector2 resizeStartMouse;
 
         public KOSTextEditPopup()
         {
@@ -70,33 +85,46 @@ namespace kOS.Screen
 
         public void Awake()
         {
-            WindowRect = new Rect(0, 0, 470, 280); // bogus starting value will be changed later when attaching to a terminal.
-
-            // Load dummy textures
-            resizeImage = Utilities.Utils.GetTextureWithErrorMsg("kOS/GFX/dds_resize-button", false);
-
+            WindowRect = new Rect(0, 0, 470, 280); // placed next to the terminal when first opened.
             dialog = gameObject.AddComponent<DelegateDialog>();
-
-            GetFont();
         }
 
-        private void GetFont()
+        private FlatWindowLayout Layout
         {
-            fontHeight = GetConfigFontSize();
-            tryFontNames[0] = GetConfigFontName();
-
-            font = AssetManager.Instance.GetSystemFontByNameAndSize(tryFontNames, fontHeight, false);
-
-            textWidgetStyle = new GUIStyle(HighLogic.Skin.textArea);
-            textWidgetStyle.font = font;
-
-            prevConfigFontSize = fontHeight;
-            prevConfigFontName = tryFontNames[0];
+            get
+            {
+                float scale = TerminalChromeLayout.ClampScale(KOSStyle.UiScale);
+                if (layout == null || layout.Scale != scale)
+                    layout = new FlatWindowLayout(scale);
+                return layout;
+            }
         }
 
-        private string GetConfigFontName()
+        /// <summary>The terminal's font (its pick, then the step 3c fallbacks) at the terminal's character height.</summary>
+        private void GetFontIfChanged()
         {
-            return SafeHouse.Config.TerminalFontName;
+            int newHeight = GetConfigFontSize();
+            string newName = SafeHouse.Config.TerminalFontName;
+            if (textStyle != null && font != null && fontHeight == newHeight && string.Equals(pickedFontName, newName))
+                return;
+            fontHeight = newHeight;
+            pickedFontName = newName;
+            font = AssetManager.Instance.GetSystemFontByNameAndSize(TerminalFontChoice.NamesToTry(newName), fontHeight, false);
+
+            textStyle = new GUIStyle
+            {
+                font = font,
+                fontSize = fontHeight,
+                wordWrap = true,
+                richText = false, // a script is shown as it is
+                clipping = TextClipping.Clip,
+                padding = new RectOffset(4, 4, 2, 2),
+                margin = new RectOffset(0, 0, 0, 0)
+            };
+            textStyle.normal.textColor = textColor;
+            textStyle.hover.textColor = textColor;
+            textStyle.focused.textColor = textColor;
+            textStyle.active.textColor = textColor;
         }
 
         private int GetConfigFontSize()
@@ -105,13 +133,12 @@ namespace kOS.Screen
             // TermWindow isn't attached yet so the term member is null.  Return a
             // dummy value at first but then correct it later the next time this is
             // queired after the term is attached:
-            return (term != null ) ? term.GetFontSize() : 8;
+            return (term != null ) ? term.GetFontSize() : 12;
         }
 
         public void AttachTo(TermWindow termWindow, Volume attachVolume, GlobalPath path)
         {
             term = termWindow;
-            WindowRect = new Rect(0, 0, 470, 280); // will be resized and moved in onGUI.
             LoadContents(attachVolume, path);
         }
 
@@ -123,14 +150,33 @@ namespace kOS.Screen
         public override void Open(bool takeFocus)
         {
             // View operations never reset document state or resolve a modal transaction.
+            if (!placed && term != null)
+            {
+                PlaceNextToTerminal();
+                placed = true;
+            }
             base.Open(takeFocus);
             BringToFront();
+            focusTextPending = takeFocus;
+        }
+
+        /// <summary>The terminal's size, below it or beside it where it fits (EDIT-04).</summary>
+        private void PlaceNextToTerminal()
+        {
+            FlatWindowLayout flat = Layout;
+            Rect terminal = term.GetRect();
+            float screenWidth = UnityEngine.Screen.width, screenHeight = UnityEngine.Screen.height;
+            float width = Math.Min(Math.Max(flat.EditorMinimumWidth, terminal.width), screenWidth);
+            float height = Math.Min(Math.Max(flat.EditorMinimumHeight, terminal.height), screenHeight);
+            WindowRect = ToRect(WindowPlacement.BelowOrBeside(ToScreenRect(terminal), width, height, screenWidth, screenHeight));
         }
 
         public override void Close()
         {
             document.CancelOpen();
             if (dialog != null) dialog.Dismiss();
+            resizeEdges = ResizeEdges.None;
+            scrollBar.Release();
             base.Close();
         }
 
@@ -156,22 +202,15 @@ namespace kOS.Screen
         {
             if (!IsOpen) return;
 
-            // If the config options changed the font for me, reload it:
-            if ((! prevConfigFontName.Equals(GetConfigFontName())) || prevConfigFontSize != GetConfigFontSize())
-                GetFont();
+            GetFontIfChanged();
 
-            CalcOuterCoords(); // force windowRect to lock to bottom edge of the parents
-            CalcInnerCoords();
-
-            WindowRect = GUI.Window(UniqueId, WindowRect, ProcessWindow, "");
+            FollowResizeDrag();
+            KeepOnScreen();
+            WindowRect = GUI.Window(UniqueId, WindowRect, ProcessWindow, GUIContent.none, GUIStyle.none);
+            KeepOnScreen(); // moved by its header
             BlockMouseOver(WindowRect);
-            // Some mouse global state data used by several of the checks:
-
-            if (consumeEvent)
-            {
-                consumeEvent = false;
-                Event.current.Use();
-            }
+            if (focusTextPending && !InteractionFrozen)
+                GUI.FocusWindow(UniqueId); // the keys go to this window's text (see DrawText)
         }
 
         protected void ExitEditor()
@@ -190,10 +229,32 @@ namespace kOS.Screen
             }
             catch (Exception ex) when (DelegateDialog.CanDisplayFileError(ex))
             {
+                saveError = "Save failed: " + ex.Message;
                 term.Print("[File Save failed: " + ex.Message + "]");
                 throw;
             }
+            saveError = null;
+            ShowNotice("Saved");
             term.Print("[Saved changes to " + document.ActivePath + "]");
+        }
+
+        /// <summary>Save from the button or Ctrl+S: a failure is shown in the strip (and on the terminal), not thrown out of OnGUI.</summary>
+        private void TrySave()
+        {
+            try
+            {
+                SaveContents();
+            }
+            catch (Exception ex) when (DelegateDialog.CanDisplayFileError(ex))
+            {
+                // SaveContents reported it.
+            }
+        }
+
+        private void ShowNotice(string text)
+        {
+            notice = text;
+            noticeEnd = DateTime.Now + noticeDuration;
         }
 
         protected void ReloadContents()
@@ -223,53 +284,42 @@ namespace kOS.Screen
             {
                 var choices = new List<string> { "Retry", "Cancel" };
                 var actions = new List<DialogAction> { DelegateLoadContents, DelegateCancel };
-                dialog.Invoke(this, "Cannot load \"" + document.PendingPath + "\": " + ex.Message, choices, actions);
+                dialog.Invoke(this, "Cannot load the file", "Cannot load \"" + document.PendingPath + "\": " + ex.Message, choices, actions);
             }
         }
 
         private void ReportLoaded()
         {
+            // A new file is shown from its start:
+            follow.Reset();
+            scroll = 0;
+            caretHome = true;
+            saveError = null;
+            notice = null;
             if (document.IsNewFile) term.Print("[New File]");
         }
 
+        // The confirmations name their actions (step 5, Q3); the last choice is the one Esc picks.
+
         protected void InvokeDirtySaveExitDialog()
         {
-            var choices = new List<string>();
-            var actions = new List<DialogAction>();
-            choices.Add("Yes");
-            actions.Add(DelegateSaveExit);
-            choices.Add("No");
-            actions.Add(DelegateNoSaveExit);
-            choices.Add("Cancel");
-            actions.Add(DelegateCancel);
-
-            dialog.Invoke(this, "\"" + document.ActivePath + "\" has been edited.  Save it before exiting?", choices, actions);
+            var choices = new List<string> { "Save and close", "Close without saving", "Cancel" };
+            var actions = new List<DialogAction> { DelegateSaveExit, DelegateNoSaveExit, DelegateCancel };
+            dialog.Invoke(this, "Unsaved changes", "\"" + document.ActivePath + "\" has been edited. Save it before closing?", choices, actions);
         }
 
         protected void InvokeDirtySaveLoadDialog()
         {
-            var choices = new List<string>();
-            var actions = new List<DialogAction>();
-            choices.Add("Yes");
-            actions.Add(DelegateSaveThenLoad);
-            choices.Add("No");
-            actions.Add(DelegateLoadContents);
-            choices.Add("Cancel");
-            actions.Add(DelegateCancel);
-
-            dialog.Invoke(this, "\"" + document.ActivePath + "\" has been edited.  Save before loading \"" + document.PendingPath + "\"?", choices, actions);
+            var choices = new List<string> { "Save, then open", "Open without saving", "Cancel" };
+            var actions = new List<DialogAction> { DelegateSaveThenLoad, DelegateLoadContents, DelegateCancel };
+            dialog.Invoke(this, "Unsaved changes", "\"" + document.ActivePath + "\" has been edited. Save it before opening \"" + document.PendingPath + "\"?", choices, actions);
         }
 
         protected void InvokeReloadConfirmDialog()
         {
-            var choices = new List<string>();
-            var actions = new List<DialogAction>();
-            choices.Add("Yes");
-            actions.Add(DelegateLoadContents);
-            choices.Add("No");
-            actions.Add(DelegateCancel);
-
-            dialog.Invoke(this, "\"" + document.ActivePath + "\" has been edited.  Throw away changes and reload?", choices, actions);
+            var choices = new List<string> { "Discard and reload", "Cancel" };
+            var actions = new List<DialogAction> { DelegateLoadContents, DelegateCancel };
+            dialog.Invoke(this, "Unsaved changes", "\"" + document.ActivePath + "\" has been edited. Throw away the changes and reload it?", choices, actions);
         }
 
         protected static void DelegateSaveExit(KOSTextEditPopup me)
@@ -331,7 +381,7 @@ namespace kOS.Screen
                     case KeyCode.S:
                         if (Event.current.control)
                         {
-                            SaveContents();
+                            TrySave();
                             Event.current.Use();
                         }
                         break;
@@ -347,14 +397,22 @@ namespace kOS.Screen
             }
         }
 
+        /// <summary>The lines in view, for the page keys.</summary>
+        private int RowsInView()
+        {
+            float line = textStyle == null ? fontHeight : Math.Max(1f, textStyle.lineHeight);
+            return Math.Max(1, (int)(viewHeight / line));
+        }
+
         protected void DoPageUp()
         {
             var editor = GetWidgetController();
+            if (editor == null) return;
 
             // Seems to be no way to move more than one line at
             // a time - so have to do this:
             int pos = Math.Min(editor.cursorIndex, contents.Length - 1);
-            int rows = ((int)innerCoords.height) / fontHeight;
+            int rows = RowsInView();
             while (rows > 0 && pos >= 0)
             {
                 if (contents[pos] == '\n')
@@ -367,197 +425,264 @@ namespace kOS.Screen
         protected void DoPageDown()
         {
             var editor = GetWidgetController();
+            if (editor == null) return;
 
             // Seems to be no way to move more than one line at
             // a time - so have to do this:
             int pos = Math.Min(editor.cursorIndex, contents.Length - 1);
-            int rows = ((int)innerCoords.height) / fontHeight;
+            int rows = RowsInView();
             while (rows > 0 && pos < contents.Length)
             {
-                if (contents[pos] == '\n')
+                if (pos >= 0 && contents[pos] == '\n')
                     rows--;
                 pos++;
                 editor.MoveRight(); // there is a MoveDown but it doesn't work.
             }
         }
 
-        protected void CheckResizeDrag()
-        {
-            Event e = Event.current;
-            if (e.type == EventType.MouseDown && e.button == 0)
-            {
-                // Remember the fact that this mouseDown started on the resize button:
-                if (resizeButtonCoords.Contains(MouseButtonDownPosRelative))
-                {
-                    resizeMouseDown = true;
-                    resizeOldSize = new Vector2(WindowRect.width, WindowRect.height);
-                    Event.current.Use();
-                }
-            }
-            if (e.type == EventType.MouseUp && e.button == 0) // mouse button went from Down to Up just now.
-            {
-                if (resizeMouseDown)
-                {
-                    resizeMouseDown = false;
-                    Event.current.Use();
-                }
-            }
-            // For some reason the Event style of checking won't let you
-            // see drags extending outside the current window, while the Input style
-            // will.  That's why this looks different from the others.
-            if (Input.GetMouseButton(0))
-            {
-                if (resizeMouseDown)
-                {
-                    var mousePos = new Vector2(Event.current.mousePosition.x, Event.current.mousePosition.y);
-                    Vector2 dragDelta = mousePos - MouseButtonDownPosRelative;
-                    WindowRect = new Rect(WindowRect.xMin,
-                                            WindowRect.yMin,
-                                            Math.Max(resizeOldSize.x + dragDelta.x, 100),
-                                            Math.Max(resizeOldSize.y + dragDelta.y, 30));
-                    CalcInnerCoords();
-                    Event.current.Use();
-                }
-            }
-        }
-
         private void ProcessWindow(int windowId)
         {
-            if (!InteractionFrozen)
+            FlatWindowLayout flat = Layout;
+            float width = WindowRect.width, height = WindowRect.height;
+            bool interactive = !InteractionFrozen;
+
+            var buttonWidths = new List<float>
+            {
+                flat.ButtonWidth(KOSStyle.Measure(KOSStyle.CenteredLabel(flat.FontSize), RELOAD_BUTTON_TEXT)),
+                flat.ButtonWidth(KOSStyle.Measure(KOSStyle.CenteredLabel(flat.FontSize), SAVE_BUTTON_TEXT))
+            };
+            List<ScreenRect> headerButtons = flat.HeaderButtons(width, buttonWidths);
+            float buttonsLeft = headerButtons[0].X;
+            var keep = new ScreenRect(buttonsLeft, 0, width - buttonsLeft, flat.HeaderHeight);
+
+            if (interactive)
                 CheckKeyboard();
+            // Moved and resized also without the keyboard, as the terminal; not under a confirmation:
+            if (!DialogShown)
+                BeginResizeAtEdge(flat, width, height, keep);
 
-            DrawWindow(windowId);
+            float titleRight = buttonsLeft - (isDirty ? flat.HeaderHeight / 2f : 0);
+            float titleEnd = KOSStyle.FlatWindow(flat, width, height, BuildTitle(), titleRight);
+            if (isDirty)
+                KOSStyle.DrawIcon(new Rect(titleEnd + flat.Padding / 2f, 0, flat.HeaderHeight / 2f, flat.HeaderHeight), KOSStyle.Icon.Dot,
+                    Math.Max(4, (int)Math.Round(flat.FontSize * 0.55)), KOSStyle.Accent);
 
-            if (!InteractionFrozen)
-                CheckResizeDrag();
-
-            CalcOuterCoords();
-        }
-
-        protected void DrawWindow(int windowId)
-        {
             bool wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && !InteractionFrozen;
+            GUI.enabled = wasEnabled && interactive;
             try
             {
-                GUI.contentColor = Color.yellow;
+                DrawText(flat, ToRect(flat.Body(width, height, FlatWindowBottom.Strip)), interactive);
 
-                GUILayout.BeginArea(innerCoords);
-                scrollPosition = GUILayout.BeginScrollView(scrollPosition);
-                string editedContents = GUILayout.TextArea(contents, textWidgetStyle);
-                // Update before action buttons, including same-length replacements.
-                if (!InteractionFrozen) contents = editedContents;
-                GUILayout.EndScrollView();
-                GUILayout.EndArea();
-
-                GUI.Label(labelCoords, BuildTitle());
-                if (GUI.Button(exitCoords, EXIT_BUTTON_TEXT))
-                {
-                    ExitEditor();
-                }
-                if (GUI.Button(saveCoords, SAVE_BUTTON_TEXT))
-                {
-                    SaveContents();
-                }
-                if (GUI.Button(reloadCoords, RELOAD_BUTTON_TEXT))
-                {
+                if (KOSStyle.Button(ToRect(headerButtons[0]), RELOAD_BUTTON_TEXT, flat.FontSize))
                     ReloadContents();
-                }
-                if (!InteractionFrozen) KeepCursorScrolledInView();
-
-                GUI.Box(resizeButtonCoords, resizeImage);
+                if (KOSStyle.Button(ToRect(headerButtons[1]), SAVE_BUTTON_TEXT, flat.FontSize))
+                    TrySave();
+                if (KOSStyle.IconButton(ToRect(flat.CloseButton(width)), KOSStyle.Icon.Close, IconSize(flat)))
+                    ExitEditor();
             }
             finally
             {
                 GUI.enabled = wasEnabled;
             }
+
+            DrawStrip(flat, width, height);
+            KOSStyle.FlatWindowFrame(flat, width, height, HasKeyboard);
+            DrawResizeFeedback(flat, width, height, keep);
+            GUI.DragWindow(ToRect(flat.Header(width)));
         }
 
-        protected void CalcOuterCoords()
+        private static int IconSize(FlatWindowLayout flat)
         {
-            if (IsOpen && term != null)
+            return Math.Max(6, (int)Math.Round(flat.HeaderHeight * 0.6));
+        }
+
+        /// <summary>
+        /// The text on the terminal's background, scrolled in <paramref name="view"/>; the wheel
+        /// and the scroll bar move the view, which follows the caret when it moves (EDIT-03).
+        /// </summary>
+        private void DrawText(FlatWindowLayout flat, Rect view, bool interactive)
+        {
+            KOSStyle.Fill(view, backgroundColor);
+            viewHeight = view.height;
+            float gutter = flat.ScrollBarWidth + flat.Gap;
+            float textWidth = Math.Max(0, view.width - gutter);
+            var measured = new GUIContent(contents);
+            float contentHeight = Math.Max(view.height, textStyle.CalcHeight(measured, textWidth));
+            float line = Math.Max(1f, textStyle.lineHeight);
+
+            Event e = Event.current;
+            if (e.type == EventType.ScrollWheel && view.Contains(e.mousePosition))
             {
-                Rect tRect = term.GetRect();
-
-                // Glue it to the bottom of the attached term window - move wherever it moves:
-                float left = tRect.xMin;
-                float top = tRect.yMin + tRect.height;
-
-                // If it hasn't been given a size yet, then give it a starting size that matches
-                // the attached terminal window size.  Otherwise keep whatever size the user changed it to:
-                if (WindowRect.width == 0)
-                    WindowRect = new Rect(left, top, tRect.width, tRect.height);
-                else
-                    WindowRect = new Rect(left, top, WindowRect.width, WindowRect.height);
+                scroll = PixelScroll.Clamp(scroll + e.delta.y * line, contentHeight, view.height);
+                e.Use();
             }
+
+            string edited;
+            GUI.BeginGroup(view);
+            try
+            {
+                edited = KOSStyle.TextArea(new Rect(0, -scroll, textWidth, contentHeight), TEXT_CONTROL, contents, textStyle, caretColor, selectionColor);
+            }
+            finally
+            {
+                GUI.EndGroup();
+            }
+            // Update before action buttons, including same-length replacements.
+            if (interactive && !string.Equals(edited, contents, StringComparison.Ordinal))
+            {
+                contents = edited;
+                saveError = null;
+            }
+
+            UnityEngine.TextEditor editor = GetWidgetController();
+            if (caretHome)
+            {
+                caretIndex = 0;
+                if (editor != null)
+                    editor.cursorIndex = editor.selectIndex = 0;
+                caretHome = false;
+            }
+            else if (editor != null)
+                caretIndex = Math.Min(editor.cursorIndex, contents.Length);
+
+            if (focusTextPending && interactive)
+            {
+                if (editor != null)
+                    focusTextPending = false;
+                else
+                    GUI.FocusControl(TEXT_CONTROL); // takes effect in a later pass
+            }
+
+            float caretTop = textStyle.GetCursorPixelPosition(new Rect(0, 0, textWidth, contentHeight), measured, caretIndex).y;
+            scroll = follow.Follow(scroll, caretIndex, contents, caretTop, line, contentHeight, view.height);
+
+            if (contentHeight > view.height)
+                scroll = scrollBar.Draw(flat.ScrollTrack(ToScreenRect(view)), scroll, contentHeight, view.height, flat.MinimumThumb);
+            else
+                scrollBar.Release();
         }
 
-        protected void CalcInnerCoords()
+        /// <summary>The caret's line and column, the modified mark or a save error, a notice; the grip.</summary>
+        private void DrawStrip(FlatWindowLayout flat, float width, float height)
         {
-            if (!IsOpen) return;
+            Rect strip = ToRect(flat.Strip(width, height));
+            KOSStyle.Fill(strip, KOSStyle.ChromeBackground);
+            GUIStyle label = KOSStyle.Label(flat.FontSize);
+            Rect grip = ToRect(flat.Grip(width, height));
+            var text = new Rect(strip.x + flat.Padding, strip.y, Math.Max(0, grip.x - strip.x - 2 * flat.Padding), strip.height);
 
-            innerCoords = new Rect(FRAME_THICKNESS,
-                                    FRAME_THICKNESS + 1.5f * fontHeight,
-                                    WindowRect.width - 2 * FRAME_THICKNESS,
-                                    WindowRect.height - 2 * FRAME_THICKNESS - 2 * fontHeight);
-
-            Vector2 labSize = GUI.skin.label.CalcSize(new GUIContent(BuildTitle()));
-            Vector2 exitSize = GUI.skin.box.CalcSize(new GUIContent(EXIT_BUTTON_TEXT));
-            exitSize = new Vector2(exitSize.x + 4, exitSize.y + 4);
-            Vector2 saveSize = GUI.skin.box.CalcSize(new GUIContent(SAVE_BUTTON_TEXT));
-            saveSize = new Vector2(saveSize.x + 4, saveSize.y + 4);
-            Vector2 reloadSize = GUI.skin.box.CalcSize(new GUIContent(RELOAD_BUTTON_TEXT));
-            reloadSize = new Vector2(reloadSize.x + 4, reloadSize.y + 4);
-
-            labelCoords = new Rect(5, 1, labSize.x, labSize.y);
-
-            float buttonXCounter = WindowRect.width; // Keep track of the x coord of leftmost button so far.
-
-            buttonXCounter -= (exitSize.x + 5);
-            exitCoords = new Rect(buttonXCounter, 1, exitSize.x, exitSize.y);
-
-            buttonXCounter -= (saveSize.x + 2);
-            saveCoords = new Rect(buttonXCounter, 1, saveSize.x, saveSize.y);
-
-            buttonXCounter -= (reloadSize.x + 2);
-            reloadCoords = new Rect(buttonXCounter, 1, reloadSize.x, reloadSize.y);
-
-            resizeButtonCoords = new Rect(WindowRect.width - resizeImage.width,
-                                           WindowRect.height - resizeImage.height,
-                                           resizeImage.width,
-                                           resizeImage.height);
+            if (saveError != null)
+            {
+                KOSStyle.Text(text, Fit(saveError, text.width, label), label, KOSStyle.Warning);
+            }
+            else
+            {
+                string position = TextPosition.Of(contents, caretIndex).ToString();
+                if (isDirty)
+                    position += KOSStyle.Separator + "modified";
+                float positionWidth = Math.Min(text.width, KOSStyle.Measure(label, position));
+                KOSStyle.Text(new Rect(text.x, text.y, positionWidth, text.height), Fit(position, text.width, label), label, KOSStyle.ChromeText);
+                if (notice != null && DateTime.Now < noticeEnd)
+                {
+                    float x = text.x + positionWidth + 2 * flat.Padding;
+                    var room = new Rect(x, text.y, Math.Max(0, text.xMax - x), text.height);
+                    KOSStyle.Text(room, Fit(notice, room.width, label), label, KOSStyle.Accent);
+                }
+            }
+            KOSStyle.DrawIcon(grip, KOSStyle.Icon.Grip, IconSize(flat), KOSStyle.DimText);
         }
 
-        protected void KeepCursorScrolledInView()
+        private static string Fit(string text, float width, GUIStyle style)
         {
-            // It's utterly ridiculous that Unity's TextArea widget doesn't
-            // just do this automatically.  It's basic behavior for a scrolling
-            // text widget that when the text cursor moves out of the viewport you
-            // scroll to keep it in view.  Oh well, have to do it manually:
-            //
-            // NOTE: This method is what is interfering with the scrollbar's ability
-            // to scroll with the mouse - this routine is locking the scrollbar
-            // to only be allowed to move as far as the cursor is still in view.
-            // Fixing that would take a bit of work.
-            //
-
-            var editor = GetWidgetController();
-            Vector2 pos = editor.graphicalCursorPos;
-            float usableHeight = innerCoords.height - 2.5f * fontHeight;
-            if (pos.y < scrollPosition.y)
-                scrollPosition.y = pos.y;
-            else if (pos.y > scrollPosition.y + usableHeight)
-                scrollPosition.y = pos.y - usableHeight;
+            return StatusStrip.Shorten(text ?? string.Empty, width, measured => KOSStyle.Measure(style, measured), KOSStyle.Ellipsis);
         }
 
+        // Moving, resizing, staying on screen (EDIT-04):
+
+        private static Rect ToRect(ScreenRect rect)
+        {
+            return new Rect(rect.X, rect.Y, rect.Width, rect.Height);
+        }
+
+        private static ScreenRect ToScreenRect(Rect rect)
+        {
+            return new ScreenRect(rect.x, rect.y, rect.width, rect.height);
+        }
+
+        private static Vector2 MouseOnScreen()
+        {
+            return new Vector2(Input.mousePosition.x, UnityEngine.Screen.height - Input.mousePosition.y);
+        }
+
+        /// <summary>On screen, and no smaller than the minimum (the UI scale may have grown).</summary>
+        private void KeepOnScreen()
+        {
+            FlatWindowLayout flat = Layout;
+            Rect rect = WindowRect;
+            rect.width = Math.Max(rect.width, flat.EditorMinimumWidth);
+            rect.height = Math.Max(rect.height, flat.EditorMinimumHeight);
+            WindowRect = ToRect(WindowPlacement.KeepOnScreen(ToScreenRect(rect), UnityEngine.Screen.width, UnityEngine.Screen.height));
+        }
+
+        /// <summary>A press on an edge, a corner or the grip starts a resize drag, followed in <see cref="FollowResizeDrag"/>.</summary>
+        private void BeginResizeAtEdge(FlatWindowLayout flat, float width, float height, ScreenRect keep)
+        {
+            Event current = Event.current;
+            if (current.type != EventType.MouseDown || current.button != 0 || resizeEdges != ResizeEdges.None) return;
+            ResizeEdges edges = WindowResize.EdgesAt(flat, width, height, current.mousePosition.x, current.mousePosition.y, keep);
+            if (edges == ResizeEdges.None) return;
+            resizeEdges = edges;
+            resizeStartRect = WindowRect;
+            resizeStartMouse = MouseOnScreen();
+            current.Use();
+        }
+
+        /// <summary>While a resize drag goes on, the window follows the mouse on the screen; called before the window is drawn.</summary>
+        private void FollowResizeDrag()
+        {
+            if (resizeEdges == ResizeEdges.None) return;
+            if (!Input.GetMouseButton(0))
+            {
+                resizeEdges = ResizeEdges.None;
+                return;
+            }
+            FlatWindowLayout flat = Layout;
+            Vector2 delta = MouseOnScreen() - resizeStartMouse;
+            WindowRect = ToRect(WindowResize.Drag(ToScreenRect(resizeStartRect), resizeEdges, delta.x, delta.y,
+                flat.EditorMinimumWidth, flat.EditorMinimumHeight, UnityEngine.Screen.width, UnityEngine.Screen.height));
+        }
+
+        /// <summary>Over the frame: the edges a press would resize, or are resizing, in the accent color.</summary>
+        private void DrawResizeFeedback(FlatWindowLayout flat, float width, float height, ScreenRect keep)
+        {
+            Event current = Event.current;
+            if (current.type != EventType.Repaint) return;
+            ResizeEdges edges = resizeEdges;
+            if (edges == ResizeEdges.None && !DialogShown && !Input.GetMouseButton(0) && !scrollBar.IsDragging &&
+                IsInsideMyExposedPortion(MouseOnScreen()))
+                edges = WindowResize.EdgesAt(flat, width, height, current.mousePosition.x, current.mousePosition.y, keep);
+            float thickness = Math.Max(2, 2 * flat.Border);
+            if ((edges & ResizeEdges.Left) != 0)
+                KOSStyle.Fill(new Rect(0, 0, thickness, height), KOSStyle.Accent);
+            if ((edges & ResizeEdges.Right) != 0)
+                KOSStyle.Fill(new Rect(width - thickness, 0, thickness, height), KOSStyle.Accent);
+            if ((edges & ResizeEdges.Top) != 0)
+                KOSStyle.Fill(new Rect(0, 0, width, thickness), KOSStyle.Accent);
+            if ((edges & ResizeEdges.Bottom) != 0)
+                KOSStyle.Fill(new Rect(0, height - thickness, width, thickness), KOSStyle.Accent);
+        }
+
+        /// <summary>
+        /// The editor text's controller, while the text has the keyboard (Unity gives no way to
+        /// ask a widget's by its id, so the focused control's name is checked first). Null otherwise.
+        /// Only from OnGUI.
+        /// </summary>
         // Return type needs full namespace path because kOS namespace has a TextEditor class too:
-        protected TextEditor GetWidgetController()
+        protected UnityEngine.TextEditor GetWidgetController()
         {
-            // Whichever TextEdit widget has current focus (should be this one if processing input):
-            // There seems to be no way to grab the text edit controller of a Unity Widget by
-            // specific ID.
-            return (TextEditor)
-                GUIUtility.GetStateObject(typeof(TextEditor), GUIUtility.keyboardControl);
+            if (GUI.GetNameOfFocusedControl() != TEXT_CONTROL) return null;
+            return (UnityEngine.TextEditor)
+                GUIUtility.GetStateObject(typeof(UnityEngine.TextEditor), GUIUtility.keyboardControl);
         }
 
         public Rect GetRect()

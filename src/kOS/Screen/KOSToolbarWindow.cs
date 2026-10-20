@@ -286,7 +286,7 @@ namespace kOS.Screen
             {
                 tab = PanelTab.Cpus; // the CPUs tab each time the panel opens
                 contentScroll = 0;
-                scrollDragging = false;
+                scrollBar.Release();
             }
 
             float assumeStagingListWidth = 64f; // hardcoded for now.  Might try to see how to read it on the fly later.
@@ -445,8 +445,7 @@ namespace kOS.Screen
         private bool anchorBottom; // the launcher is at the bottom: the panel grows upwards
         private ToolbarPanelLayout layout;
         private float contentScroll;
-        private bool scrollDragging;
-        private float scrollGrabOffset;
+        private readonly FlatScrollBar scrollBar = new FlatScrollBar();
         private readonly ToolbarNumberField numberField = new ToolbarNumberField();
         private ToolbarSetting hoveredSetting; // in the current pass, for the description
         private readonly List<ToolbarCpuEntry> cpuEntries = new List<ToolbarCpuEntry>();
@@ -549,7 +548,7 @@ namespace kOS.Screen
             ApplyPendingNumber();
             tab = newTab;
             contentScroll = 0;
-            scrollDragging = false;
+            scrollBar.Release();
             GUI.FocusControl("");
         }
 
@@ -589,41 +588,13 @@ namespace kOS.Screen
             if (scrolls)
                 DrawScrollBar(panel, area, contentHeight);
             else
-                scrollDragging = false;
+                scrollBar.Release();
         }
 
         /// <summary>A thin bar at the content's right edge: drag the thumb; a press beside it moves a page.</summary>
         private void DrawScrollBar(ToolbarPanelLayout panel, ScreenRect area, float contentHeight)
         {
-            ScreenRect track = panel.ScrollTrack(area);
-            Rect trackRect = ToRect(track);
-            Rect thumbRect = ToRect(panel.ScrollThumb(track, contentHeight, area.Height, contentScroll));
-            Event e = Event.current;
-            if (e.type == EventType.MouseDown && e.button == 0 && trackRect.Contains(e.mousePosition))
-            {
-                if (thumbRect.Contains(e.mousePosition))
-                {
-                    scrollDragging = true;
-                    scrollGrabOffset = e.mousePosition.y - thumbRect.y;
-                }
-                else
-                {
-                    float page = e.mousePosition.y < thumbRect.y ? -area.Height : area.Height;
-                    contentScroll = ToolbarPanelLayout.ClampScroll(contentScroll + page, contentHeight, area.Height);
-                }
-                e.Use();
-            }
-            else if (scrollDragging && !Input.GetMouseButton(0))
-            {
-                scrollDragging = false; // released, also outside the panel
-            }
-            else if (scrollDragging && e.type == EventType.MouseDrag)
-            {
-                contentScroll = panel.ScrollFor(e.mousePosition.y - scrollGrabOffset, track, contentHeight, area.Height);
-                e.Use();
-            }
-            KOSStyle.Fill(trackRect, KOSStyle.ScrollTrack);
-            KOSStyle.Fill(ToRect(panel.ScrollThumb(track, contentHeight, area.Height, contentScroll)), scrollDragging ? KOSStyle.ChromeText : KOSStyle.DimText);
+            contentScroll = scrollBar.Draw(panel.ScrollTrack(area), contentScroll, contentHeight, area.Height, panel.MinimumThumb);
         }
 
         // The CPUs tab:
@@ -858,8 +829,8 @@ namespace kOS.Screen
 
                     kOS.Screen.ListPickerDialog.CloseAction onClose = delegate() { fontPicker = null; };
 
-                    fontPicker.Summon(windowRect.x, windowRect.y + windowRect.height, 300,
-                        key.Name, "(Only fonts detected as monospaced are shown.)",
+                    // Beside the panel (Phase 4 step 5), which sits at the launcher:
+                    fontPicker.Summon(windowRect, "Terminal font", "Only fonts detected as monospaced are shown.",
                         key.Value.ToString(), AssetManager.Instance.GetSystemFontNames(), onChange, onClose
                         );
                 }
@@ -892,9 +863,10 @@ namespace kOS.Screen
 
                     kOS.Screen.ListPickerDialog.CloseAction onClose = delegate() { ipAddrPicker = null; };
 
-                    ipAddrPicker.Summon(windowRect.x, windowRect.y + windowRect.height, 300,
-                        "Telnet address (restart telnet to take effect)\n", null, 
-                        "current: " + key.Value.ToString(), TelnetMainServer.GetAllAddresses(), onChange, onClose
+                    // The current address is the highlighted entry (upstream showed it as "current: …"
+                    // in the header); a new one restarts the server by itself (TelnetRestartNeeded).
+                    ipAddrPicker.Summon(windowRect, "Telnet address", null,
+                        key.Value.ToString(), TelnetMainServer.GetAllAddresses(), onChange, onClose
                     );
                 }
                 else

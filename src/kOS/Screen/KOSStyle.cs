@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using kOS.Safe.Screen;
+using kOS.Safe.UserIO;
 using UnityEngine;
 
 namespace kOS.Screen
@@ -254,11 +255,89 @@ namespace kOS.Screen
         /// <summary>A flat text button.</summary>
         public static bool Button(Rect where, string text, int fontSize)
         {
+            return Button(where, text, fontSize, false);
+        }
+
+        /// <summary>
+        /// A flat text button; the <paramref name="primary"/> one of a window (the action Enter
+        /// or a first choice stands for) has its label in the accent color.
+        /// </summary>
+        public static bool Button(Rect where, string text, int fontSize, bool primary)
+        {
             Fill(where, ChipBackground);
             if (IsHovered(where))
                 Fill(where, Hover);
-            Text(where, text, CenteredLabel(fontSize), ChromeText);
+            Text(where, text, primary ? CenteredBoldLabel(fontSize) : CenteredLabel(fontSize), primary ? Accent : ChromeText);
             return GUI.Button(where, GUIContent.none, GUIStyle.none);
+        }
+
+        private static readonly Dictionary<int, GUIStyle> paragraphs = new Dictionary<int, GUIStyle>();
+
+        /// <summary>Chrome text wrapped at its rectangle's width, from the top left (a confirmation's message).</summary>
+        public static GUIStyle Paragraph(int fontSize)
+        {
+            GUIStyle style;
+            if (paragraphs.TryGetValue(fontSize, out style) && style.font == ChromeFont)
+                return style;
+            style = new GUIStyle(Label(fontSize)) { wordWrap = true, alignment = TextAnchor.UpperLeft, clipping = TextClipping.Clip };
+            paragraphs[fontSize] = style;
+            return style;
+        }
+
+        /// <summary>The height <paramref name="text"/> takes in <paramref name="style"/> at <paramref name="width"/>.</summary>
+        public static float MeasureHeight(GUIStyle style, string text, float width)
+        {
+            measured.text = text;
+            return style.CalcHeight(measured, width);
+        }
+
+        /// <summary>
+        /// The background, header and frame of a flat window (Phase 4, step 5), its title in the
+        /// header up to <paramref name="titleRight"/>, shortened to fit. The frame comes last
+        /// (<see cref="FlatWindowFrame"/>).
+        /// </summary>
+        /// <returns>where the title's text ends</returns>
+        public static float FlatWindow(FlatWindowLayout layout, float width, float height, string title, float titleRight)
+        {
+            Fill(new Rect(0, 0, width, height), PanelBackground);
+            ScreenRect header = layout.Header(width);
+            Fill(new Rect(header.X, header.Y, header.Width, header.Height), ChromeBackground);
+            ScreenRect room = layout.Title(titleRight);
+            GUIStyle titleStyle = TitleLabel(layout.FontSize);
+            var titleRect = new Rect(room.X, room.Y, room.Width, room.Height);
+            string shown = StatusStrip.Shorten(title ?? string.Empty, titleRect.width, text => Measure(titleStyle, text), Ellipsis);
+            GUI.Label(titleRect, shown, titleStyle);
+            return titleRect.x + Math.Min(titleRect.width, Measure(titleStyle, shown));
+        }
+
+        /// <summary>The frame over a flat window, drawn last.</summary>
+        public static void FlatWindowFrame(FlatWindowLayout layout, float width, float height, bool focused)
+        {
+            Frame(new Rect(0, 0, width, height), layout.Border, focused ? Accent : FrameColor);
+        }
+
+        /// <summary>
+        /// A multi-line text area (the editor) in <paramref name="style"/>, with the caret in
+        /// <paramref name="caret"/> and the selection in <paramref name="selection"/>. Unity
+        /// takes both from the current skin, so they are set for this control only.
+        /// </summary>
+        /// <returns>the text it holds now</returns>
+        public static string TextArea(Rect where, string controlName, string text, GUIStyle style, Color caret, Color selection)
+        {
+            GUISettings settings = GUI.skin.settings;
+            Color previousCaret = settings.cursorColor, previousSelection = settings.selectionColor;
+            settings.cursorColor = caret;
+            settings.selectionColor = selection;
+            try
+            {
+                GUI.SetNextControlName(controlName);
+                return GUI.TextArea(where, text ?? string.Empty, style);
+            }
+            finally
+            {
+                settings.cursorColor = previousCaret;
+                settings.selectionColor = previousSelection;
+            }
         }
 
         /// <summary>A check box and its label, the whole row clickable.</summary>

@@ -514,6 +514,18 @@ created just like you described it (without the extension).
     like files in the archive are, so it can't be edited with an external
     text editor program).
 
+The editor opens in its own window, next to the terminal where there is
+room. Move it by its header and resize it by its edges or the grip at its
+bottom right; it keeps its place and size until the terminal goes away
+(a scene change, the vessel unloaded). The header has **Reload**, **Save**
+and a close button; the same keys are :kbd:`Ctrl+R`, :kbd:`Ctrl+S` and
+:kbd:`Ctrl+E`. Closing or reloading a file with unsaved changes asks first
+(:kbd:`Esc` cancels). The strip at the bottom shows the caret's line and
+column and whether the file has unsaved changes; a failed save is reported
+there and on the terminal. :kbd:`PageUp` and :kbd:`PageDown` move the caret
+a page; the mouse wheel and the scroll bar look elsewhere in the file without
+moving the caret.
+
 Example::
 
     EDIT filename.       // edits filename.ks

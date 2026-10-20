@@ -128,7 +128,8 @@ namespace kOS.Screen
         private readonly TerminalGuiPaste<TelnetSingletonServer> guiPaste;
         private MouseBlocking.Area pasteConfirmationMouseArea;
         private GUIStyle pastePreviewStyle;
-        private GUIStyle pasteHintStyle;
+        private FlatWindowLayout flatLayout;
+        private Rect pasteRect;
 
         // Ctrl+Shift+C and Ctrl+Shift+E (P3-4) say what they did in the status strip, for a moment:
         private string copyNotice;
@@ -673,46 +674,94 @@ namespace kOS.Screen
             copyNoticeEnd = DateTime.Now + copyNoticeDuration;
         }
 
+        private FlatWindowLayout FlatLayout
+        {
+            get
+            {
+                float scale = TerminalChromeLayout.ClampScale(KOSStyle.UiScale);
+                if (flatLayout == null || flatLayout.Scale != scale)
+                    flatLayout = new FlatWindowLayout(scale);
+                return flatLayout;
+            }
+        }
+
         /// <summary>
-        /// The paste confirmation (P3-3), over the top of the terminal: what would run, the
-        /// first lines, and the two choices.
+        /// The paste confirmation (P3-3), over the terminal: what would run, the first lines and
+        /// the two choices. Phase 4 step 5 (PASTE-UI-01): an opaque flat window centered over the
+        /// terminal, the preview in the terminal's font and colors.
         /// </summary>
         private void DrawPasteConfirmation()
         {
+            FlatWindowLayout flat = FlatLayout;
+            if (pastePreviewStyle == null || pastePreviewStyle.font != font || pastePreviewStyle.fontSize != fontSize)
+            {
+                // The pasted text is shown as it is, never as Unity rich text:
+                pastePreviewStyle = new GUIStyle { font = font, fontSize = fontSize, richText = false, wordWrap = false,
+                    clipping = TextClipping.Clip, padding = new RectOffset(0, 0, 0, 0) };
+                pastePreviewStyle.normal.textColor = textColor;
+            }
             int dialogId = UniqueId + 10;
-            float width = Math.Max(200f, Math.Min(440f, WindowRect.width - 40f));
-            Rect where = new Rect(WindowRect.xMin + (WindowRect.width - width) / 2f, WindowRect.yMin + 45f, width, 0f);
-            Rect drawn = GUILayout.Window(dialogId, where, DrawPasteConfirmationContents, "Paste", GUILayout.Width(width));
+            float width = Mathf.Round(Math.Max(flat.DialogWidth * 0.6f, Math.Min(flat.DialogWidth * 1.3f, WindowRect.width - 4 * flat.Padding)));
+            width = Math.Min(width, UnityEngine.Screen.width);
+            float body = PasteBodyHeight(flat, width - 2 * flat.Padding);
+            float height = flat.WindowHeight(body, FlatWindowBottom.Buttons);
+            ScreenRect placed = WindowPlacement.CenteredOver(ToScreenRect(WindowRect), width, height, UnityEngine.Screen.width, UnityEngine.Screen.height);
+            pasteRect = ToRect(placed);
+            Rect drawn = GUI.Window(dialogId, pasteRect, DrawPasteConfirmationContents, GUIContent.none, GUIStyle.none);
             GUI.BringWindowToFront(dialogId);
             KOSMouseBlocking.Show(ref pasteConfirmationMouseArea, "TermWindowPaste" + UniqueId, drawn);
         }
 
+        private const string PASTE_HINT = "Enter runs it, Esc cancels.";
+
+        private float PasteBodyHeight(FlatWindowLayout flat, float bodyWidth)
+        {
+            float question = KOSStyle.MeasureHeight(KOSStyle.Paragraph(flat.FontSize), guiPaste.Question, bodyWidth);
+            float preview = KOSStyle.MeasureHeight(pastePreviewStyle, guiPaste.Preview, bodyWidth) + 2 * flat.Padding;
+            float hint = KOSStyle.MeasureHeight(KOSStyle.Paragraph(flat.SmallFontSize), PASTE_HINT, bodyWidth);
+            return Mathf.Ceil(question + preview + hint + 2 * flat.Padding);
+        }
+
         private void DrawPasteConfirmationContents(int windowId)
         {
-            if (pastePreviewStyle == null)
+            FlatWindowLayout flat = FlatLayout;
+            float width = pasteRect.width, height = pasteRect.height;
+            KOSStyle.FlatWindow(flat, width, height, "Paste", width);
+            Rect body = ToRect(flat.Body(width, height, FlatWindowBottom.Buttons));
+
+            GUIStyle paragraph = KOSStyle.Paragraph(flat.FontSize);
+            float y = body.y;
+            float questionHeight = KOSStyle.MeasureHeight(paragraph, guiPaste.Question, body.width);
+            KOSStyle.Text(new Rect(body.x, y, body.width, questionHeight), guiPaste.Question, paragraph, KOSStyle.ChromeText);
+            y += questionHeight + flat.Padding;
+
+            float previewHeight = KOSStyle.MeasureHeight(pastePreviewStyle, guiPaste.Preview, body.width) + 2 * flat.Padding;
+            var preview = new Rect(body.x, y, body.width, previewHeight);
+            KOSStyle.Fill(preview, bgColor);
+            GUI.Label(new Rect(preview.x + flat.Padding, preview.y + flat.Padding, Math.Max(0, preview.width - 2 * flat.Padding),
+                Math.Max(0, preview.height - 2 * flat.Padding)), guiPaste.Preview, pastePreviewStyle);
+            y += previewHeight + flat.Padding;
+
+            GUIStyle hint = KOSStyle.Paragraph(flat.SmallFontSize);
+            KOSStyle.Text(new Rect(body.x, y, body.width, Math.Max(0, body.yMax - y)), PASTE_HINT, hint, KOSStyle.DimText);
+
+            string confirm = guiPaste.ConfirmLabel;
+            const string cancel = "Cancel";
+            GUIStyle measure = KOSStyle.CenteredBoldLabel(flat.FontSize);
+            List<ScreenRect> buttons = flat.Buttons(width, height, new List<float>
             {
-                // The pasted text is shown as it is, never as Unity rich text:
-                pastePreviewStyle = new GUIStyle(HighLogic.Skin.label) { richText = false, wordWrap = false, fontSize = 13 };
-                pastePreviewStyle.normal.textColor = textColor;
-                pasteHintStyle = new GUIStyle(HighLogic.Skin.label) { fontSize = 10 };
-            }
-            pastePreviewStyle.font = font; // the terminal's, which may change; null is the skin's
-            GUILayout.Label(guiPaste.Question);
-            GUILayout.Label(guiPaste.Preview, pastePreviewStyle);
-            GUILayout.Label("Enter runs it, Esc cancels.", pasteHintStyle);
-            GUILayout.BeginHorizontal();
-            bool answered = false;
-            if (GUILayout.Button(guiPaste.ConfirmLabel))
-            {
+                flat.ButtonWidth(KOSStyle.Measure(measure, confirm)),
+                flat.ButtonWidth(KOSStyle.Measure(measure, cancel))
+            });
+            // Both asked on every event, so the controls keep their ids:
+            bool run = KOSStyle.Button(ToRect(buttons[0]), confirm, flat.FontSize, true);
+            bool cancelled = KOSStyle.Button(ToRect(buttons[1]), cancel, flat.FontSize);
+            if (run)
                 guiPaste.Confirm();
-                answered = true;
-            }
-            if (GUILayout.Button("Cancel"))
-            {
+            else if (cancelled)
                 guiPaste.Cancel();
-                answered = true;
-            }
-            GUILayout.EndHorizontal();
+            bool answered = run || cancelled;
+            KOSStyle.FlatWindowFrame(flat, width, height, true);
             if (answered && IsOpen && IsPowered)
                 GetFocus(); // a click on the confirmation may have counted as outside the terminal (INPUT-01)
         }

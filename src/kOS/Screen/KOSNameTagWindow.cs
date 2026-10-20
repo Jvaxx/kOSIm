@@ -3,6 +3,8 @@ using UnityEngine;
 using kOS.Module;
 using kOS.Safe.UserIO;
 using System;
+using System.Collections.Generic;
+using kOS.Safe.Screen;
 
 namespace kOS.Screen
 {    
@@ -22,6 +24,7 @@ namespace kOS.Screen
         // In every scene the mouse over the window stays out of the scene, and for two frames
         // after Accept or Cancel closes it (#2759):
         private MouseBlocking.Area mouseArea;
+        private FlatWindowLayout layout;
         
         // ReSharper enable RedundantDefaultFieldInitializer
 
@@ -37,10 +40,8 @@ namespace kOS.Screen
             // Transform it to pixel coords:
             float xPixelPoint = screenPos.x * UnityEngine.Screen.width;
             float yPixelPoint = (1-screenPos.y) * UnityEngine.Screen.height;
-            const float WINDOW_WIDTH = 200;
-
-            // windowRect = new Rect(xPixelWindow, yPixelPoint, windowWidth, 130);
-            windowRect = new Rect(xPixelPoint, yPixelPoint, WINDOW_WIDTH, 130);
+            // At the part; sized and kept on screen in OnGUI (Phase 4 step 5):
+            windowRect = new Rect(xPixelPoint, yPixelPoint, 0, 0);
 
             // Please don't delete these.  They're not being used, but that's because we haven't
             // finished prettying up the interface with the tag line and so the coords aren't
@@ -124,6 +125,28 @@ namespace kOS.Screen
             return Utils.GetCurrentCamera().WorldToViewportPoint(v);
         }
         
+        private FlatWindowLayout Layout
+        {
+            get
+            {
+                float scale = TerminalChromeLayout.ClampScale(KOSStyle.UiScale);
+                if (layout == null || layout.Scale != scale)
+                    layout = new FlatWindowLayout(scale);
+                return layout;
+            }
+        }
+
+        /// <summary>The part's title, as the toolbar panel names it (its internal name when it has none).</summary>
+        private string PartTitle
+        {
+            get
+            {
+                Part part = attachedModule == null ? null : attachedModule.part;
+                if (part == null) return string.Empty;
+                return part.partInfo != null && !string.IsNullOrEmpty(part.partInfo.title) ? part.partInfo.title : part.name;
+            }
+        }
+
         public void OnGUI()
         {
             if (Event.current.type != EventType.Repaint)
@@ -134,9 +157,16 @@ namespace kOS.Screen
             if (HighLogic.LoadedSceneIsEditor)
                 EditorLogic.fetch.Lock(false, false, false, "KOSNameTagLock");
 
-            GUI.skin = HighLogic.Skin;
-            Rect drawn = GUILayout.Window(myWindowId, windowRect, DrawWindow,"KOS nametag");
-            KOSMouseBlocking.Show(ref mouseArea, "KOSNameTag", drawn);
+            GUI.skin = HighLogic.Skin; // the text field's caret and selection
+
+            // Phase 4 step 5: a flat window at the part, kept on screen.
+            FlatWindowLayout flat = Layout;
+            float height = flat.WindowHeight(flat.RowHeight + flat.Gap + flat.RowHeight, FlatWindowBottom.Buttons);
+            ScreenRect placed = WindowPlacement.KeepOnScreen(new ScreenRect(windowRect.x, windowRect.y, flat.NameTagWidth, height),
+                UnityEngine.Screen.width, UnityEngine.Screen.height);
+            windowRect = new Rect(placed.X, placed.Y, placed.Width, placed.Height);
+            windowRect = GUI.Window(myWindowId, windowRect, DrawWindow, GUIContent.none, GUIStyle.none);
+            KOSMouseBlocking.Show(ref mouseArea, "KOSNameTag", windowRect);
             
             // Ensure that the first time the window is made, it gets keybaord focus,
             // but allow the focus to leave the window after that:
@@ -145,6 +175,7 @@ namespace kOS.Screen
             // and if you call FocusControl on the first few passes, it has no effect.
             if (numberOfRepaints >= 2 && ! wasFocusedOnce)
             {
+                GUI.FocusWindow(myWindowId);
                 GUI.FocusControl("NameTagField");
                 wasFocusedOnce = true;
             }
@@ -164,30 +195,64 @@ namespace kOS.Screen
                     e.Use();
                     attachedModule.TypingDone(tagValue);
                     Close();
+                    return;
+                }
+                if (e.keyCode == KeyCode.Escape) // step 5 (Q4): Esc cancels
+                {
+                    e.Use();
+                    Close();
+                    return;
                 }
             }
-            GUILayout.Label(attachedModule.part.name);
-            GUI.SetNextControlName("NameTagField");
-            tagValue = GUILayout.TextField( tagValue, GUILayout.MinWidth(160f));
 
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Cancel"))
+            FlatWindowLayout flat = Layout;
+            float width = windowRect.width, height = windowRect.height;
+            ScreenRect close = flat.CloseButton(width);
+            KOSStyle.FlatWindow(flat, width, height, "Name tag", close.X);
+            bool cancelled = KOSStyle.IconButton(ToRect(close), KOSStyle.Icon.Close, Math.Max(6, (int)Math.Round(flat.HeaderHeight * 0.6)));
+
+            ScreenRect body = flat.Body(width, height, FlatWindowBottom.Buttons);
+            GUIStyle label = KOSStyle.Label(flat.FontSize);
+            var titleRect = new Rect(body.X, body.Y, body.Width, flat.RowHeight);
+            KOSStyle.Text(titleRect, StatusStrip.Shorten(PartTitle, titleRect.width, text => KOSStyle.Measure(label, text), KOSStyle.Ellipsis),
+                label, KOSStyle.DimText);
+            var field = new Rect(body.X, body.Y + flat.RowHeight + flat.Gap, body.Width, flat.RowHeight);
+            tagValue = KOSStyle.TextField(field, "NameTagField", tagValue, int.MaxValue, flat.FontSize, flat.Border,
+                GUI.GetNameOfFocusedControl() == "NameTagField");
+
+            GUIStyle measure = KOSStyle.CenteredBoldLabel(flat.FontSize);
+            List<ScreenRect> buttons = flat.Buttons(width, height, new List<float>
             {
-                e.Use();
-                Close();
-            }
-            if (GUILayout.Button("Accept"))
+                flat.ButtonWidth(KOSStyle.Measure(measure, "Cancel")),
+                flat.ButtonWidth(KOSStyle.Measure(measure, "Accept"))
+            });
+            cancelled |= KOSStyle.Button(ToRect(buttons[0]), "Cancel", flat.FontSize);
+            bool accepted = KOSStyle.Button(ToRect(buttons[1]), "Accept", flat.FontSize, true);
+            KOSStyle.FlatWindowFrame(flat, width, height, true);
+
+            if (accepted)
             {
                 e.Use();
                 attachedModule.TypingDone(tagValue);
                 Close();
             }
-            GUILayout.EndHorizontal();
+            else if (cancelled)
+            {
+                e.Use();
+                Close();
+            }
+            else
+                GUI.DragWindow(ToRect(flat.Header(width)));
 
             // Before going any further, suppress any remaining unprocessed clicks
             // so they don't end up causing the editor to detach parts:
             if (e.type == EventType.MouseDown || e.type == EventType.MouseUp || e.type == EventType.MouseDrag)
                 e.Use();
+        }
+
+        private static Rect ToRect(ScreenRect rect)
+        {
+            return new Rect(rect.X, rect.Y, rect.Width, rect.Height);
         }
         
         public void Close()
