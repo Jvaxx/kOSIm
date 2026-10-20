@@ -12,7 +12,7 @@ The docs were trimmed on 2026-10-20 (user request): `docs/testing-and-build.md` 
 
 **Next actions, in order:**
 
-1. **Step 3 plan** (themes: classic green default, Amber, a modern neutral; decisions in `docs/KOSIm-roadmap.md`, "Phase 4 — Decisions"): write it in the roadmap for the user's approval; implement nothing before it. Then steps 4–5 the same way.
+1. **Step 3 plan** is **drafted, not approved**: `docs/KOSIm-roadmap.md`, "Decisions for step 3" (agreed 2026-10-20: one modern green look, no theme API, popover replaced by character-size buttons, visual beep/key click/brightness to mod options, reverse screen without a control, a bundled monospace font after a prototype) and "Step 3 plan" (3a font spike needing one game launch to the main menu, 3b palette + header + mod options, 3c font choice). Get the user's approval; implement nothing before it. Then steps 4–5 the same way.
 2. **One Proton pass at the end of Phase 4** (user decision 2026-10-20; needs the user: main menu, loading `kOSIM-dev`, opening the terminal, all mouse steps). Deploy the last committed build with the game closed (backup `kOS-GameData-backups/kOS-before-p4-<date>`). Step 1 items, on CPU 1 at 50×36 and UI scale 1.3 (add the later steps' items when they are done):
    - Player.log has `kOS: chrome font …` (which of `…`/`·` the font has) and no exception; screenshot the window.
    - Header title shortening, settings/close buttons; frame green with the keyboard, grey after a click outside.

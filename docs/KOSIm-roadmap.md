@@ -40,7 +40,7 @@ Commands, behavior changes, limits and open issues: [testing-and-build.md](testi
 | 1 — Correctness and safety | Complete (2026-10-19): every P0/P1 review finding checked; fixes headless-tested and passed in game. |
 | 2 — Structural boundaries | Complete (2026-10-19): input router, `TerminalSession` fan-out, explicit lifecycle, screen/view split ([phase2-contracts.md](phase2-contracts.md)). |
 | 3 — Workflow quality of life | Complete (2026-10-20): history (draft, Ctrl+R search, saved history), paste, copy, CPU state, wheel, follow-output, mouse selection. STATUS-01 fix awaits its in-game check. |
-| 4 — Modern, simpler UI | Decisions agreed 2026-10-20. Step 1 (terminal chrome) approved and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. Step 2 (geometry and scrolling) approved and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. |
+| 4 — Modern, simpler UI | Decisions agreed 2026-10-20. Step 1 (terminal chrome) approved and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. Step 2 (geometry and scrolling) approved and implemented 2026-10-20: headless-tested, full build clean, **not yet checked in game**. Step 3 re-decided with the user (one modern green look, niche settings to mod options, bundled-font prototype); its plan drafted, awaiting approval. |
 
 What each item changed, and what was never checked in game: [testing-and-build.md](testing-and-build.md), "Behavior changes from upstream" and "In-game coverage". Detailed step plans and exit reviews of Phases 0–3 are in git history (this file at `876e1a29`).
 
@@ -122,14 +122,23 @@ No UI redesign without a plan approved by the user; no wholesale terminal rewrit
 - **Renderer:** IMGUI. One shared style module (palette, metrics, fonts, UI-scale factor) for every kOS window; layout logic that can be tested (strip truncation, layout ↔ cell counts, on-screen clamping, geometry file) lives in `kOS.Safe` with headless tests.
 - **Terminal window:** our own flat header (vessel and CPU name, settings button, close button) and frame instead of KSP's window skin and the monitor bezel; a thin accent border shows keyboard focus. The grid fills the window with small even padding.
 - **Status strip** (one line, replaces the bottom bar): the D2 state with a colored dot on the left; chips only when they apply (`New output`, which jumps to the bottom when clicked; `Delay`; `No connection`; telnet client count); size and resize grip on the right. When narrow, chips drop lowest priority first, never overlapping (fixes BAR-01). Copy notices show briefly without hiding the size.
-- **Settings popover** (from the header button): reverse screen, visual beep, key click, a horizontal brightness slider, character size. Nothing else on the working surface. Script API unchanged (`TERMINAL:REVERSE`, `VISUALBEEP`, `BRIGHTNESS`, `CHARHEIGHT`, …).
+- **Settings popover** (from the header button): reverse screen, visual beep, key click, a horizontal brightness slider, character size. Nothing else on the working surface. Script API unchanged (`TERMINAL:REVERSE`, `VISUALBEEP`, `BRIGHTNESS`, `CHARHEIGHT`, …). *Superseded by the step 3 decisions below (popover removed; built in step 1).*
 - **Chrome scale:** header, strip and popover follow KSP's UI scale; cells follow `CHARHEIGHT`.
 - **Geometry:** each CPU's terminal position and size saved in the save folder next to its history (`saves/<save>/kOS/…`, by `persistentId`); a window that would open off screen is moved back on, also after a resolution or UI-scale change. Resizing by the grip or an edge, snapped to whole cells, with a size overlay while dragging.
 - **Scroll bar:** thin, shown only while the view is scrolled back; draggable.
-- **Themes:** classic green stays the default; Amber and a modern neutral theme (light grey on near-black) as options.
+- **Themes:** classic green stays the default; Amber and a modern neutral theme (light grey on near-black) as options. *Superseded by the step 3 decisions below (one modern green look, no theme choice).*
 - **Toolbar panel:** two tabs. *CPUs* (default): per vessel, each CPU's D2 state, power and Open/Close; hovering highlights the part; *Suppress autopilot* stays visible in the footer with the telnet status. *Settings*: grouped Terminal defaults, Telnet (live status, "restart to apply"), Boot (reread boot folder); the hovered setting's description inline. Config keys and `config.xml` stay compatible.
 - **Other windows:** the paste box (PASTE-UI-01), the editor, the name tag and dialogs adopt the style; **EDIT-03** (the editor follows the caret on every repaint) is fixed with the editor.
 - Telnet is unchanged (its title already carries the state).
+
+### Decisions for step 3 (agreed with the user 2026-10-20, later the same day)
+
+The user finds the stock kOS style dated, cluttered and hard to read; the terminal should look modern and simple.
+
+- **One look, no themes:** a single modern green style (green kept, not CRT-style); no theme choice and **no script API for themes**.
+- **The terminal window keeps one control: character size** (smaller/larger buttons in the header, saved per CPU with the geometry). The settings popover goes.
+- **Niche settings go to mod options** (the toolbar panel's settings, `config.xml`), not the terminal: **visual beep** and **key click** (new keys), **brightness** (the existing key, for new terminals). **Reverse screen** gets no control at all (useless to the user). Their script suffixes (`TERMINAL:REVERSE`, `VISUALBEEP`, `BRIGHTNESS`) keep working for compatibility.
+- **Font:** prototype a **bundled, open-licensed monospace font** (it must be monospace); adopt it only if the prototype shows KSP can load it under Proton.
 
 ### Steps
 
@@ -137,7 +146,7 @@ Each with headless tests; the Proton checks of all steps are done in one pass at
 
 1. **Terminal chrome:** style module, header, flat frame, status strip, settings popover, chrome UI scale.
 2. **Geometry and scrolling:** saved geometry, keep on screen, edge resizing with the size overlay, the scroll bar.
-3. **Themes.**
+3. **Modern look:** one green style, bundled monospace font (after a prototype), the popover replaced by character-size buttons, niche settings moved to mod options.
 4. **Toolbar panel** tabs.
 5. **Other windows** (paste box, editor with EDIT-03, name tag, dialogs).
 
@@ -200,6 +209,40 @@ As implemented (2026-10-20; behavior in `testing-and-build.md`, "Terminal window
 - `kOS.Safe.Screen`: `TerminalGeometry` (with `Format`/`Parse`), `ITerminalGeometryStore`/`TerminalGeometryFile` (4 KiB read limit), `CpuTextFile` (the read/atomic-save/log-once code, now also under `CommandHistoryFile`, whose API and messages are unchanged), `WindowPlacement.KeepOnScreen`, `TerminalResize` (`ResizeEdges`, `EdgesAt`, `Drag` → `ResizeResult`), `TerminalScrollBar` (`IsShown`, `Thumb`, `ViewOffsetFor`, `SideOfThumb`); `TerminalChromeLayout` gained `ResizeBand` (4), `ResizeCorner` (12), `MinimumThumb` (16) and `ScrollTrack`. Tests: `TerminalGeometryTest.cs` (`TerminalGeometryTest`, `WindowPlacementTest`), `TerminalResizeTest.cs` (`TerminalResizeTest` with a seeded randomized drag test, `TerminalScrollBarTest`): 34 new. Mutations of the scroll bar's right-edge rule, the left edge keeping the right, nearest-cell snapping, the screen limit, the button exclusion, the offset inversion, the thumb cap, the columns range check, equality, log-once and the track's height each failed tests; making `KeepOnScreen`'s larger-than-screen line a no-op did not, as it is redundant with the clamp after it (equivalent mutant).
 - Game side: `TermWindow` (`AttachTo(shared, store)` restores; `SaveGeometryIfChanged` from `Update` and `OnDestroy`; `BeginResizeAtEdge` in the window callback before the selection, `FollowResizeDrag` in `OnGUI` from the mouse's screen position, `SetSize` once on release; `KeepOnScreen` before and after `GUI.Window`; `DrawScrollBar`, `DrawResizeFeedback`; the character group clipped to the body), `kOSProcessor.CpuFilePath` (history and geometry), `KOSStyle.ScrollTrack`.
 - Choices made while implementing (within the plan): the window is kept wholly on screen at every draw, so a move by the header stops at the screen's edges (this covers the plan's 48 px header rule, which was not needed); no file is written for a window whose geometry never changed; the geometry is checked every 0.5 s and saved at most every 2 s; a telnet client's size is saved like any resize (D3); the top-right corner does not resize (the close button keeps its clicks); a press above or below the thumb moves by the screen's rows (PageUp moves 10); edges under the settings popover do not resize; the size box reads `80x24`, as the strip.
+
+### Step 3 plan (draft 2026-10-20, awaiting the user's approval; nothing implemented)
+
+From the step 3 decisions above. Three parts: **3a** a font prototype whose result decides 3c; **3b** the look and the settings move (independent of the font); **3c** the font.
+
+**3a. Font prototype (spike; throwaway code, not committed as is).**
+
+- Candidate: **JetBrains Mono** Regular (SIL OFL 1.1, monospace, box-drawing and wide Latin coverage); fallbacks if it fails a check: IBM Plex Mono, Source Code Pro, Fira Mono (all OFL). A pinned release downloaded over HTTPS, its SHA-256 recorded; the OFL text shipped beside it (`GameData/kOS/Fonts/`). The OFL allows bundling with GPL software; the font keeps its own licence.
+- Unity 2019 (KSP 1.12) loads fonts only from the OS (`Font.CreateDynamicFontFromOSFont`) or from asset bundles; a TTF file cannot be loaded directly. Ways to try, cheapest first:
+  1. **Private GDI font:** register the file for the game process only (`gdi32` `AddFontResourceEx` with `FR_PRIVATE`, nothing installed system-wide), then ask Unity for it by name. Windows player only (Proton included); other platforms skip it.
+  2. **TextCore's `FontEngine`** (Unity 2019's font engine) to load the file, if its public API is enough to give the IMGUI labels a `Font`.
+  3. **An asset bundle** built with Unity 2019.4.18 (KSP's version) holding the font: works the way KSP loads its own fonts, but needs the Unity editor installed; **only with the user's go**.
+  - Not considered: drawing glyphs from our own atlas (a grid renderer rewrite, out of scope), installing the font into the Proton prefix (not shippable).
+- The probe logs to Player.log at the main menu: whether the font loaded, its name in `Font.GetOSInstalledFontNames`, the advances of `i`, `W`, `X`, `─` at sizes 8–24 (monospace check, as `AssetManager`'s), and a glyph fallback for a character it lacks.
+- **Needs one game launch to the main menu, no interaction** (an exception to the end-of-phase pass, because its outcome decides 3c); I ask before launching and before closing the game. Result reported to the user with a go/no-go for 3c.
+
+**3b. The look and the settings (headless where possible).**
+
+- `kOS.Safe.Screen.TerminalPalette` (new): the colors as data (RGBA) for the cells (text, background, unpowered text, selection, cursor) and the chrome (header/strip, panel, chips, text, dim text, frame, accent, state dots, scroll bar). Proposed: text a soft green near `#7EE08F` on a near-black `#0F1311`, unpowered text a neutral grey, chrome dark neutral greys a step lighter than the body, the accent (focus border, edge highlight) the same green. Upstream's pure `#80FF80` on black and the bezel are gone. `TermWindow`'s fixed colors and `KOSStyle`'s palette come from it.
+- Tests (WCAG contrast ratios, computed headlessly): text on background ≥ 7:1, and ≥ 4.5:1 at the default brightness 0.7 (text faded into the background); unpowered text ≥ 4.5:1; chrome text ≥ 7:1 and dim chrome text ≥ 4.5:1 on the chrome; the accent ≥ 3:1 against the chrome and the frame color; text under the selection ≥ 4.5:1; every state dot ≥ 3:1 on the strip.
+- **Header:** title, then **smaller / larger text** buttons (icons generated in code, as the gear was), then close. `TerminalChromeLayout` gives their rectangles in place of the settings button; `TerminalResize.EdgesAt` keeps excluding every header button (tests updated). Steps of 2 px within `CHARHEIGHT`'s 4–48, applied between passes as now; saved per CPU by step 2's geometry file.
+- **Removed:** the settings popover and its code (`DrawSettings`, `settingsRect`, its mouse area and the click-outside close; `KOSManagedWindow.ContainsPoint` stays virtual).
+- **Mod options** (`config.xml`, shown by the current toolbar panel, which lists config keys generically; step 4 restyles and groups it): new `TerminalVisualBeep` (bool, false: initial `TERMINAL:VISUALBEEP` of a new terminal, as `TerminalBrightness` is for brightness) and `TerminalKeyClick` (bool, false: GUI terminals click on keys, live; it was a per-window toggle). The existing `TerminalBrightness` (0.7), `TerminalFontDefaultSize`, `TerminalFontName`, default width and height stay. Older `config.xml` files load (missing keys take their defaults); no key is renamed or removed.
+- Unchanged: the script API (no theme suffix), the telnet output, the grid rendering method, the paste box (step 5), focus and locks.
+
+**3c. The font (only after a "go" from 3a).**
+
+- `kOS.Safe.Screen.TerminalFontChoice` (new, headless): the ordered list the terminal tries, from the config value, the bundled font (if it loaded) and the OS fallbacks. A font the user picked comes first; not picked (`_not_chosen_yet_` or the first-run placeholder `Choose Font`, `Bootstrapper.CheckForUnpickedFont`) → the bundled font first; then Consolas, Lucida Console (present under Proton), Liberation Mono, DejaVu Sans Mono, Monaco, Courier New, Arial last. Tests for each case.
+- Game side: the bundled font registered early (before `AssetManager` lists fonts), listed in the font picker, used by the terminal and later by the editor (step 5); the chrome keeps KSP's UI font.
+- **No go:** the bundled font is dropped and only the better fallback order ships (Lucida Console before Courier New under Proton), with what the prototype found recorded.
+
+Intentional differences (planned): the terminal's colors and font differ from upstream; the window has no reverse, visual beep, key click or brightness controls (scripts and mod options keep them; reverse only by script); key click becomes a global mod option instead of a per-window toggle (not saved before either); a font picked in mod options is kept.
+
+In game (end-of-Phase-4 pass, plus the 3a launch): the look at UI scales 1.0 and 1.3 and char sizes 8–24 (readability, cursor and selection alignment with the new font), unpowered colors, the size buttons (and their saving), the new mod options in the toolbar panel (visual beep for a new terminal, key click live), the font picker still working with the bundled font listed, an older `config.xml` loading.
 
 ### Exit criterion
 
