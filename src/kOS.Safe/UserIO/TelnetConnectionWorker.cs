@@ -15,7 +15,7 @@ namespace kOS.Safe.UserIO
         WriteFailed,
         /// <summary>A handler callback threw; the exception was reported first.</summary>
         WorkerFault,
-        /// <summary>kOS decided to end the session (hung client, DIE output, quit, shutdown).</summary>
+        /// <summary>kOS decided to end the session (hung or stalled client, DIE output, quit, shutdown).</summary>
         ServerRequested
     }
 
@@ -38,6 +38,11 @@ namespace kOS.Safe.UserIO
     /// <summary>
     /// Owns one telnet client's socket, reader/writer threads and input parser.
     /// <br/>
+    /// Once the workers run, only the writer thread writes to the socket, because a write
+    /// blocks while the client is not reading (up to the write timeout). Every other thread,
+    /// the game thread above all, queues bytes with <see cref="Post"/> and can wait a bounded
+    /// time for them with <see cref="Flush"/> (R-01).
+    /// <br/>
     /// Workers never end the session themselves: they call <see cref="RequestStop"/>,
     /// and the owning (game) thread polls <see cref="StopRequested"/> and calls
     /// <see cref="Shutdown"/>. Shutdown is cooperative, idempotent and bounded: it closes
@@ -48,6 +53,15 @@ namespace kOS.Safe.UserIO
     public sealed class TelnetConnectionWorker
     {
         public const int DEFAULT_WRITE_TIMEOUT_MS = 5000;
+
+        /// <summary>
+        /// Most bytes <see cref="Post"/> keeps waiting for the writer. A client that leaves more
+        /// unsent has stopped reading, and its session is ended.
+        /// </summary>
+        public const int MAX_POSTED_BYTES = 65536;
+
+        // How often a waiting Flush checks that the writer is still there to signal it.
+        private const int FLUSH_POLL_MS = 20;
 
         // Writer polling backoff, as in the original server: run without sleeping while
         // there is output, slow down to MAX when idle (ticks also drive keepalive checks).
@@ -60,10 +74,22 @@ namespace kOS.Safe.UserIO
         private readonly TelnetInputParser parser = new TelnetInputParser();
         private readonly object writeLock = new object();
         private readonly ManualResetEvent cancelled = new ManualResetEvent(false);
+        private readonly AutoResetEvent wake = new AutoResetEvent(false); // something was posted or a flush is waiting
+        private readonly WaitHandle[] writerWaits; // cancelled first: WaitAny reports the lowest index set
         private readonly Thread readerThread;
         private readonly Thread writerThread;
 
+        private readonly object postSync = new object();
+        private readonly Queue<byte[]> posted = new Queue<byte[]>(); // guarded by postSync
+        private int postedBytes; // guarded by postSync
+
+        // Flush requests, numbered, and the latest one the writer has completed. Guarded by flushSync.
+        private readonly object flushSync = new object();
+        private long flushRequested;
+        private long flushCompleted;
+
         private int started;
+        private volatile bool workersStarted;
         private int shutdownStarted;
         private int eventClosed;
         private volatile bool isCancelled;
@@ -81,6 +107,7 @@ namespace kOS.Safe.UserIO
             // thread) forever once its receive window fills up:
             client.SendTimeout = writeTimeoutMilliseconds;
             stream = client.GetStream();
+            writerWaits = new WaitHandle[] { cancelled, wake };
             readerThread = new Thread(ReadLoop) { IsBackground = true, Name = name + " reader" };
             writerThread = new Thread(WriteLoop) { IsBackground = true, Name = name + " writer" };
         }
@@ -106,6 +133,7 @@ namespace kOS.Safe.UserIO
                 throw new InvalidOperationException("Telnet connection already started.");
             if (IsShutdown)
                 return;
+            workersStarted = true;
             readerThread.Start();
             writerThread.Start();
         }
@@ -120,46 +148,97 @@ namespace kOS.Safe.UserIO
         }
 
         /// <summary>
-        /// Send bytes to the client. Thread-safe; whole buffers are never interleaved.
-        /// Returns false if the connection is shutting down or the write failed, in which
-        /// case a stop is requested.
+        /// Write bytes to the socket now, for the writer thread's own output (from
+        /// <see cref="ITelnetConnectionHandler.OnWriterTick"/>). It blocks while the client is
+        /// not reading, up to the write timeout, so once the workers run any other thread must
+        /// use <see cref="Post"/>: calling this from one throws. Whole buffers are never
+        /// interleaved. Returns false if the connection is shutting down or the write failed,
+        /// in which case a stop is requested.
         /// </summary>
         public bool Send(byte[] buffer)
         {
-            return TrySend(buffer, Timeout.Infinite);
+            if (buffer == null) throw new ArgumentNullException("buffer");
+            if (workersStarted && Thread.CurrentThread != writerThread)
+                throw new InvalidOperationException("Only the telnet writer thread writes to the socket once the connection runs; use Post.");
+            if (isCancelled || writeFailed)
+                return false;
+            lock (writeLock)
+            {
+                if (isCancelled || writeFailed)
+                    return false;
+                try
+                {
+                    stream.Write(buffer, 0, buffer.Length);
+                    return true;
+                }
+                catch (Exception e)
+                {
+                    if (!IsConnectionException(e))
+                        throw;
+                    writeFailed = true;
+                    if (!isCancelled)
+                        RequestStop(TelnetStopReason.WriteFailed);
+                    return false;
+                }
+            }
         }
 
         /// <summary>
-        /// Like <see cref="Send"/>, but gives up if another sender holds the connection for
-        /// longer than <paramref name="lockTimeoutMilliseconds"/> (e.g. blocked on a
-        /// stalled client).
+        /// Queue bytes for the writer thread, which sends them in order, before the handler's
+        /// next output. Thread-safe, and never waits for the client, so the game thread can
+        /// use it. Returns false if the connection is shutting down or the write failed, or if
+        /// the client already left <see cref="MAX_POSTED_BYTES"/> unsent: it is then treated
+        /// as stalled and a stop is requested.
         /// </summary>
-        public bool TrySend(byte[] buffer, int lockTimeoutMilliseconds)
+        public bool Post(byte[] buffer)
         {
             if (buffer == null) throw new ArgumentNullException("buffer");
             if (isCancelled || writeFailed)
                 return false;
-            if (!Monitor.TryEnter(writeLock, lockTimeoutMilliseconds))
-                return false;
-            try
+            lock (postSync)
             {
-                if (isCancelled || writeFailed)
+                if (buffer.Length > MAX_POSTED_BYTES - postedBytes)
+                {
+                    RequestStop(TelnetStopReason.ServerRequested);
                     return false;
-                stream.Write(buffer, 0, buffer.Length);
+                }
+                posted.Enqueue((byte[])buffer.Clone()); // the caller may reuse its array
+                postedBytes += buffer.Length;
+            }
+            Wake();
+            return true;
+        }
+
+        /// <summary>
+        /// Wait until the writer thread has written everything queued before this call: the
+        /// posted bytes and the handler's own output (the handler returns false from
+        /// <see cref="ITelnetConnectionHandler.OnWriterTick"/> only when it had nothing to
+        /// send). Waits at most <paramref name="timeout"/>, and not at all when the connection
+        /// is shutting down, a write failed, the writer is not running, or it is the caller.
+        /// Returns true if everything was written.
+        /// </summary>
+        public bool Flush(TimeSpan timeout)
+        {
+            if (Thread.CurrentThread == writerThread)
+                return false; // it would wait for itself
+            long request;
+            lock (flushSync)
+                request = ++flushRequested;
+            Wake();
+
+            DateTime deadline = DateTime.UtcNow + timeout;
+            lock (flushSync)
+            {
+                while (flushCompleted < request)
+                {
+                    if (isCancelled || writeFailed || !writerThread.IsAlive)
+                        return false;
+                    double remaining = (deadline - DateTime.UtcNow).TotalMilliseconds;
+                    if (remaining <= 0)
+                        return false;
+                    Monitor.Wait(flushSync, (int)Math.Ceiling(Math.Min(remaining, FLUSH_POLL_MS)));
+                }
                 return true;
-            }
-            catch (Exception e)
-            {
-                if (!IsConnectionException(e))
-                    throw;
-                writeFailed = true;
-                if (!isCancelled)
-                    RequestStop(TelnetStopReason.WriteFailed);
-                return false;
-            }
-            finally
-            {
-                Monitor.Exit(writeLock);
             }
         }
 
@@ -190,7 +269,10 @@ namespace kOS.Safe.UserIO
             // Once neither thread can wait on it any more (P2-3, LIFE-03). A worker calling this
             // is still running, and a thread that did not exit in time keeps it.
             if (!readerThread.IsAlive && !writerThread.IsAlive && Interlocked.Exchange(ref eventClosed, 1) == 0)
+            {
                 cancelled.Close();
+                wake.Close();
+            }
             return readerDone && writerDone;
         }
 
@@ -285,9 +367,15 @@ namespace kOS.Safe.UserIO
             int sleepTime = WRITER_SLEEP_MAX_MS;
             while (!isCancelled)
             {
+                // Read first: whatever was queued before this request is written below.
+                long flushRequest;
+                lock (flushSync)
+                    flushRequest = flushRequested;
+
                 bool sentSomething;
                 try
                 {
+                    WritePosted();
                     sentSomething = handler.OnWriterTick();
                 }
                 catch (ThreadAbortException)
@@ -306,12 +394,55 @@ namespace kOS.Safe.UserIO
                 }
                 else
                 {
-                    if (cancelled.WaitOne(sleepTime))
+                    CompleteFlush(flushRequest);
+                    if (WaitHandle.WaitAny(writerWaits, sleepTime) == 0)
                         return;
                     if (sleepTime < WRITER_SLEEP_MAX_MS)
                         sleepTime += WRITER_SLEEP_INC_MS;
                 }
             }
+        }
+
+        /// <summary>Writer thread: sends what <see cref="Post"/> queued, in order.</summary>
+        private void WritePosted()
+        {
+            while (true)
+            {
+                byte[] buffer;
+                lock (postSync)
+                {
+                    if (posted.Count == 0)
+                        return;
+                    buffer = posted.Dequeue();
+                    postedBytes -= buffer.Length;
+                }
+                if (!Send(buffer))
+                {
+                    lock (postSync)
+                    {
+                        posted.Clear();
+                        postedBytes = 0;
+                    }
+                    return;
+                }
+            }
+        }
+
+        private void CompleteFlush(long request)
+        {
+            lock (flushSync)
+            {
+                if (request <= flushCompleted)
+                    return;
+                flushCompleted = request;
+                Monitor.PulseAll(flushSync);
+            }
+        }
+
+        private void Wake()
+        {
+            try { wake.Set(); }
+            catch (ObjectDisposedException) { } // closed once both workers are gone; nothing left to wake
         }
 
         private void Fault(Exception e)

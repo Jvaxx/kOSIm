@@ -183,7 +183,7 @@ namespace kOS.Safe.Test.UserIO
 
             peer.ReceiveTimeout = 5000;
             Assert.AreEqual(0, peer.GetStream().Read(new byte[16], 0, 16), "client sees end of stream");
-            Assert.IsFalse(worker.Send(new byte[] { 1 }), "no sends after shutdown");
+            Assert.IsFalse(worker.Post(new byte[] { 1 }), "no sends after shutdown");
         }
 
         [Test, Timeout(20000)]
@@ -321,44 +321,198 @@ namespace kOS.Safe.Test.UserIO
             GC.KeepAlive(peer);
         }
 
-        [Test, Timeout(60000)]
-        public void TrySendGivesUpWhileAnotherSenderIsBlocked()
+        /// <summary>
+        /// The game's server, reduced: a real output queue the writer thread drains to the
+        /// socket, as <c>TelnetSingletonServer.OnWriterTick</c> does.
+        /// </summary>
+        private static TelnetOutputQueue DrainQueueOnWriterTick(RecordingHandler handler, Func<TelnetConnectionWorker> worker)
         {
+            var queue = new TelnetOutputQueue();
+            handler.WriterTick = () =>
+            {
+                bool containsDie;
+                string content = queue.TakeAll(out containsDie);
+                if (content.Length == 0)
+                    return false;
+                worker().Send(Encoding.UTF8.GetBytes(content));
+                return true;
+            };
+            return queue;
+        }
+
+        private static string ReadExactly(TcpClient peer, int count)
+        {
+            peer.ReceiveTimeout = 5000;
+            var received = new byte[count];
+            int total = 0;
+            while (total < count)
+            {
+                int read = peer.GetStream().Read(received, total, count - total);
+                Assert.Greater(read, 0, "connection closed after " + total + " bytes");
+                total += read;
+            }
+            return Encoding.UTF8.GetString(received);
+        }
+
+        private static byte[] Bytes(string text)
+        {
+            return Encoding.UTF8.GetBytes(text);
+        }
+
+        [Test, Timeout(20000)]
+        public void SendFromAnotherThreadThrowsOnceTheWorkersRun()
+        {
+            // R-01: a write blocks while the client is not reading, so only the writer thread
+            // may write; a game-thread caller must Post.
+            TcpClient serverSide;
+            Connect(out serverSide);
+            TelnetConnectionWorker worker = CreateWorker(serverSide, new RecordingHandler());
+            worker.Start();
+            Assert.Throws<InvalidOperationException>(() => worker.Send(new byte[] { 0x41 }));
+            Assert.IsFalse(worker.StopRequested);
+        }
+
+        [Test, Timeout(20000)]
+        public void PostedBytesGoOutInOrderBeforeTheHandlersOutput()
+        {
+            TcpClient serverSide;
+            TcpClient peer = Connect(out serverSide);
+            var handler = new RecordingHandler();
+            TelnetConnectionWorker worker = null;
+            TelnetOutputQueue queue = DrainQueueOnWriterTick(handler, () => worker);
+            worker = CreateWorker(serverSide, handler);
+
+            // As StartListening: text queued, negotiation posted, then the workers start.
+            queue.Write("text");
+            var reused = Bytes("AB");
+            Assert.IsTrue(worker.Post(reused));
+            reused[0] = (byte)'X'; // Post keeps its own copy
+            Assert.IsTrue(worker.Post(Bytes("CD")));
+            worker.Start();
+
+            Assert.AreEqual("ABCDtext", ReadExactly(peer, 8));
+        }
+
+        [Test, Timeout(20000)]
+        public void FlushReturnsOnceEverythingQueuedBeforeItIsWritten()
+        {
+            TcpClient serverSide;
+            TcpClient peer = Connect(out serverSide);
+            var handler = new RecordingHandler();
+            TelnetConnectionWorker worker = null;
+            TelnetOutputQueue queue = DrainQueueOnWriterTick(handler, () => worker);
+            worker = CreateWorker(serverSide, handler);
+            worker.Start();
+            WaitFor(() => handler.WriterTicks > 2, "writer idling");
+
+            Assert.IsTrue(worker.Post(Bytes("[raw]")));
+            queue.Write("goodbye");
+            var watch = Stopwatch.StartNew();
+            Assert.IsTrue(worker.Flush(TimeSpan.FromSeconds(5)));
+            Assert.Less(watch.ElapsedMilliseconds, 2000, "a flush wakes the idle writer");
+            Assert.AreEqual(0, queue.Count, "taken by the writer before Flush returned");
+            Assert.AreEqual("[raw]goodbye", ReadExactly(peer, 12));
+
+            Assert.IsTrue(worker.Flush(TimeSpan.FromSeconds(5)), "nothing queued: true at the next quiet tick");
+        }
+
+        [Test, Timeout(60000)]
+        public void AStalledClientCannotBlockPostFlushOrShutdown()
+        {
+            // R-01: the writer is stuck in a write to a client that stopped reading (a long write
+            // timeout keeps it there). Game-thread calls must still return at once, or within
+            // their own bound: StopListening is Flush then Shutdown.
             TcpClient serverSide;
             TcpClient peer = Connect(out serverSide);
             peer.ReceiveBufferSize = 4096;
             serverSide.SendBufferSize = 4096;
-            TelnetConnectionWorker worker = CreateWorker(serverSide, new RecordingHandler(), writeTimeoutMs: 20000);
-
-            var blockedSender = new Thread(() =>
+            var handler = new RecordingHandler();
+            TelnetConnectionWorker worker = CreateWorker(serverSide, handler, writeTimeoutMs: 30000);
+            var chunk = new byte[64 * 1024];
+            long writeStartedTicks = 0;
+            handler.WriterTick = () =>
             {
-                var chunk = new byte[64 * 1024];
-                while (worker.Send(chunk)) { }
-            }) { IsBackground = true };
-            blockedSender.Start();
+                Interlocked.Exchange(ref writeStartedTicks, Stopwatch.GetTimestamp());
+                bool sent = worker.Send(chunk);
+                Interlocked.Exchange(ref writeStartedTicks, 0);
+                return sent;
+            };
+            worker.Start();
+            WaitFor(() =>
+            {
+                long startedAt = Interlocked.Read(ref writeStartedTicks);
+                return startedAt != 0 && Stopwatch.GetTimestamp() - startedAt > Stopwatch.Frequency / 2;
+            }, "the writer blocked in a write", 20000);
 
-            // Once the buffers are full the sender blocks inside Send, holding the connection.
             var watch = Stopwatch.StartNew();
-            bool gaveUp = false;
-            while (watch.ElapsedMilliseconds < 15000)
-            {
-                var attempt = Stopwatch.StartNew();
-                if (!worker.TrySend(new byte[] { 0x41 }, 100))
-                {
-                    Assert.Less(attempt.ElapsedMilliseconds, 1000);
-                    gaveUp = true;
-                    break;
-                }
-            }
-            Assert.IsTrue(gaveUp, "TrySend never found the connection busy");
-            Assert.IsFalse(worker.IsWriteDead);
+            Assert.IsTrue(worker.Post(Bytes("{Detaching}")));
+            Assert.Less(watch.ElapsedMilliseconds, 500, "Post must not wait for the writer");
 
-            // Shutdown must also release the blocked sender.
             watch.Restart();
-            Assert.IsTrue(worker.Shutdown(JoinTimeout));
-            Assert.IsTrue(blockedSender.Join(5000), "blocked send was not released by shutdown");
-            Assert.Less(watch.ElapsedMilliseconds, 10000);
+            Assert.IsFalse(worker.Flush(TimeSpan.FromMilliseconds(250)));
+            Assert.GreaterOrEqual(watch.ElapsedMilliseconds, 200);
+            Assert.Less(watch.ElapsedMilliseconds, 1500, "Flush keeps to its timeout");
+            Assert.IsFalse(worker.StopRequested, "still within the write timeout");
+
+            watch.Restart();
+            Assert.IsTrue(worker.Shutdown(JoinTimeout), "closing the socket releases the blocked write");
+            Assert.Less(watch.ElapsedMilliseconds, 2000);
+            Assert.IsFalse(worker.WriterAlive);
+            CollectionAssert.IsEmpty(handler.Faults);
             GC.KeepAlive(peer);
+        }
+
+        [Test, Timeout(20000)]
+        public void PostBeyondTheBacklogLimitTreatsTheClientAsStalled()
+        {
+            TcpClient serverSide;
+            Connect(out serverSide);
+            // Not started: nothing drains the posted bytes.
+            TelnetConnectionWorker worker = CreateWorker(serverSide, new RecordingHandler());
+            Assert.IsTrue(worker.Post(new byte[TelnetConnectionWorker.MAX_POSTED_BYTES - 1]));
+            Assert.IsTrue(worker.Post(new byte[1]), "up to the limit");
+            Assert.IsFalse(worker.StopRequested);
+
+            Assert.IsFalse(worker.Post(new byte[1]));
+            Assert.AreEqual(TelnetStopReason.ServerRequested, worker.StopReason);
+        }
+
+        [Test, Timeout(20000)]
+        public void FlushDoesNotWaitWhenNothingCanComplete()
+        {
+            TcpClient serverSide;
+            Connect(out serverSide);
+            var handler = new RecordingHandler();
+            TelnetConnectionWorker worker = CreateWorker(serverSide, handler);
+
+            var watch = Stopwatch.StartNew();
+            Assert.IsFalse(worker.Flush(TimeSpan.FromSeconds(10)), "not started");
+            Assert.Less(watch.ElapsedMilliseconds, 1000);
+
+            bool? fromWriter = null;
+            long writerWaitedMs = -1;
+            handler.WriterTick = () =>
+            {
+                if (fromWriter == null)
+                {
+                    var own = Stopwatch.StartNew();
+                    bool result = worker.Flush(TimeSpan.FromSeconds(10));
+                    writerWaitedMs = own.ElapsedMilliseconds;
+                    fromWriter = result;
+                }
+                return false;
+            };
+            worker.Start();
+            WaitFor(() => fromWriter.HasValue, "a flush from the writer thread");
+            Assert.IsFalse(fromWriter.Value, "the writer cannot wait for itself");
+            Assert.Less(writerWaitedMs, 1000);
+
+            Assert.IsTrue(worker.Shutdown(JoinTimeout));
+            Assert.IsTrue(worker.IsEventClosed);
+            watch.Restart();
+            Assert.IsFalse(worker.Flush(TimeSpan.FromSeconds(10)), "shut down (its wake-up of the closed event must not throw)");
+            Assert.Less(watch.ElapsedMilliseconds, 1000);
+            Assert.IsFalse(worker.Post(new byte[] { 1 }));
         }
 
         [Test, Timeout(20000)]

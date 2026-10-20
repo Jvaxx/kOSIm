@@ -30,6 +30,8 @@ Base: upstream <https://github.com/KSP-KOS/KOS> `develop` at `8f281a45`. The ori
 
 **Release:** 1.5.1.100 (2026-10-20), a private GitHub Release on `Jvaxx/kOSIm`; procedure in [testing-and-build.md](testing-and-build.md), "Versions and releases".
 
+**Post-release review** (2026-10-20, [review-report.md](review-report.md), of `e280f197`): **R-01** (game-thread telnet sends could block for seconds) and **L-01** (the address picker leaked a component per toggle-close) are fixed, headless-tested and built, not yet checked in game ([testing-and-build.md](testing-and-build.md), "Fixes from the post-release review"). The report's other items are open; its section 8 gives a suggested order (next: P-01/P-02/P-03/P-06 idle-work gating, then the K-01 and K-09–K-12 doc fixes).
+
 The review's terminal items TERM-01 to TERM-08 are covered by Phases 2–4. Not done: the rest of EDIT-05 (find/replace, line numbers, highlighting), the deferred external-editor conveniences (below), and the open issues in [testing-and-build.md](testing-and-build.md), "Known issues and open findings". No further phase is planned: ask the user before starting new work.
 
 ## Planned: terminal geometry presets

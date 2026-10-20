@@ -48,6 +48,7 @@ namespace kOS.Screen
         private Rect windowRect;
         private MouseBlocking.Area mouseArea;
         private bool running;
+        private bool closed; // Destroy requested; the component goes at the end of the frame
         private ChangeAction callWhenChanged;
         private CloseAction callWhenClosed;
         private FlatWindowLayout layout;
@@ -119,9 +120,19 @@ namespace kOS.Screen
             running = false;
         }
 
+        /// <summary>
+        /// Close it without a pick: it is destroyed (at the end of the frame), and
+        /// <see cref="CloseAction"/> is not called. Safe to call more than once. Before L-01 this only
+        /// hid it, so each picker closed this way stayed on its GameObject, its mouse area still
+        /// registered.
+        /// </summary>
         public void Close()
         {
             running = false;
+            if (closed)
+                return;
+            closed = true;
+            Destroy(this);
         }
 
         public void OnDestroy()
@@ -180,7 +191,7 @@ namespace kOS.Screen
 
             // This is meant to be a one-off instance.  Once it's been used to make one pick, it's gone:
             if (!running)
-                Destroy(this);
+                Close();
         }
 
         private void DrawInnards(int windowId)

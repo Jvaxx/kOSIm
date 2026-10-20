@@ -200,12 +200,16 @@ namespace kOS.Screen
                 SafeHouse.Logger.SuperVerbose("[kOSToolBarWindow] Failed unregistering AppLauncher handlers," + e.Message);
             }
 
-            // force close the font picker window if it was still open:
+            // force close the picker windows if they were still open (Close destroys them):
             if (fontPicker != null)
             {
                 fontPicker.Close();
-                Destroy(fontPicker);
                 fontPicker = null;
+            }
+            if (ipAddrPicker != null)
+            {
+                ipAddrPicker.Close();
+                ipAddrPicker = null;
             }
         }
 
@@ -836,8 +840,7 @@ namespace kOS.Screen
                 }
                 else
                 {
-                    fontPicker.Close();
-                    Destroy(fontPicker);
+                    fontPicker.Close(); // destroys it
                     fontPicker = null;
                 }
             }
@@ -871,7 +874,7 @@ namespace kOS.Screen
                 }
                 else
                 {
-                    ipAddrPicker.Close();
+                    ipAddrPicker.Close(); // destroys it (L-01: it used to stay on this GameObject)
                     ipAddrPicker = null;
                 }
             }

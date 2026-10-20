@@ -2,9 +2,16 @@
 
 ## Resume here
 
-**All agreed work is done.** Phases 0–4 are complete (status in `docs/KOSIm-roadmap.md`), and **1.5.1.100** was released on 2026-10-20 (tag `v1.5.1.100` on commit `5bd2afab`; <https://github.com/Jvaxx/kOSIm/releases/tag/v1.5.1.100>). Every implemented item is headless-tested and passed in game under Proton.
+Phases 0–4 are complete (status in `docs/KOSIm-roadmap.md`), and **1.5.1.100** was released on 2026-10-20 (tag `v1.5.1.100` on commit `5bd2afab`; <https://github.com/Jvaxx/kOSIm/releases/tag/v1.5.1.100>). Every item of that release is headless-tested and passed in game under Proton.
 
-**Next action: ask the user what to do next.** Candidates:
+**Post-release review, in progress (2026-10-20):** the user's review `docs/review-report.md` (of `e280f197`; R-01 and L-01 marked done there) lists findings R-, L-, P-, D-, K-, N-. The user asked for **R-01 and L-01 only**, with no in-game test for now. Both are implemented, headless-tested, built and committed, **not deployed** (details: `docs/testing-and-build.md`, "Fixes from the post-release review"):
+
+- **R-01** (`src/kOS.Safe/UserIO/TelnetConnectionWorker.cs`, `src/kOS/UserIO/TelnetSingletonServer.cs`): only the writer thread writes to a telnet socket. New `Post` (bounded 64 KiB queue, sent before the handler's next output) and `Flush(timeout)`; `Send` throws off the writer thread once the workers run; `TrySend` removed. Detach and goodbye go through the output queue (fixes R-02 and R-03 as a side effect); negotiation bytes are posted; `StopListening` waits at most 250 ms (`Flush`) before `Shutdown`. Note: the report lists the writer/reader paths (`OnWriterTick`, `Negotiate`, the keepalive) among game-thread callers; they are worker threads, but `Negotiate` now posts too.
+- **L-01** (`src/kOS/Screen/ListPickerDialog.cs`, `src/kOS/Screen/KOSToolbarWindow.cs`): `Close()` destroys the picker (idempotent); `GoAway` closes the address picker too; the toolbar's extra `Destroy` calls removed.
+- Tests: 6 new in `src/kOS.Safe.Test/UserIO/TelnetConnectionWorkerTest.cs` (one `TrySend` test replaced). Mutation run: 7 mutants of the worker (direct write in `Post`, posted after the handler's output, `Flush` not waiting, no thread guard, `Flush` ignoring its timeout, no backlog cap, `Flush` from the writer waiting for itself), all killed. L-01 has no headless test (Unity object lifetime).
+- `.ci/known-test-failures.json` `minimum_tests` raised 1312 → 1317.
+
+**Next action:** ask the user whether to deploy for the in-game checks listed in `docs/testing-and-build.md`, "In-game coverage" (R-01 normal and stalled client, L-01 object counts), or to continue with the report's next items (its section 8), only as the user picks them. Other candidates:
 
 - **Terminal geometry presets** (user feature, decisions agreed 2026-10-20: `docs/KOSIm-roadmap.md`, "Planned: terminal geometry presets"). **Step plan written 2026-10-20** (roadmap, "Step plan" under that section), awaiting the user's approval and answers to Q1 (a partial slot counts as empty) and Q2 (no notice on apply). Implement only after approval.
 - The rest of EDIT-05 (find/replace, line numbers, highlighting) or the deferred editor conveniences E1/E3/E4 (roadmap, "Workflow").
@@ -15,6 +22,7 @@
 ## Workspace state (2026-10-20)
 
 - **Repository:** the user's private GitHub repo `Jvaxx/kOSIm` is `origin`; branch `master` tracks `origin/master`. Upstream kOS is the remote `upstream`, fetch only (push URL `no_push`); local `develop` tracks `upstream/develop`. No GitHub Actions (no `.github/workflows/`). kOS is GPL-3.0: keep the license and notices if builds are shared.
+- **R-01/L-01 commit** (2026-10-20, on `master`, with `docs/review-report.md`; not pushed). Its full build: 0 errors, 44 warnings (none in the changed files); `kOS.dll 1d40388c…`, `kOS.Safe.dll aa4d44d3…` (not deployed). Gate: 1317/1317 (`bash .ci/test.sh`, Mono 6.12.0 for NUnit).
 - **Last code commit `5bd2afab`** (version 1.5.1.100). Its build (0 errors, 44 warnings): `kOS.dll dee200fb…`, `kOS.Safe.dll 4791c901…`; release zip `kOS-v1.5.1.100.zip` sha256 `6bf31b80…` (local copy in the ignored `artifacts/`). Gate: 1312/1312.
 - **Dev instance** `/home/jvz/Games/KSP-kOSIM-dev/`: the release zip is deployed (hashes equal to the build's); the previous deploy is in `kOS-GameData-backups/kOS-before-v1.5.1.100-20261020`. Smoke test 2026-10-20: Player.log shows `kOS v1.5.1.100+5bd2afab…` at the main menu with no exception (`dev-logs/Player.log.v1.5.1.100-smoke-20261020`). The game is closed.
 - Dev save `kOSIM-dev`: vessel with two CPUs on one part, told apart by tag (`cpu down`, `cpu top`); the telnet menu order is not fixed. Settings: 2560×1440 fullscreen, UI scale 1.3. The dev copy carries the fullscreen focus-loss patch (`docs/testing-and-build.md`).
@@ -38,4 +46,4 @@ dotnet build kOS.sln -c Release --no-incremental  # full build against the dev g
 
 Deploying, launching, logs, the remote-testing tools and what needs the user: `docs/testing-and-build.md`. Per-session test records up to the release are in git history (this file at `5bd2afab`).
 
-Last sessions (2026-10-20, docs only): wrote the geometry-preset step plan; recorded the geometry-preset decisions; trimmed the roadmap and this handoff; folded `phase2-contracts.md` and `file-io-compatibility.md` into the roadmap and `testing-and-build.md` and removed them. Gate and build not rerun (no code change).
+Last sessions (2026-10-20): fixed R-01 and L-01 from the post-release review (above; gate, mutation run and full build run; no in-game test, as the user asked). Before that, docs only: wrote the geometry-preset step plan; recorded the geometry-preset decisions; trimmed the roadmap and this handoff; folded `phase2-contracts.md` and `file-io-compatibility.md` into the roadmap and `testing-and-build.md` and removed them. Gate and build not rerun (no code change).

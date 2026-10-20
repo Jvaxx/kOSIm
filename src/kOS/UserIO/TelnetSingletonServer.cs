@@ -23,6 +23,10 @@ namespace kOS.UserIO
     /// including ending the session, happens on the game thread: workers request a stop and
     /// <see cref="TelnetMainServer"/> calls <see cref="MainThreadUpdate"/> every frame to act on it.
     /// <br/>
+    /// Only the writer thread writes to the socket, so a client that stops reading cannot block
+    /// the game (R-01): text goes through the output queue (<see cref="Write(string)"/>), protocol
+    /// bytes from other threads through <see cref="TelnetConnectionWorker.Post"/>.
+    /// <br/>
     /// Both queues are bounded (see <see cref="TelnetInputQueue"/> and <see cref="TelnetOutputQueue"/>):
     /// typed text beyond the input backlog is discarded with a notice to the client, interrupts
     /// and resizes are never held behind typed text, and output a stalled client could not take
@@ -32,7 +36,7 @@ namespace kOS.UserIO
     {
         private const double HUNG_CHECK_INTERVAL = 10; // Seconds that a keep alive must have failed to give a response before assuming telnet client is dead.
         private const int WORKER_JOIN_TIMEOUT_MS = 1000; // How long StopListening waits for the worker threads.
-        private const int GOODBYE_LOCK_TIMEOUT_MS = 250; // Skip the goodbye message rather than wait on a stalled client.
+        private const int GOODBYE_FLUSH_TIMEOUT_MS = 250; // How long StopListening waits for the goodbye to be sent; a stalled client goes without.
 
         // ReSharper disable SuggestUseVarKeywordEvident
         
@@ -249,8 +253,10 @@ namespace kOS.UserIO
                 alreadyDisconnecting = true; // telnet tells window to disconnect, window tells telnet to disconnect.  This stops an infinite recursion.
                 isAttached = false;
                 string detachMessage = "Detaching from " + window.TitleText;
-                SendTextRaw( (char)UnicodeCommand.TITLEBEGIN + detachMessage + (char)UnicodeCommand.TITLEEND );
-                SendTextRaw("\r\n{" + detachMessage + "}\r\n");
+                // Queued, so it comes after the screen output still waiting and the game thread never
+                // waits for the client; the title is mapped for the client's terminal like any other:
+                Write((char)UnicodeCommand.TITLEBEGIN + detachMessage + (char)UnicodeCommand.TITLEEND +
+                    "\r\n{" + detachMessage + "}\r\n");
                 window.DetachTelnet(this);
 
                 // Very important, else CPU parts that go away (from explosion, load distance, scene switch ,etc) refuse to be orphaned and won't garbage collect.
@@ -384,7 +390,7 @@ namespace kOS.UserIO
         }
         
         /// <summary>
-        /// Bypasses the Queues and just sends text directly to the socket stream.
+        /// Writer thread only: bypasses the Queues and just sends text directly to the socket stream.
         /// </summary>
         private void SendTextRaw(char[] buff)
         {
@@ -392,7 +398,7 @@ namespace kOS.UserIO
         }
 
         /// <summary>
-        /// Bypasses the Queues and just sends text directly to the socket stream.
+        /// Writer thread only: bypasses the Queues and just sends text directly to the socket stream.
         /// </summary>
         private void SendTextRaw(string str)
         {
@@ -401,7 +407,7 @@ namespace kOS.UserIO
         }
 
         /// <summary>
-        /// Bypasses the Queues and just sends text directly to the socket stream.
+        /// Writer thread only: bypasses the Queues and just sends text directly to the socket stream.
         /// A dead or stalled client makes this give up (the write times out) and requests
         /// a stop instead of throwing.
         /// </summary>
@@ -427,6 +433,15 @@ namespace kOS.UserIO
         }
 
         /// <summary>
+        /// Protocol bytes from the game or reader thread: queued for the writer thread, ahead of
+        /// the text output, so the caller never waits for the client.
+        /// </summary>
+        private void PostRaw(byte[] buff)
+        {
+            connection.Post(buff);
+        }
+
+        /// <summary>
         /// End this telnet session. Must be called on the game thread; safe to call more than once.
         /// </summary>
         public void StopListening()
@@ -438,10 +453,12 @@ namespace kOS.UserIO
             DisconnectFromProcessor();
             if (!connection.IsWriteDead && !connection.IsShutdown)
             {
-                // Bypass the output queue, whose thread is about to stop. Don't wait on a client
-                // that has stopped reading; the goodbye is a courtesy.
-                connection.TrySend(Encoding.UTF8.GetBytes("\r\nDisconnecting from the kOS Terminal Server.\r\n"), GOODBYE_LOCK_TIMEOUT_MS);
-                connection.TrySend(Encoding.UTF8.GetBytes(terminalMapper.OutputConvert( (char)UnicodeCommand.TITLEBEGIN + "Thank you for using kOS terminal server" + (char)UnicodeCommand.TITLEEND )), GOODBYE_LOCK_TIMEOUT_MS);
+                // Queued after the detach message, then a short wait for the writer thread to send
+                // it all before the shutdown below closes the socket. Never longer: a client that
+                // has stopped reading goes without, the goodbye is a courtesy.
+                Write("\r\nDisconnecting from the kOS Terminal Server.\r\n" +
+                    (char)UnicodeCommand.TITLEBEGIN + "Thank you for using kOS terminal server" + (char)UnicodeCommand.TITLEEND);
+                connection.Flush(TimeSpan.FromMilliseconds(GOODBYE_FLUSH_TIMEOUT_MS));
             }
             whoLaunchedMe.SingletonStopped(this);
 
@@ -462,12 +479,13 @@ namespace kOS.UserIO
         {
             lock (keepAliveAccess)
                 gotSomeRecentTraffic = true; // Just in case it's been a long time between construction and StartListening.
-            connection.Start();
+            // Queued before the workers start, so the negotiation goes out first, then the text:
             LineAtATime(false); 
             AllowTerminalResize(true);
             AllowTerminalTypeInfo(true);
 
-            SendTextRaw("Connected to the kOS Terminal Server.\r\n");
+            Write("Connected to the kOS Terminal Server.\r\n");
+            connection.Start();
         }
 
         /// <summary>
@@ -519,15 +537,15 @@ namespace kOS.UserIO
             isLineAtATime = modeOn;
             if (modeOn)
             {
-                SendTextRaw( new[] {RFC854_IAC, RFC854_WONT, RFC857_ECHO}); // we will not be echoing the client input back to it.
-                SendTextRaw( new[] {RFC854_IAC, RFC854_DO, RFC857_ECHO}); // so the client should do its own local echoing.
-                SendTextRaw( new[] {RFC854_IAC, RFC854_WONT, RFC858_SUPPRESS_GOAHEAD}); // don't send one char at a time, buffer the lines.
+                PostRaw( new[] {RFC854_IAC, RFC854_WONT, RFC857_ECHO}); // we will not be echoing the client input back to it.
+                PostRaw( new[] {RFC854_IAC, RFC854_DO, RFC857_ECHO}); // so the client should do its own local echoing.
+                PostRaw( new[] {RFC854_IAC, RFC854_WONT, RFC858_SUPPRESS_GOAHEAD}); // don't send one char at a time, buffer the lines.
             }
             else
             {
-                SendTextRaw( new[] {RFC854_IAC, RFC854_WILL, RFC857_ECHO}); // we will echo the client's input back to it.
-                SendTextRaw( new[] {RFC854_IAC, RFC854_DONT, RFC857_ECHO}); // so the client shouldn't be doing a local echo (or the user would see text twice).
-                SendTextRaw( new[] {RFC854_IAC, RFC854_WILL, RFC858_SUPPRESS_GOAHEAD}); // do send one char at a time without buffering lines.
+                PostRaw( new[] {RFC854_IAC, RFC854_WILL, RFC857_ECHO}); // we will echo the client's input back to it.
+                PostRaw( new[] {RFC854_IAC, RFC854_DONT, RFC857_ECHO}); // so the client shouldn't be doing a local echo (or the user would see text twice).
+                PostRaw( new[] {RFC854_IAC, RFC854_WILL, RFC858_SUPPRESS_GOAHEAD}); // do send one char at a time without buffering lines.
             }
         }
         
@@ -538,7 +556,7 @@ namespace kOS.UserIO
         /// <param name="modeOn">true = client should send resize messages whenever it feels like.  false = it should not send us resize messages.</param>
         public void AllowTerminalResize(bool modeOn)
         {
-            SendTextRaw(modeOn
+            PostRaw(modeOn
                 ? new[] { RFC854_IAC, RFC854_DO, RFC1073_NAWS } // do allow Negotiate About Window Size
                 : new[] { RFC854_IAC, RFC854_DONT, RFC1073_NAWS } // don't allow Negotiate About Window Size
                 ); 
@@ -550,7 +568,7 @@ namespace kOS.UserIO
         /// <param name="modeOn">true = client should send terminal ident information.</param>
         public void AllowTerminalTypeInfo(bool modeOn)
         {
-            SendTextRaw(modeOn
+            PostRaw(modeOn
                 ? new[] { RFC854_IAC, RFC854_DO, RFC1091_TERMTYPE } // do request terminal type info negotiations from client
                 : new[] { RFC854_IAC, RFC854_DONT, RFC1091_TERMTYPE } // don't request terminal type info from client  
                 );
@@ -677,7 +695,7 @@ namespace kOS.UserIO
             string warning;
             byte[] reply = TelnetProtocol.NegotiationReply(verb, option, isLineAtATime, out warning);
             if (reply != null)
-                SendTextRaw(reply);
+                PostRaw(reply); // reader thread: queued, so it never waits on the writer
             if (warning != null)
                 Write(warning + (char)UnicodeCommand.STARTNEXTLINE);
             SafeHouse.Logger.SuperVerbose(string.Format("telnet protocol negotiation from client: {{{0}}}{{{1}}}", verb, option));
@@ -746,7 +764,7 @@ namespace kOS.UserIO
         
 
         /// <summary>
-        /// Tells the telnet client to send me back a terminal ident string.
+        /// Tells the telnet client to send me back a terminal ident string. Writer thread (the keepalive).
         /// </summary>
         private void TelnetAskForTerminalType()
         {
