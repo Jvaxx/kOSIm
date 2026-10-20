@@ -87,7 +87,7 @@ dotnet build kOS.sln -c Release --no-incremental
 
 - The launcher selects `~/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64`, `umu-run` 1.4.4 with `GAMEID=umu-default`, the isolated prefix `~/Games/KSP-kOSIM-dev/.proton-prefix` (Wine prefix `pfx/`), `UMU_RUNTIME_UPDATE=0`, Proton logs in `dev-logs/`. Its warning `unable to use parent for game drive, path /home` is harmless. Override only deliberately (`KOSIM_PROTON_PATH`, `KOSIM_RUNTIME_UPDATE=1`) and record it; never run the game with host Wine or another Proton silently.
 - The main menu appears about 30 s after launch. The live log is Unity's **Player.log**: `.proton-prefix/pfx/drive_c/users/steamuser/AppData/LocalLow/Squad/Kerbal Space Program/Player.log` (KSP.log is buffered). Keep a copy per pass in `dev-logs/`.
-- **Close the game** only with the user's permission: with the game window focused (`hyprctl activewindow`), `hyprctl dispatch 'hl.dsp.window.close()'` (exits in seconds). Never kill it unasked.
+- **Close the game** only with the user's permission: with the game window focused (`hyprctl activewindow`; see "Focusing the game window" below), `hyprctl dispatch 'hl.dsp.window.close()'` (exits in seconds). Never kill it unasked.
 
 ### Dev instance state
 
@@ -109,6 +109,18 @@ dotnet build kOS.sln -c Release --no-incremental
 - **The user is needed for:** the main menu and loading the save, all **mouse** steps (compositor pointer warps do not reach the game), and focus clicks: a terminal opened by a script event, or after a power cycle, has no keyboard until clicked. F5/F9 and Escape reach KSP only after a click outside the terminal (its `ControlTypes.All` lock).
 - **Script tips:** a trigger set inside a program ends with the program; type triggers at the prompt to produce output while the prompt waits. Keys pressed while a program runs wait in the type-ahead (PageUp/PageDown too; the wheel works at once). Avoid built-in names (`v`, `q`, …) as variables (`CLOBBERBUILTINS`). Don't `pkill -f` a pattern the running shell command also contains.
 - **Wine probes without the game:** build a small `net48` exe and run it with GE-Proton's `files/bin/wine` and a throwaway `WINEPREFIX` in the scratchpad, never the game's prefix.
+- **In-game probes:** a throwaway `KSPAddon` assembly built with `mcs` against the game's `Managed/` DLLs (`-noconfig -nostdlib`, mscorlib/System/System.Core/Assembly-CSharp/UnityEngine*.dll; Assembly-CSharp also needs `UnityEngine.UI`), deployed as its **own** GameData folder (kOS untouched), logging with a fixed prefix and saving a screenshot with `ScreenCapture.CaptureScreenshot`; removed after the run. Example: `dev-tools/font-probe/`.
+- **Focusing the game window** (to close it): `hyprctl dispatch 'hl.dsp.focus({ window = "address:0x…" })'` with the address from `hyprctl clients`; check `hyprctl activewindow` before closing.
+
+### Fonts under Proton (step 3a probe, 2026-10-20)
+
+Probe `dev-tools/font-probe/FontProbe.cs` in the dev instance; one launch to the main menu (KSP 1.12.5.3190, Unity 2019.4.18f1, GE-Proton11-7); logs `dev-logs/Player.log.fontprobe-20261020` (lines `kOSIM font probe:`), screenshot `dev-logs/fontprobe-shot-20261020.png`. Font: JetBrains Mono 2.304 (`JetBrainsMono-2.304.zip` SHA-256 `6f6376c6…7bbf`, OFL 1.1).
+
+- **Unity lists OS fonts from the files in `C:/windows/Fonts` only** (`Font.GetPathsToOSFonts`: 23 paths, 23 names; the prefix has no Consolas, Liberation or DejaVu). The Latin monospace ones: **Courier New**, **Courier New Bold**, **Lucida Console** (the CJK fonts were not tested).
+- **The terminal's font under Proton today is Courier New Bold** (`TerminalFontName` "Choose Font" is not found; the first fallback listed and monospaced wins).
+- **A bundled TTF cannot be loaded at run time:** a private GDI registration (`AddFontResourceEx`, `FR_PRIVATE`) succeeds (1) but Unity never lists or finds the font, whether registered before or after kOS lists the fonts; `Font.CreateDynamicFontFromOSFont("JetBrains Mono", …)` silently returns **Arial** (proportional: `i` 4 px, `W` 15 px at 16). `new Font(path)` (Unity's internal `CreateFontFromPath`) returns an empty, non-dynamic font with no glyphs, also for a missing file, without an exception. TextCore's `FontEngine` is public only for loading faces and glyph metrics (rendering and `FontAsset` are internal), so it cannot give IMGUI a `Font`. Left: an asset bundle built with Unity 2019.4.18 (not pursued, user decision).
+- **`Font.HasCharacter` counts glyphs reached through OS fallback** (Courier New Bold "has" `∀⇒ℝ漢☃`), so it cannot tell which font loaded; compare advances (`IsFontMonospaced`) or look.
+- Cell metrics at `CHARHEIGHT` 16: Courier New Bold advance 10, ascent 14, line height 18, `█` from −6 to 15; Lucida Console advance 10, ascent 17, line height 21, `█` from −5 to 17 (taller glyphs, so descenders reach lower in a 16 px row: check the bottom row's padding in game with 3c). Advances are whole pixels and constant at sizes 8–24 for both; cursor ticks at `column × advance('X')` stayed aligned over 40 columns in the screenshot.
 
 ## Behavior changes from upstream
 
