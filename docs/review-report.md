@@ -46,7 +46,7 @@ The findings cluster in four places:
 **Status: done** (2026-10-20). Only the writer thread writes to the socket; game- and
 reader-thread output is queued (`TelnetConnectionWorker.Post`, the output queue), and
 `StopListening` waits at most 250 ms (`Flush`). This also resolves R-02 and R-03. Headless
-tests and full build only; not yet checked in game. Details: `testing-and-build.md`,
+tests and full build; checked in game 2026-10-21 (stalled client: no freeze at a scene change or telnet off; no vessel switch). Details: `testing-and-build.md`,
 "Fixes from the post-release review".
 
 `TelnetSingletonServer.SendTextRaw(byte[])` (`src/kOS/UserIO/TelnetSingletonServer.cs:408`)
