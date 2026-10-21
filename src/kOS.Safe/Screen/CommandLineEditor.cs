@@ -1,3 +1,5 @@
+using System;
+using System.Diagnostics;
 using System.Text;
 using kOS.Safe.UserIO;
 
@@ -16,7 +18,10 @@ namespace kOS.Safe.Screen
     /// nothing); PageUp/PageDown scroll as usual. The line being edited is not touched
     /// until a match is taken.</para>
     /// <para>With a <see cref="HistoryStore"/>, the history is read from it on first use
-    /// and saved to it after every command it records (decision H3); a reboot keeps it.</para>
+    /// and saved to it when a command changes it (decision H3), at most once every
+    /// <see cref="HISTORY_SAVE_INTERVAL"/> (review P-10); a reboot keeps it. A change made
+    /// sooner waits for <see cref="SavePendingHistory"/>, which the game's processor calls
+    /// every frame and when it goes.</para>
     /// Main thread only (the interpreter's).
     /// </summary>
     public abstract class CommandLineEditor : TextEditor
@@ -26,6 +31,14 @@ namespace kOS.Safe.Screen
 
         /// <summary>Escape: leaves the search.</summary>
         public const char CANCEL_KEY = (char)0x1b;
+
+        /// <summary>
+        /// The shortest time between two saves of the history (review P-10): a command typed by
+        /// hand is saved at once, a paste or a script feeding the prompt about every 2 s.
+        /// </summary>
+        public static readonly TimeSpan HISTORY_SAVE_INTERVAL = TimeSpan.FromSeconds(2);
+
+        private static readonly Stopwatch monotonicClock = Stopwatch.StartNew();
 
         private const string SEARCH_PROMPT = "(search) '";
         private const string FAILED_SEARCH_PROMPT = "(search failed) '";
@@ -39,6 +52,11 @@ namespace kOS.Safe.Screen
         private bool searchFailed;
         private ICommandHistoryStore historyStore;
         private bool historyLoaded = true; // nothing to load without a store
+        private bool historyUnsaved; // a change waits for the next save
+        private TimeSpan nextHistorySave = TimeSpan.MinValue;
+
+        /// <summary>The time the saves are spaced by, for the tests; a monotonic clock by default.</summary>
+        internal Func<TimeSpan> HistoryClock { get; set; } = () => monotonicClock.Elapsed;
 
         protected CommandHistory History
         {
@@ -66,6 +84,7 @@ namespace kOS.Safe.Screen
             get { return historyStore; }
             set
             {
+                SavePendingHistory(true); // to the store it belongs to
                 historyStore = value;
                 historyLoaded = value == null;
             }
@@ -73,7 +92,8 @@ namespace kOS.Safe.Screen
 
         /// <summary>
         /// Record an entered command (<see cref="CommandHistory.Add"/>) and save the history
-        /// when that changed it.
+        /// when that changed it: at once unless the last save was less than
+        /// <see cref="HISTORY_SAVE_INTERVAL"/> ago (then <see cref="SavePendingHistory"/> does).
         /// </summary>
         /// <returns>the interpreter line number of the command's first line, for the compiler</returns>
         protected int RecordCommand(string commandText)
@@ -82,8 +102,27 @@ namespace kOS.Safe.Screen
             int version = commands.Version;
             int firstLine = commands.Add(commandText);
             if (historyStore != null && commands.Version != version)
-                historyStore.Save(commands.Commands);
+            {
+                historyUnsaved = true;
+                SavePendingHistory(false);
+            }
             return firstLine;
+        }
+
+        /// <summary>
+        /// Save the history if a command changed it since the last save (review P-10): with
+        /// <paramref name="now"/> at once (the CPU going away), else once
+        /// <see cref="HISTORY_SAVE_INTERVAL"/> has passed since the last save. Cheap when nothing
+        /// waits: the game's processor calls it every frame.
+        /// </summary>
+        public void SavePendingHistory(bool now)
+        {
+            if (!historyUnsaved) return;
+            TimeSpan time = HistoryClock();
+            if (!now && time < nextHistorySave) return;
+            historyUnsaved = false;
+            nextHistorySave = time + HISTORY_SAVE_INTERVAL;
+            historyStore.Save(history.Commands); // never throws for I/O; a failure is logged once
         }
 
         /// <summary>Whether the history search is shown on the input line.</summary>

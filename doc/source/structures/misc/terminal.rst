@@ -166,7 +166,7 @@ Structure
     :type: :struct:`Scalar`
 
     Height of a character cell in the display terminal, in pixels.
-    The value is forced to remain in the range [4..24] and be
+    The value is forced to remain in the range [4..48] and be
     divisible by 2.  If you try to set it to any other value, it
     will snap to the allowed range and increment.
 

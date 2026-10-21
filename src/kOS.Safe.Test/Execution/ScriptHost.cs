@@ -246,7 +246,7 @@ namespace kOS.Safe.Test.Execution
             int originalTop = Screen.TopRow;
             Screen.ScrollVertical(-originalTop);
             var rows = new List<string>();
-            int nextAbsoluteRow = 0;
+            int nextAbsoluteRow = Screen.TopRow; // the oldest row kept: TopRow counts dropped scrollback
             while (true)
             {
                 List<IScreenBufferLine> view = Screen.GetBuffer();

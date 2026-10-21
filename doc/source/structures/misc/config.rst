@@ -33,9 +33,13 @@ Configuration of kOS
     or the :ref:`kOS section of KSP's Difficulty Settings<settingsWindow>`
 
     Because the Telnet server runs as a global instance for KSP, the telnet
-    specific settings are stored globally in kOS's external config file.  These
-    values are noted as **global** below, but all other values may be presumed
-    to be local to the current save file.
+    specific settings are stored globally in kOS's external config file.  So
+    are the defaults for new terminals (:attr:`BRIGHTNESS`, :attr:`VISUALBEEP`,
+    :attr:`KEYCLICK`, :attr:`DEFAULTFONTSIZE`, :attr:`DEFAULTWIDTH`,
+    :attr:`DEFAULTHEIGHT`, and the terminal font picked on the
+    :ref:`App Control Panel <applauncher>`) and :attr:`SUPPRESSAUTOPILOT`:
+    they apply to all games.  These values are noted as **global** below; all
+    other values are local to the current save file.
 
     The config file may be found at :file:`{[KSP Directory]}/GameData/kOS/Plugins/PluginData/kOS/`
 
@@ -50,11 +54,11 @@ Configuration of kOS
 
         * - :attr:`IPU`
           - :struct:`Scalar` (integer)
-          - 150
+          - 200
           - Instructions per update
         * - :attr:`UCP`
           - :struct:`Boolean`
-          - False
+          - True
           - Use compressed persistence
         * - :attr:`STAT`
           - :struct:`Boolean`
@@ -70,7 +74,7 @@ Configuration of kOS
           - Obey the KSP Hide user interface key (usually mapped to F2).
         * - :attr:`SAFE`
           - :struct:`Boolean`
-          - False
+          - True
           - Enable safe mode
         * - :attr:`CLOBBERBUILTINS`
           - :struct:`Boolean`
@@ -78,11 +82,11 @@ Configuration of kOS
           - If true, built-in identifiers can be masked with user identifiers.
         * - :attr:`AUDIOERR`
           - :struct:`Boolean`
-          - False
+          - True
           - Enable sound effect on kOS error
         * - :attr:`VERBOSE`
           - :struct:`Boolean`
-          - False
+          - True
           - Enable verbose exceptions
         * - :attr:`SUPPRESSAUTOPILOT`
           - :struct:`Boolean`
@@ -114,7 +118,7 @@ Configuration of kOS
           - In-game terminal windows click on each key typed
         * - :attr:`DEFAULTFONTSIZE`
           - :struct:`Scalar`
-          - 12 (from range [6 .. 20], integers only)
+          - 12 (from range [4 .. 48], integers only)
           - Default font size in pixel height for new instances of the in-game terminal
         * - :attr:`DEFAULTWIDTH`
           - :struct:`Scalar`
@@ -263,6 +267,8 @@ Configuration of kOS
     :access: Get/Set
     :type: :struct:`Boolean`
 
+    **GLOBAL SETTING**
+
     *This is settable by use of the "Toggle Autopilot" Action Group too.*
 
     When this is set to True, it suppresses all of kOS's attempts to
@@ -348,7 +354,9 @@ Configuration of kOS
     :access: Get/Set
     :type: :struct:`Scalar`. range = [0,1]
 
-    Configures the ``Brightness`` setting.
+    **GLOBAL SETTING**
+
+    Configures the ``TerminalBrightness`` setting.
 
     This is the default starting brightness setting a new
     kOS in-game terminal will have when it is invoked.  This
@@ -363,6 +371,8 @@ Configuration of kOS
     :access: Get/Set
     :type: :struct:`Boolean`
 
+    **GLOBAL SETTING**
+
     Configures the ``TerminalVisualBeep`` setting.
 
     This is the starting :attr:`Terminal:VISUALBEEP` of a new terminal:
@@ -375,6 +385,8 @@ Configuration of kOS
     :access: Get/Set
     :type: :struct:`Boolean`
 
+    **GLOBAL SETTING**
+
     Configures the ``TerminalKeyClick`` setting.
 
     If true, the in-game GUI terminal windows make a click sound on
@@ -384,7 +396,9 @@ Configuration of kOS
 .. attribute:: Config:DEFAULTFONTSIZE
 
     :access: Get/Set
-    :type: :struct:`Scalar` integer-only. range = [6,20]
+    :type: :struct:`Scalar` integer-only. range = [4,48]
+
+    **GLOBAL SETTING**
 
     Configures the ``TerminalFontDefaultSize`` setting.
 
@@ -396,8 +410,8 @@ Configuration of kOS
     the smaller and larger text buttons in that terminal's header
     (kept per CPU with the window's position and size).
 
-    The value here must be at least 6 (nearly impossible to read)
-    and no greater than 30 (very big).  It will be rounded to the
+    The value here must be at least 4 (nearly impossible to read)
+    and no greater than 48 (very big).  It will be rounded to the
     nearest integer when setting the value.
 
 .. attribute:: Config:DEFAULTWIDTH
@@ -405,19 +419,24 @@ Configuration of kOS
     :access: Get/Set
     :type: :struct:`Scalar` integer-only. range = [15,255]
 
+    **GLOBAL SETTING**
+
     Configures the ``TerminalDefaultWidth`` setting.
 
     This is the default starting width (in number of character cells,
     not number of pixels) for all newly created kOS in-game terminals.
     This is just the default for new terminals.  Individual terminals
     can have different settings, either by setting the value
-    :attr:`Terminal:WIDTH` in a script, or by manually dragging the
-    resize corner of the terminal with the mouse.
+    :attr:`Terminal:WIDTH` in a script, or by resizing the terminal
+    with the mouse (by an edge or a corner; kept per CPU with the
+    window's position).
 
 .. attribute:: Config:DEFAULTHEIGHT
 
     :access: Get/Set
     :type: :struct:`Scalar` integer-only. range = [3,160]
+
+    **GLOBAL SETTING**
 
     Configures the ``TerminalDefaultHeight`` setting.
 
@@ -425,8 +444,9 @@ Configuration of kOS
     not number of pixels) for all newly created kOS in-game terminals.
     This is just the default for new terminals.  Individual terminals
     can have different settings, either by setting the value
-    :attr:`Terminal:HEIGHT` in a script, or by manually dragging the
-    resize corner of the terminal with the mouse.
+    :attr:`Terminal:HEIGHT` in a script, or by resizing the terminal
+    with the mouse (by an edge or a corner; kept per CPU with the
+    window's position).
 
 .. attribute:: Config:DEBUGEACHOPCODE
 

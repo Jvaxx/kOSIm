@@ -36,7 +36,7 @@ namespace kOS.Safe.Screen
         private int viewOffset; // how many rows the view is above the screen (negative: below it)
         private int droppedRows; // scrollback lines dropped so far, so TopRow keeps counting
         private bool newOutputOutOfView;
-        private readonly List<IScreenBufferLine> buffer;
+        private readonly ScreenLines buffer; // drops scrollback without moving the other lines (P-09)
         private readonly List<SubBuffer> subBuffers;
 
         public Queue<char> CharInputQueue { get; private set; }
@@ -123,7 +123,7 @@ namespace kOS.Safe.Screen
 
         public ScreenBuffer()
         {
-            buffer = new List<IScreenBufferLine>();
+            buffer = new ScreenLines();
             Notifyees = new List<ResizeNotifier>();
 
             subBuffers = new List<SubBuffer>();
@@ -308,8 +308,10 @@ namespace kOS.Safe.Screen
         {
             // Grow or shrink the width of the buffer lines to match the new
             // value.  Note that this does not (yet) account for preserving lines and wrapping them.
+            // A line already that wide is kept: a change of rows alone copies none (P-09).
             for (int row = 0; row < buffer.Count; ++row)
             {
+                if (buffer[row].Length == ColumnCount) continue;
                 var newRow = new ScreenBufferLine(ColumnCount);
                 newRow.ArrayCopyFrom(buffer[row], 0, 0, Math.Min(buffer[row].Length, ColumnCount));
                 buffer[row] = newRow;
@@ -370,7 +372,7 @@ namespace kOS.Safe.Screen
             // base buffer
             int viewTop = ViewTop;
             int extraPadRows = Math.Max(0, (viewTop + RowCount) - buffer.Count); // When screen extends past the buffer bottom., this is needed to prevent GetRange() exception.
-            var mergedBuffer = new List<IScreenBufferLine>(buffer.GetRange(viewTop, RowCount - extraPadRows));
+            List<IScreenBufferLine> mergedBuffer = buffer.GetRange(viewTop, RowCount - extraPadRows); // a new list
             int lastLineWidth = mergedBuffer[mergedBuffer.Count - 1].Length;
             while (extraPadRows > 0)
             {

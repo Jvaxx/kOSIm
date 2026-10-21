@@ -30,7 +30,7 @@ Base: upstream <https://github.com/KSP-KOS/KOS> `develop` at `8f281a45`. The ori
 
 **Release:** 1.5.1.100 (2026-10-20), a private GitHub Release on `Jvaxx/kOSIm`; procedure in [testing-and-build.md](testing-and-build.md), "Versions and releases".
 
-**Post-release review** (2026-10-20, [review-report.md](review-report.md), of `e280f197`): **R-01** (game-thread telnet sends could block for seconds), **L-01** (the address picker leaked a component per toggle-close) and the idle-work items **P-01 to P-06** (per-frame work and allocation of CPUs nobody looks at, the diff, the toolbar panel) with **R-04/R-05** are fixed, headless-tested and built, not yet checked in game ([testing-and-build.md](testing-and-build.md), "Fixes from the post-release review"). The report's other items are open; its section 8 gives a suggested order (next: the K-01 and K-09–K-12 doc fixes, then P-09 measured).
+**Post-release review** (2026-10-20, [review-report.md](review-report.md), of `e280f197`): **R-01** (game-thread telnet sends could block for seconds), **L-01** (the address picker leaked a component per toggle-close), the idle-work items **P-01 to P-06** (per-frame work and allocation of CPUs nobody looks at, the diff, the toolbar panel) with **R-04/R-05**, and (2026-10-21) **P-09** (scrollback trim), **P-10** (history saves at most every 2 s) and the doc fixes **K-01 to K-12** are done, headless-tested and built, not yet checked in game ([testing-and-build.md](testing-and-build.md), "Fixes from the post-release review"). Measuring P-09 found the real cause of slower long pastes: the interpreter rebuilds its whole program for every command (**PERF-01**, inherited, compiler/VM: needs a user decision). Still open from the report: P-07, P-08, P-11, P-12, L-02 to L-04, D-01 to D-04, R-06/R-07, N-01 (its section 8 gives an order).
 
 The review's terminal items TERM-01 to TERM-08 are covered by Phases 2–4. Not done: the rest of EDIT-05 (find/replace, line numbers, highlighting), the deferred external-editor conveniences (below), and the open issues in [testing-and-build.md](testing-and-build.md), "Known issues and open findings". No further phase is planned: ask the user before starting new work.
 
@@ -95,7 +95,7 @@ A pure policy class in `kOS.Safe` with headless tests; a thin Unity adapter appl
 
 2026-10-15; `kOS.Safe.UserIO.MouseBlocking` (policy) and `kOS.Screen.KOSMouseBlocking` (per-frame KSP sink):
 
-- **Hover lock** over any drawn kOS window under `kOSMouseOver`: flight `CAMERACONTROLS | MAP_UI | TARGETING`; editor `EDITOR_SOFT_LOCK | CAMERACONTROLS`; space center `CAMERACONTROLS | KSC_UI`; tracking station `CAMERACONTROLS | TRACKINGSTATION_UI | MAP_UI`. Never keys, flight controls or staging.
+- **Hover lock** over any drawn kOS window under `kOSMouseOver`: flight `CAMERACONTROLS | MAP_UI | TARGETING`; editor `EDITOR_SOFT_LOCK | CAMERACONTROLS`; space center `CAMERACONTROLS | KSC_UI`; tracking station `CAMERACONTROLS | TRACKINGSTATION_UI | MAP_UI`. Never other keys, flight controls or staging (`CAMERACONTROLS` also pauses the camera keys while hovering).
 - **Presses:** a press started over a kOS window keeps the lock until released; one started on the scene is not taken over. Released two frames after last wanted (#2759). Scene change releases at once.
 - **Raycast blockers** (INPUT-02, 2026-10-20): a transparent Unity UI image over each visible kOS window, because KSP's part clicks and hover check only Unity UI. No ClickThroughBlocker integration (not needed with CTB 2.1.10).
 
@@ -129,7 +129,7 @@ A pure policy class in `kOS.Safe` with headless tests; a thin Unity adapter appl
 
 ### Other
 
-- File I/O: the additive **Preserve text APIs** policy: raw `READRAW`/`WRITERAW` and byte-exact copies, legacy text APIs unchanged (details in [testing-and-build.md](testing-and-build.md), "Files and volumes"). Archive links are followed to read, write and list, never entered by a delete; under Wine deletes and moves involving a link are refused.
+- File I/O: the additive **Preserve text APIs** policy: raw `READRAW`/`WRITERAW` and byte-exact copies, legacy text APIs unchanged (details in [testing-and-build.md](testing-and-build.md), "Files and volumes"). Archive links are followed to read and list, directory links for every write; a file link is written through by appends and `:CLEAR`, but a whole-file save onto it (editor, copy, compile, `WRITEJSON`) replaces the link with a regular file (the atomic save; recorded, not chosen). Links are never entered by a delete; under Wine deletes and moves involving a link are refused.
 - Versions: upstream base plus a kOSIM build number (`1.5.1.100`, then `.101`, …); `kOS.version` has no update URLs; releases are made by hand as private GitHub Releases.
 - Left as is by the user: LIFE-04 (disposed script GUIs keep their resources until power-off or scene change); the `SWITCH`/`RENAME` attach check (dropped); the dev instance's display resolution.
 

@@ -30,8 +30,9 @@ namespace kOS.Safe.Test.Persistence
 
     /// <summary>
     /// IO-04 symlink policy (user decision 2026-10-15): links in the archive are followed to
-    /// read, write and list; a delete never enters one. Real archive, real links to an
-    /// "outside" directory beside it.
+    /// read, write and list; a delete never enters one. A whole-file save onto a file link
+    /// replaces the link (the atomic save, IO-03); appends go through it. Real archive, real
+    /// links to an "outside" directory beside it.
     /// </summary>
     [TestFixture]
     public class ArchiveLinkTest
@@ -241,6 +242,27 @@ namespace kOS.Safe.Test.Persistence
             Assert.IsFalse(SymbolicLinks.IsLink(link));
             Assert.AreEqual("saved\n", File.ReadAllText(link));
             AssertOutsideIntact();
+        }
+
+        [Test]
+        public void AppendingToAFileLinkWritesItsTarget()
+        {
+            // Recorded behavior (Linux Mono; Proton not checked): an append (WRITE, WRITELN,
+            // LOG, WRITERAW) and CLEAR open the file in place, so they go through a file link
+            // to its target and keep the link; only a whole-file save replaces it (above).
+            string target = Path.Combine(outside, "t.ks");
+            string link = Path.Combine(root, "filelink.ks");
+            SymbolicLinks.Create(target, link);
+            var file = (VolumeFile)archive.Open(VolumePath.FromString("/filelink.ks"));
+
+            Assert.IsTrue(file.WriteLn("appended"));
+            Assert.IsTrue(file.WriteRaw(Encoding.UTF8.GetBytes("raw\n")));
+            Assert.IsTrue(SymbolicLinks.IsLink(link));
+            Assert.AreEqual("outside\nappended\nraw\n", File.ReadAllText(target));
+
+            file.Clear();
+            Assert.IsTrue(SymbolicLinks.IsLink(link));
+            Assert.AreEqual("", File.ReadAllText(target));
         }
     }
 

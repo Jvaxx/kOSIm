@@ -808,6 +808,7 @@ namespace kOS.Module
                 // LIFE-02); the window's own OnDestroy does it too, whichever runs first:
                 if (shared.Window != null)
                     shared.Window.DetachAllTelnets();
+                SaveCommandHistory(true); // the last commands, before the interpreter goes
                 shared.Cpu.BreakExecution(false);
                 shared.Cpu.Dispose();
                 shared.DestroyObjects();
@@ -899,7 +900,20 @@ namespace kOS.Module
             }
             UpdateVessel();
             UpdateObservers();
+            SaveCommandHistory(false);
             ++numUpdatesAfterStartHappened;
+        }
+
+        /// <summary>
+        /// Save the command history if a command is waiting for it (review P-10: saved at
+        /// most every <see cref="CommandLineEditor.HISTORY_SAVE_INTERVAL"/>); with
+        /// <paramref name="now"/>, at once.
+        /// </summary>
+        private void SaveCommandHistory(bool now)
+        {
+            var editor = shared == null ? null : shared.Interpreter as CommandLineEditor;
+            if (editor != null)
+                editor.SavePendingHistory(now);
         }
 
         public void FixedUpdate()

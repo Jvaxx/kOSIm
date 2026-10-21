@@ -113,4 +113,8 @@ Key Notes:
 10. (For mod developers) Spams the Unity log file with a message for every time an opcode is executed in the virtual machine.  Very laggy. See :attr:`Config:DEBUGEACHOPCODE`
 11. :ref:`Connectivity manager<connectivityManagers>` selector
 12. List of all available :ref:`connectivity managers<connectivityManagers>`.
-13. Brightness of a kOS terminal when it appears for the first time in a scene. (You must reload the scene to see the effect of any changes to this slider.)
+13. Older versions of kOS only: the default brightness of new terminals is no longer here. It is :attr:`Config:BRIGHTNESS`, set on the Settings tab of the :ref:`kOS Control Panel <applauncher>` for all games.
+
+The picture is from an older version of kOS: besides the brightness slider (13), it
+lacks **Allow clobbering built-ins** (:attr:`Config:CLOBBERBUILTINS`), which comes
+after **Verbose exceptions**.

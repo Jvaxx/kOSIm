@@ -14,7 +14,10 @@ namespace kOS.Safe.UserIO
     /// <list type="bullet">
     /// <item><b>Interrupt</b> (BREAK, from Ctrl-C or the telnet IP command): discards the
     /// text typed before it, as the terminal discards its type-ahead on an interrupt,
-    /// and is read before anything else. Text typed after it is kept.</item>
+    /// and is read before anything else. Text queued after it is kept; but after a telnet
+    /// BRK or IP command, <see cref="TelnetInputDispatcher"/> has already dropped the text of
+    /// the same read and of the reads that follow until the socket is drained, as upstream
+    /// did; only after a Ctrl-C sent as a character (0x03) is the text that follows kept.</item>
     /// <item><b>Resize</b> (RESIZESCREEN width height): only the latest size is kept, read
     /// before text.</item>
     /// <item><b>Repaint request</b> (REQUESTREPAINT, from Ctrl-L or kOS itself):

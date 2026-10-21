@@ -384,6 +384,23 @@ namespace kOS.Safe.Test.Terminal
         }
 
         [Test]
+        public void TheTestTranscriptStartsAtTheOldestLineKept()
+        {
+            // ScriptHost.Transcript read from row 0, but TopRow counts dropped lines, so it
+            // failed once the scrollback was full (the 3,000-line paste measurement did).
+            using (var host = new ScriptHost(5, 30))
+            {
+                host.Boot();
+                for (int i = 0; i < ScreenBuffer.MAX_SCROLLBACK + 20; ++i)
+                    host.Screen.Print("line " + i);
+                string[] rows = host.Transcript().Split('\n');
+                Assert.AreEqual(ScreenBuffer.MAX_SCROLLBACK + 4, rows.Length, "scrollback and screen, without the empty cursor row");
+                Assert.AreEqual("line 16", rows[0]);
+                Assert.AreEqual("line " + (ScreenBuffer.MAX_SCROLLBACK + 19), rows[rows.Length - 1]);
+            }
+        }
+
+        [Test]
         public void ThePromptKeepsWorkingAtTheLimitWithAWrappedCommand()
         {
             using (var host = new ScriptHost(5, 30))

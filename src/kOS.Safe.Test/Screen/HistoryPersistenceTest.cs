@@ -14,8 +14,8 @@ namespace kOS.Safe.Test.Terminal
 {
     /// <summary>
     /// Phase 3, decisions H3/H4: the history saved per CPU (<see cref="CommandHistoryFile"/>,
-    /// read on first use, saved after every recorded command, kept on reboot), and commands
-    /// typed with a leading space not recorded.
+    /// read on first use, saved when a recorded command changes it but at most every 2 s
+    /// (review P-10), kept on reboot), and commands typed with a leading space not recorded.
     /// </summary>
     [TestFixture]
     public class HistoryPersistenceTest
@@ -271,6 +271,7 @@ namespace kOS.Safe.Test.Terminal
                 host.Screen.HistoryStore = new CommandHistoryFile(() => FilePath);
                 host.Execute("print 1.");
                 host.Execute("if true {\nprint 2.\n}");
+                host.Screen.SavePendingHistory(true); // as the processor does when it goes
             }
             Assert.AreEqual(CommandHistoryFile.HEADER + "\nprint 1.\nif true {\\nprint 2.\\n}\n",
                 File.ReadAllText(FilePath, Encoding.UTF8));
@@ -279,6 +280,146 @@ namespace kOS.Safe.Test.Terminal
                 host.Screen.HistoryStore = new CommandHistoryFile(() => FilePath);
                 host.Screen.SpecialKey(UP);
                 Assert.AreEqual("if true {\nprint 2.\n}", host.Screen.InputLine, "a new game session reads it back");
+            }
+        }
+
+        // Saves spaced out (review P-10), on a clock the test moves:
+
+        private sealed class Clock
+        {
+            public TimeSpan Now = TimeSpan.FromSeconds(100);
+            public void Advance(double seconds) { Now += TimeSpan.FromSeconds(seconds); }
+        }
+
+        private static ScriptHost HostWithStore(MemoryStore store, Clock clock)
+        {
+            var host = new ScriptHost(10, 40);
+            host.Screen.HistoryClock = () => clock.Now;
+            host.Screen.HistoryStore = store;
+            return host;
+        }
+
+        [Test]
+        public void ACommandIsSavedAtOnceWhenTheLastSaveIsOldEnough()
+        {
+            var store = new MemoryStore();
+            var clock = new Clock();
+            using (ScriptHost host = HostWithStore(store, clock))
+            {
+                host.Execute("print 1.");
+                Assert.AreEqual(1, store.Saves, "the first command");
+                clock.Advance(2);
+                host.Execute("print 2.");
+                Assert.AreEqual(2, store.Saves, "2 s later");
+                CollectionAssert.AreEqual(new[] { "print 1.", "print 2." }, store.Saved);
+                clock.Advance(60);
+                host.Screen.SavePendingHistory(false);
+                host.Screen.SavePendingHistory(true);
+                Assert.AreEqual(2, store.Saves, "nothing waits");
+            }
+        }
+
+        [Test]
+        public void CommandsInQuickSuccessionAreSavedTogetherWhenTheIntervalIsOver()
+        {
+            var store = new MemoryStore();
+            var clock = new Clock();
+            using (ScriptHost host = HostWithStore(store, clock))
+            {
+                host.Execute("print 1.");
+                clock.Advance(0.5);
+                host.Execute("print 2.");
+                clock.Advance(0.5);
+                host.Execute("print 3.");
+                Assert.AreEqual(1, store.Saves, "within 2 s of the first save");
+                CollectionAssert.AreEqual(new[] { "print 1." }, store.Saved);
+
+                clock.Advance(0.99);
+                host.Screen.SavePendingHistory(false);
+                Assert.AreEqual(1, store.Saves, "1.99 s after the save");
+                clock.Advance(0.01);
+                host.Screen.SavePendingHistory(false);
+                Assert.AreEqual(2, store.Saves, "2 s after it");
+                CollectionAssert.AreEqual(new[] { "print 1.", "print 2.", "print 3." }, store.Saved);
+                host.Screen.SavePendingHistory(false);
+                Assert.AreEqual(2, store.Saves, "once");
+
+                clock.Advance(1);
+                host.Execute("print 4.");
+                Assert.AreEqual(2, store.Saves, "1 s after the last save");
+                clock.Advance(1);
+                host.Execute("print 5.");
+                Assert.AreEqual(3, store.Saves, "the command 2 s after the last save saves both");
+                CollectionAssert.AreEqual(new[] { "print 1.", "print 2.", "print 3.", "print 4.", "print 5." }, store.Saved);
+            }
+        }
+
+        [Test]
+        public void APendingCommandIsSavedAtOnceWhenTheCpuGoes()
+        {
+            var store = new MemoryStore();
+            var clock = new Clock();
+            using (ScriptHost host = HostWithStore(store, clock))
+            {
+                host.Execute("print 1.");
+                host.Execute("print 2.");
+                Assert.AreEqual(1, store.Saves);
+                host.Screen.SavePendingHistory(true);
+                Assert.AreEqual(2, store.Saves, "now, without waiting");
+                CollectionAssert.AreEqual(new[] { "print 1.", "print 2." }, store.Saved);
+                host.Screen.SavePendingHistory(true);
+                Assert.AreEqual(2, store.Saves, "once");
+
+                clock.Advance(1);
+                host.Execute("print 3.");
+                Assert.AreEqual(2, store.Saves, "the interval counts from the last save, made now");
+            }
+        }
+
+        [Test]
+        public void CommandsThatChangeNothingLeaveNothingToSave()
+        {
+            var store = new MemoryStore();
+            var clock = new Clock();
+            using (ScriptHost host = HostWithStore(store, clock))
+            {
+                host.Execute("print 1.");
+                host.Execute("print 1.");
+                host.Execute("");
+                host.Execute(" print 2.");
+                clock.Advance(10);
+                host.Screen.SavePendingHistory(false);
+                Assert.AreEqual(1, store.Saves, "a repeat, an empty command and a leading space change nothing");
+            }
+        }
+
+        [Test]
+        public void ANewStoreGetsThePendingCommandsSavedToTheOldOne()
+        {
+            var first = new MemoryStore();
+            var second = new MemoryStore();
+            var clock = new Clock();
+            using (ScriptHost host = HostWithStore(first, clock))
+            {
+                host.Execute("print 1.");
+                host.Execute("print 2.");
+                host.Screen.HistoryStore = second;
+                CollectionAssert.AreEqual(new[] { "print 1.", "print 2." }, first.Saved);
+                Assert.AreEqual(0, second.Saves);
+            }
+        }
+
+        [Test]
+        public void CheckingForAPendingSaveAllocatesNothing()
+        {
+            var store = new MemoryStore();
+            var clock = new Clock();
+            using (ScriptHost host = HostWithStore(store, clock))
+            {
+                host.Execute("print 1.");
+                Assert.AreEqual(0, AllocationCounter.BytesAllocated(() => host.Screen.SavePendingHistory(false), 1000), "nothing waits");
+                host.Execute("print 2.");
+                Assert.AreEqual(0, AllocationCounter.BytesAllocated(() => host.Screen.SavePendingHistory(false), 1000), "waiting for the interval");
             }
         }
     }

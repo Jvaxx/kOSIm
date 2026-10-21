@@ -361,6 +361,8 @@ area the checklist mentions.
 
 ### P-09 (Low, kOSIm): a full scrollback shifts the whole list per printed line
 
+**Status: done** (2026-10-21). The buffer's lines are kept in `ScreenLines`, which drops its first lines without moving the others (one copy of the lines kept after at least as many dropped); a change of rows alone keeps the lines. Measured headless: a line printed with the scrollback full 2.7–2.9 µs → 0.5–0.9 µs, one `PRINT` of 5,000 lines 12–14 ms → 1.2–2.0 ms. **It is not the cause of the slower long paste:** that growth continues after the scrollback is full and is all in the interpreter's program rebuild for each command (upstream `ProgramContext.AddParts`; recorded as PERF-01 in `testing-and-build.md`). The `SetSize` LINQ sum is left as is (once per resize). Details: `testing-and-build.md`, "Fixes from the post-release review".
+
 `ScreenBuffer.ScrollScreen` (`src/kOS.Safe/Screen/ScreenBuffer.cs:489-494`) runs
 `buffer.RemoveRange(0, excess)` as soon as `topRow > MAX_SCROLLBACK`. With the 2000-line
 scrollback full, every new line shifts about 2000 references.
@@ -379,6 +381,8 @@ Related:
 - `SetSize` sums the resize notifiers with LINQ (`:189`).
 
 ### P-10 (Low, kOSIm): command history saved synchronously on every command
+
+**Status: done** (2026-10-21). Saved at most every 2 s: at once when the last save is older (typing by hand is unchanged), else by the processor's next `Update` after the interval, or at once when the processor goes (`OnDestroy`, before the interpreter is released). A game crash can lose the last 2 s of commands.
 
 `CommandLineEditor.RecordCommand` (`src/kOS.Safe/Screen/CommandLineEditor.cs:79-85`)
 calls `historyStore.Save(…)` on the game thread after **every** recorded command. Each
@@ -488,6 +492,8 @@ and its loop body is empty.
 
 ### Contradictions in kOSIm's own docs
 
+**Status: K-01 and K-03 to K-12 done** (2026-10-21; K-02 with P-06), with the doc nuance below. Each was checked against the code first. K-01 now says that appends and `:CLEAR` write a file link's target, while a whole-file save replaces the link (new test). K-04 and K-05 were fixed in the docs, not the code: the copy filter still keeps DEL and C1, and the brightness suffix still stores a float. K-12's defaults were checked one by one in `kOSCustomParameters`.
+
 - **K-01 (Medium):** the link write policy contradicts itself.
   - `testing-and-build.md:271` (IO-04) and `KOSIm-roadmap.md:130` say archive links are
     "followed to read, **write** and list".
@@ -555,6 +561,8 @@ kOSIm rewrote paragraphs next to each of these, so a reader will take them as cu
 
 ### Doc nuance (Info)
 
+**Status: done** (2026-10-21): the `TelnetInputQueue` comment now says it.
+
 `TelnetInputQueue`'s comment says text typed after a break is kept. The dispatcher drops
 text after a break within the same read, until the socket drains. This matches upstream
 and is documented as such in the NET-03 notes; the queue's own comment should say the
@@ -616,11 +624,11 @@ placement changes.
 3. **P-01, P-02, P-03 (gating), P-06 (done, with P-04, P-05, R-04 and R-05):** early returns when there is no input, no viewer
    or no window. These are small, testable changes that remove most of the idle
    per-CPU work.
-4. **K-01** and **K-09–K-12:** doc fixes. The link policy is a stated binding decision,
+4. **K-01** and **K-09–K-12 (done, with K-03 to K-08):** doc fixes. The link policy is a stated binding decision,
    so correct it first.
-5. **P-09** (batched scrollback trim) together with the open "large paste grows with
-   the scrollback" item, measured before and after.
-6. **P-04, P-05, P-07, P-08, P-10:** allocation and I/O trims, ideally with a simple
+5. **P-09 (done)** (batched scrollback trim) together with the open "large paste grows with
+   the scrollback" item, measured before and after (it was not the cause: PERF-01).
+6. **P-04, P-05, P-07, P-08, P-10 (P-04, P-05, P-10 done):** allocation and I/O trims, ideally with a simple
    allocation counter in a headless test so the gains can be shown, not assumed.
 7. **L-02, L-03:** decide on pruning or hiding, then document.
 8. **D-01–D-04, R-02–R-07:** cleanup when touching those files.
