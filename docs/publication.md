@@ -54,8 +54,8 @@ also remain in some original binary art-source metadata; those files are retaine
   A filename-only scan of reachable local history also found old ModuleManager and
   KSPAPIExtensions binaries; include historical dependency provenance in that review.
   This preparation is not a legal opinion or completed third-party license audit.
-- [ ] Decide which releases to make available and their support claims. Current development
-  `1.6.0.103` is unreleased; historical `1.5.1.100`–`.102` names are intentionally unchanged.
+- [ ] Decide which releases to make available and their support claims. `1.6.0.103` is
+  released (first package with license/source materials); historical `1.5.1.100`–`.102` names are intentionally unchanged.
 - [ ] Review installation as a replacement for upstream, ModuleManager dependency,
   [CKAN behavior](ckan.md#client-behavior) and the narrow Proton validation scope.
 - [ ] Run local tests and a manual HTML build; document unresolved warnings. For a new

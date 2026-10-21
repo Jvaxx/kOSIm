@@ -29,15 +29,15 @@ edge-case coverage. Details: [compatibility contracts](compatibility.md),
 [changelog](../CHANGELOG.md), [current verification](HANDOFF.md).
 
 Historical fork releases: `1.5.1.100`–`.102` (incorrect version prefix, unchanged).
-Current development: **1.6.0.103, unreleased**; the version correction is not an upstream
-rebase. CKAN packaging (`kOSImproved`) is implemented and checked locally, but not yet
-published; see [CKAN packaging](ckan.md). No next implementation phase has been selected.
+Latest release: **1.6.0.103**; the version correction is not an upstream rebase. It is
+the first release with a `kOSImproved` `.ckan`; see [CKAN packaging](ckan.md). No next implementation phase has been selected.
 
 ## Prioritized follow-up
 
 1. **Publication readiness:** finish [repository/history and distribution checks](publication.md).
    No visibility change, release, deployment or history rewrite is implicit.
-   Release 1.6.0.103 with its `.ckan`, then submit the [NetKAN file](ckan.md#netkan-submission-maintainer-action-after-the-first-release).
+   Follow the [NetKAN submission](ckan.md#netkan-submission-maintainer-action-after-the-first-release)
+   ([#11747](https://github.com/KSP-CKAN/NetKAN/pull/11747)) through merge and indexing.
 2. **Telnet edge cases:** investigate tiny-grid runaway and negotiation loops before
    expanding remote use. Retain opt-in/loopback defaults and bounded executable input.
 3. **Finish targeted game checks:** pending-history flush on immediate game exit;

@@ -7,8 +7,8 @@ never installed together. The [CKAN spec](https://github.com/KSP-CKAN/CKAN/blob/
 describes this provide-and-conflict pattern for interchangeable mods.
 
 **Status:** 1.6.0.103 is the first release with a standalone `.ckan`. The fork is
-**not yet in the CKAN index**; the NetKAN file (below) is being submitted so CKAN
-indexes releases itself.
+**not yet in the CKAN index**; the NetKAN file was submitted as
+[KSP-CKAN/NetKAN#11747](https://github.com/KSP-CKAN/NetKAN/pull/11747).
 
 ## Files
 

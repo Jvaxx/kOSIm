@@ -70,8 +70,8 @@ release except for `CHANGELOG.md`. Exact provenance and the current development
 version are recorded in [`kOS.props`](kOS.props).
 
 The first three version fields follow upstream; the fourth is a continuous
-**kOSIM build counter**, not upstream's fourth field. The corrected development
-line starts at **1.6.0.103 (unreleased)**. Historical `1.5.1.100`–`1.5.1.102`
+**kOSIM build counter**, not upstream's fourth field. The corrected version
+line starts at **1.6.0.103** (released 2026-10-21). Historical `1.5.1.100`–`1.5.1.102`
 releases already contained upstream 1.6.0.1; their incorrect prefixes are retained
 as historical identifiers, not rewritten.
 
