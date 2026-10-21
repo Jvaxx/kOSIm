@@ -1,5 +1,30 @@
 # kOS Mod Changelog
 
+## kOS Improved 1.6.0.103 (Unreleased)
+
+Versioning correction; no new gameplay or terminal behavior.
+
+- Correct the fork's version prefix to `1.6.0`. The actual source base has
+  always been upstream `develop` at `8f281a45`, identical to upstream
+  **1.6.0.1** except for the changelog heading. All of that release's
+  features and fixes were already inherited by our earlier releases.
+- Continue the fork build counter at **103**. The fourth field identifies
+  a kOSIM build, not upstream's fourth version field. Exact upstream
+  release and source commit are recorded separately in `kOS.props`.
+- Assembly/file versions, kerboscript `VERSION` and generated
+  `kOS.version` become **1.6.0.103**; KSP's three-field assembly identity
+  becomes **1.6.0**. Scripts that compare version numbers and mods that
+  inspect KSP assembly versions will see the corrected values.
+- Add local version-consistency checks and correct the baseline and
+  release documentation. Sphinx documentation now reads the fork version
+  and upstream baseline from `kOS.props`, instead of advertising 1.4.0.0. No script syntax, KSM/save/craft format or
+  public API signature changes; no migration is needed.
+
+Published `1.5.1.100`, `.101` and `.102` names, tags and artifacts remain
+unchanged historical identifiers. Their `1.5.1` prefix was a numbering
+mistake, not an older source baseline. This entry is not a publication
+or a new in-game validation record.
+
 ## kOS Improved 1.5.1.102 (2026-10-21)
 
 - Per-window terminal background opacity: right-click unused header
@@ -63,9 +88,11 @@ compatible. Details, reasons and limits: `docs/testing-and-build.md`,
 ## kOS Improved 1.5.1.100 (2026-10-20)
 
 First checkpoint of kOS Improved (kOSIM), a fork of upstream kOS `develop`
-at `8f281a45`; that commit's own changes since 1.5.1.0 are listed under
-"Unreleased" below. Built for KSP 1.12.5 and tested in game under Proton
-(GE-Proton11-7) only. Scripts, KSM files, saves, craft and the public mod
+at `8f281a45`, with the same source as upstream 1.6.0.1 (only the
+changelog heading differed). The inherited changes since 1.5.1.0 are
+listed under "Upstream kOS 1.6.0.1" below. The published fork version
+is retained here as history despite its incorrect `1.5.1` prefix. Built
+for KSP 1.12.5 and tested in game under Proton (GE-Proton11-7) only. Scripts, KSM files, saves, craft and the public mod
 APIs stay compatible. The full list, with the reasons and limits, is in
 `docs/testing-and-build.md`, "Behavior changes from upstream".
 
@@ -139,7 +166,10 @@ APIs stay compatible. The full list, with the reasons and limits, is in
 - `kOS.version` has no update URL, so version checkers do not offer
   upstream releases over this build.
 
-## Unreleased
+## Upstream kOS 1.6.0.1 - 2026-05-14
+
+Already inherited by kOS Improved from its initial fork point; not
+pending work. The original `develop` changelog called this "Unreleased".
 
 ### New Features
 

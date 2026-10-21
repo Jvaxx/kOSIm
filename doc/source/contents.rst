@@ -3,6 +3,10 @@
 Documentation Table of Contents 
 ===============================
 
+This is **kOS Improved**, version |release|, based on upstream kOS |upstream_release|.
+The fourth field of the fork version is the kOSIM build counter, not
+upstream's fourth version field.
+
 .. toctree::
     :includehidden:
     :titlesonly:

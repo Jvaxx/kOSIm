@@ -1,4 +1,12 @@
-# This is a precursor to an automated build system
+# Historical upstream release checklist
+
+**For kOS Improved, use [Versions and releases](docs/testing-and-build.md#versions-and-releases).**
+Set the fork version only in `kOS.props`; assembly attributes and
+`kOS.version` are generated. Do not follow the upstream publishing,
+manual assembly-version edits or hosted automation instructions below.
+They are retained as upstream history, not the fork's release procedure.
+
+## Original upstream checklist
 
 Note, some of these steps are different if this is a backport to an
 older version of KSP instead of the most recent version.  Please

@@ -4,9 +4,14 @@
     <Company></Company>
     <KSPBT_ModRoot>$(MSBuildThisFileDirectory)\Resources\GameData\kOS</KSPBT_ModRoot>
     <KSPBT_ModPluginFolder>Plugins</KSPBT_ModPluginFolder>
-    <!-- kOS Improved: upstream base 1.5.1 plus a kOSIM build number (the first release is 1.5.1.100).
-         Also gives KSPAssembly("kOS", 1, 5, 1) and the kerboscript VERSION; keep kOS.version in step. -->
-    <KSPBT_ModVersion>1.5.1.102</KSPBT_ModVersion>
+    <!-- Exact upstream release and actual fork point (same tree except CHANGELOG.md).
+         These provenance properties are not the fork's own version. -->
+    <KOSIM_UpstreamVersion>1.6.0.1</KOSIM_UpstreamVersion>
+    <KOSIM_UpstreamCommit>8f281a459b6ea0ba917c91bbbc117e68bb948199</KOSIM_UpstreamCommit>
+    <!-- First three fields follow upstream; fourth is the continuous kOSIM build counter,
+         NOT upstream's fourth field. Drives assembly/file versions, kerboscript VERSION,
+         generated kOS.version and KSPAssembly("kOS", 1, 6, 0). -->
+    <KSPBT_ModVersion>1.6.0.103</KSPBT_ModVersion>
     <Version>$(KSPBT_ModVersion)</Version>
   </PropertyGroup>
 </Project>
