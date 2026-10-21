@@ -5,7 +5,7 @@ Fork entries come first; inherited upstream release history follows under
 and credits refer to KSP-KOS/KOS. Current development contracts and known issues:
 [developer documentation](docs/README.md).
 
-## kOS Improved 1.6.0.103 (Unreleased)
+## kOS Improved 1.6.0.103 (2026-10-21)
 
 Versioning correction and CKAN packaging; no new gameplay or terminal behavior.
 
@@ -39,8 +39,8 @@ Versioning correction and CKAN packaging; no new gameplay or terminal behavior.
 
 Published `1.5.1.100`, `.101` and `.102` names, tags and artifacts remain
 unchanged historical identifiers. Their `1.5.1` prefix was a numbering
-mistake, not an older source baseline. This entry is not a publication
-or a new in-game validation record.
+mistake, not an older source baseline. This release had no new in-game
+validation: its runtime code matches 1.5.1.102 apart from version metadata.
 
 ## kOS Improved 1.5.1.102 (2026-10-21)
 

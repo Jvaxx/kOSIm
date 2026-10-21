@@ -37,8 +37,8 @@ Install ModuleManager separately if needed. Preserve
 `GameData/kOS/Plugins/PluginData/` when updating.
 
 **With CKAN:** the fork's CKAN identifier is `kOSImproved`. It provides `kOS` to add-ons
-that depend on kOS and conflicts with upstream kOS. Releases from 1.6.0.103 (not yet
-released) attach a `kOSImproved-<version>.ckan` file. Install it with CKAN's
+that depend on kOS and conflicts with upstream kOS. Releases from 1.6.0.103 attach a
+`kOSImproved-<version>.ckan` file. Install it with CKAN's
 *File → Install from .ckan…*, or `ckan install -c <file or URL>`. The fork is not yet
 in the main CKAN index, so:
 

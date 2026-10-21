@@ -6,10 +6,9 @@ add-ons that depend on `kOS` accept it, and **conflicts** with `kOS`, so the two
 never installed together. The [CKAN spec](https://github.com/KSP-CKAN/CKAN/blob/master/Spec.md#provides)
 describes this provide-and-conflict pattern for interchangeable mods.
 
-**Status:** metadata, packaging and local solver checks exist. No release with a
-`.ckan` file has been published yet, and the fork is **not in the CKAN index**. The plan:
-attach a standalone `.ckan` to each release from 1.6.0.103, then submit the NetKAN file
-(below) so CKAN indexes later releases itself.
+**Status:** 1.6.0.103 is the first release with a standalone `.ckan`. The fork is
+**not yet in the CKAN index**; the NetKAN file (below) is being submitted so CKAN
+indexes releases itself.
 
 ## Files
 
