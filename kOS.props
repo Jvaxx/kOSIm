@@ -6,7 +6,7 @@
     <KSPBT_ModPluginFolder>Plugins</KSPBT_ModPluginFolder>
     <!-- kOS Improved: upstream base 1.5.1 plus a kOSIM build number (the first release is 1.5.1.100).
          Also gives KSPAssembly("kOS", 1, 5, 1) and the kerboscript VERSION; keep kOS.version in step. -->
-    <KSPBT_ModVersion>1.5.1.100</KSPBT_ModVersion>
+    <KSPBT_ModVersion>1.5.1.101</KSPBT_ModVersion>
     <Version>$(KSPBT_ModVersion)</Version>
   </PropertyGroup>
 </Project>

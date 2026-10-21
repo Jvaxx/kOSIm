@@ -1,5 +1,50 @@
 # kOS Mod Changelog
 
+## kOS Improved 1.5.1.101 (2026-10-21)
+
+Terminal geometry presets, and the fixes from the review of 1.5.1.100.
+Built for KSP 1.12.5 and tested in game under Proton (GE-Proton11-7)
+only. Scripts, KSM files, saves, craft and the public mod APIs stay
+compatible. Details, reasons and limits: `docs/testing-and-build.md`,
+"Terminal geometry presets" and "Fixes from the post-release review".
+
+### Terminal
+
+- Geometry presets: three buttons `1` `2` `3` in the terminal header.
+  Right click saves the window's position, size and character height
+  into a preset, left click applies it. One set for every CPU, vessel
+  and save, kept in
+  `GameData/kOS/Plugins/PluginData/kOS/terminal-presets.txt` (an update
+  keeps it). The buttons hide on narrow windows.
+- The command history is saved at most every 2 s (and when the CPU
+  goes), instead of after every command.
+- History and window-geometry files of parts that no save has any more
+  are removed after a save is loaded from the main menu.
+- The broken-install message names the terminal's missing sound files.
+
+### Performance
+
+- CPUs whose terminal nobody looks at (window closed, no telnet client)
+  no longer do per-frame work or allocate at the prompt.
+- An open terminal keeps its rows, strip and title while they show the
+  same, instead of rebuilding them on every GUI event.
+- Printing with a full scrollback is much cheaper.
+- Deleting files under Wine checks each path once.
+
+### Fixes
+
+- A telnet client that stops reading can no longer stall the game; the
+  detach message and goodbye arrive after the pending screen output.
+- The telnet address picker no longer leaks a component each time it is
+  closed from its toggle.
+- Leftover temporary files from an interrupted archive save are removed
+  when their folder is listed.
+- A script GUI popup menu larger than the screen starts at the screen's
+  top or left edge, so its first items are visible.
+- Missing checks that could throw when a CPU's vessel went away.
+- Documentation corrections (file links, `CHARHEIGHT` range, config
+  defaults).
+
 ## kOS Improved 1.5.1.100 (2026-10-20)
 
 First checkpoint of kOS Improved (kOSIM), a fork of upstream kOS `develop`
