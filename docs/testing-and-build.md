@@ -88,6 +88,15 @@ dotnet build kOS.sln -c Release --no-incremental
   5. Deploy the zip's contents to the dev instance (procedure above) and check Player.log for `kOS v<version>+<commit>` at the main menu.
   6. `git tag -a v<version>`, push the commit and the tag to `origin` only, then `gh release create v<version> --repo Jvaxx/kOSIm --title "kOS Improved <version>" --notes-file <notes> artifacts/kOS-v<version>.zip`. The repository is private, so the release is too.
 
+### 1.5.1.102 release record (2026-10-21)
+
+- Published/latest private release: <https://github.com/Jvaxx/kOSIm/releases/tag/v1.5.1.102>; annotated tag `v1.5.1.102` on **`c1fb95a900342840254c3f75b9ab2315fe29b330`**. Feature `c1701110` and release/tag pushed only to `origin`. Functional Proton pass below; no source changes after it, only version/docs/changelog.
+- Release gate: `bash .ci/test.sh` **1435 discovered/executed/passed**, 0 errors/failures/skipped, plus 12/12 Python checker tests. Full `dotnet build kOS.sln -c Release --no-incremental` before and after committing: **0 errors, 44 existing warnings**. Logs in `artifacts/tests/release-1.5.1.102-*.log`. This later release-record edit is docs-only; no additional gate/build run.
+- The committed build's `kOS.dll` sha256 `8f0a59902dea152fb40bb55fdc9b0f821348915a619946b1f86d397c0047aae3`; `kOS.Safe.dll` `ea584955462984bd00b796f896234434c92731cdcc7aa5c952826e9f49ca0d89`. Generated assembly/file/version metadata is 1.5.1.102; informational version includes the full release commit, KSPAssembly stays 1.5.1, and `kOS.version` has no update URLs.
+- `artifacts/kOS-v1.5.1.102.zip`: **75 entries, 64 files**, 3,204,574 bytes, rooted at GameData; no PluginData/thumbs. CRCs, paths, version and DLL contents verified. Sha256 **`1f31a664861db2b1db0e271a550b521d818acef4ac16c4dab4a0a9e552d0a040`**, equal to the uploaded asset's GitHub digest.
+- With the game closed, backed up the tested mod to `kOS-GameData-backups/kOS-before-v1.5.1.102-20261021-130816`, extracted the release zip into the approved dev instance and verified deployed DLLs equal the build and PluginData unchanged. The user's settings/presets are preserved.
+- **Release smoke passed:** approved launcher, UMU 1.4.4 / GE-Proton11-7, isolated prefix, Wayland driver and MangoHud. At MAINMENU, Player.log confirms Windows KSP 1.12.5.3190 and `kOS v1.5.1.102 / v1.5.1.102+c1fb95a900342840254c3f75b9ab2315fe29b330`. Closed normally with explicit permission; game remains closed. Log `dev-logs/Player.log.v1.5.1.102-smoke-20261021` has no `Exception`/`[ERR`/`display fault` matches through exit. No new flight/opacity interaction was needed for this version-only smoke.
+
 ## In-game testing
 
 ### Launch and logs
