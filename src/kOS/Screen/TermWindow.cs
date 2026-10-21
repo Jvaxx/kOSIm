@@ -134,10 +134,17 @@ namespace kOS.Screen
         private FlatWindowLayout flatLayout;
         private Rect pasteRect;
 
-        // Ctrl+Shift+C and Ctrl+Shift+E (P3-4) say what they did in the status strip, for a moment:
-        private string copyNotice;
-        private DateTime copyNoticeEnd;
-        private static readonly TimeSpan copyNoticeDuration = TimeSpan.FromSeconds(2);
+        // Ctrl+Shift+C and Ctrl+Shift+E (P3-4) and the preset buttons say what they did in the
+        // status strip, for a moment:
+        private string notice;
+        private DateTime noticeEnd;
+        private static readonly TimeSpan noticeDuration = TimeSpan.FromSeconds(2);
+
+        // The geometry presets: one set for the game, shared by every terminal, so a preset
+        // saved in one is at once in all; a left click on a preset button applies one at the
+        // next OnGUI, between passes, as the size buttons' character height.
+        private static TerminalPresetFile presets;
+        private TerminalGeometry pendingPreset;
         
         // The CPU state (Phase 3, D2), in the status strip and after the telnet title; worked
         // out at most every statusInterval, which also bounds the title updates telnet clients get:
@@ -344,6 +351,7 @@ namespace kOS.Screen
             // Keep font/geometry preparation before GUI.Window, but contain its failures
             // so the callback can still offer fallback Close/Retry/Resize controls.
             renderFaultRecovery.TryRender(RenderTimeSeconds(), PrepareTerminalRendering, CanRecoverRenderFault, ReportRenderFault);
+            ApplyPendingPreset();
 
             // Hidden UI and the flight-results dialog suspend the keyboard focus, so a terminal
             // that is not drawn does not read keys (INPUT-01):
@@ -644,12 +652,12 @@ namespace kOS.Screen
             string text = selected ? TerminalCopy.SelectionText(screenBuffer, selection) : TerminalCopy.VisibleText(shared.Screen);
             if (text.Length == 0)
             {
-                ShowCopyNotice("Nothing to copy");
+                ShowNotice("Nothing to copy");
                 return;
             }
             int lines = TerminalCopy.LineCount(text);
             if (WriteClipboard(text))
-                ShowCopyNotice(string.Format("Copied {0} line{1}", lines, lines == 1 ? "" : "s"));
+                ShowNotice(string.Format("Copied {0} line{1}", lines, lines == 1 ? "" : "s"));
         }
 
         private void CopyLastError()
@@ -658,11 +666,11 @@ namespace kOS.Screen
             string text = logger == null ? null : logger.LastError.Text;
             if (string.IsNullOrEmpty(text))
             {
-                ShowCopyNotice("No error to copy");
+                ShowNotice("No error to copy");
                 return;
             }
             if (WriteClipboard(text))
-                ShowCopyNotice("Copied the last error");
+                ShowNotice("Copied the last error");
         }
 
         private bool WriteClipboard(string text)
@@ -675,15 +683,74 @@ namespace kOS.Screen
             catch (Exception ex) when (!(ex is OutOfMemoryException || ex is ExitGUIException))
             {
                 UnityEngine.Debug.LogException(ex, this);
-                ShowCopyNotice("Copy failed (see KSP.log)");
+                ShowNotice("Copy failed (see KSP.log)");
                 return false;
             }
         }
 
-        private void ShowCopyNotice(string notice)
+        private void ShowNotice(string text)
         {
-            copyNotice = notice;
-            copyNoticeEnd = DateTime.Now + copyNoticeDuration;
+            notice = text;
+            noticeEnd = DateTime.Now + noticeDuration;
+        }
+
+        /// <summary>
+        /// The presets' file, <c>GameData/kOS/Plugins/PluginData/kOS/terminal-presets.txt</c>
+        /// (next to <c>config.xml</c>; the release zip has no <c>Plugins/PluginData</c>, so an
+        /// update keeps it), read on first use.
+        /// </summary>
+        private static TerminalPresetFile Presets
+        {
+            get
+            {
+                if (presets == null)
+                    presets = new TerminalPresetFile(() => System.IO.Path.Combine(KSPUtil.ApplicationRootPath,
+                        "GameData", "kOS", "Plugins", "PluginData", "kOS", "terminal-presets.txt"));
+                return presets;
+            }
+        }
+
+        /// <summary>A left click on preset button <paramref name="slot"/>: applied at the next OnGUI; an empty one says so.</summary>
+        private void ApplyPresetLater(int slot)
+        {
+            TerminalGeometry preset = Presets.Get(slot);
+            if (preset == null)
+            {
+                ShowNotice(string.Format("Preset {0} is empty", slot));
+                return;
+            }
+            pendingPreset = preset;
+            postponedCharPixelHeight = preset.CharacterHeight.Value;
+        }
+
+        /// <summary>
+        /// The preset picked in the last pass, after its character height was applied and the
+        /// font looked up for it (so the cells' size is known): the cells, then the position.
+        /// The screen takes the size once, so scripts' resize watchers and telnet clients see one
+        /// resize (D3); the window is then brought wholly on screen (a preset saved at another
+        /// resolution) and the change is saved to this CPU's geometry file as any other.
+        /// </summary>
+        private void ApplyPendingPreset()
+        {
+            TerminalGeometry preset = pendingPreset;
+            pendingPreset = null;
+            if (preset == null || renderFaultRecovery.IsFaulted || shared == null || shared.Screen == null) return;
+            IScreenBuffer screen = shared.Screen;
+            // The cells are the preset's, not those that fit the window at the new character size:
+            formerCharPixelWidth = screen.CharacterPixelWidth;
+            formerCharPixelHeight = screen.CharacterPixelHeight;
+            screen.SetSize(preset.Rows.Value, preset.Columns.Value);
+            FitWindowToScreen(screen); // also when the cells did not change (SetSize then does not notify)
+            WindowRect = new Rect(preset.X.Value, preset.Y.Value, WindowRect.width, WindowRect.height);
+            keeper.FitWhollyNext();
+        }
+
+        /// <summary>A right click on preset button <paramref name="slot"/>: the window's geometry saved into it.</summary>
+        private void SavePreset(int slot)
+        {
+            if (shared == null || shared.Screen == null) return;
+            bool saved = Presets.Save(slot, CurrentGeometry()); // never throws for I/O; a failure is logged once
+            ShowNotice(saved ? string.Format("Saved preset {0}", slot) : "Preset save failed (see KSP.log)");
         }
 
         private FlatWindowLayout FlatLayout
@@ -1291,10 +1358,13 @@ namespace kOS.Screen
             return Math.Max(6, (int)Math.Round(chrome.HeaderHeight * 0.6));
         }
 
+        private static readonly string[] PresetLabels = { "1", "2", "3" };
+
         /// <summary>
-        /// The header (Phase 4): the terminal's name, then the smaller and larger text buttons
-        /// (step 3: a small and a large A; <c>CHARHEIGHT</c> in steps of 2, dim at the end of its
-        /// range; saved with the geometry) and the close button.
+        /// The header (Phase 4): the terminal's name, the preset buttons on a window wide enough,
+        /// then the smaller and larger text buttons (step 3: a small and a large A;
+        /// <c>CHARHEIGHT</c> in steps of 2, dim at the end of its range; saved with the geometry)
+        /// and the close button.
         /// </summary>
         private void DrawHeader(IScreenBuffer screen, TerminalChromeLayout chrome, float width)
         {
@@ -1309,6 +1379,19 @@ namespace kOS.Screen
             int smaller = TerminalChromeLayout.SmallerCharacterHeight(charHeight);
             int larger = TerminalChromeLayout.LargerCharacterHeight(charHeight);
             // A small and a large A; applied at the next OnGUI, between passes:
+            if (chrome.ShowsPresets(width))
+            {
+                // Left click applies a preset, right click saves the window's geometry into it; empty ones are dim:
+                for (int slot = 1; slot <= TerminalPresets.SLOT_COUNT; ++slot)
+                {
+                    int clicked = KOSStyle.ClickButton(ToRect(chrome.PresetButton(slot, width)), PresetLabels[slot - 1], chrome.FontSize,
+                        !Presets.IsFilled(slot));
+                    if (clicked == 0)
+                        ApplyPresetLater(slot);
+                    else if (clicked == 1)
+                        SavePreset(slot);
+                }
+            }
             if (KOSStyle.TextButton(ToRect(chrome.SmallerTextButton(width)), "A", Math.Max(6, (int)Math.Round(chrome.FontSize * 0.8)), smaller != charHeight))
                 postponedCharPixelHeight = smaller;
             if (KOSStyle.TextButton(ToRect(chrome.LargerTextButton(width)), "A", (int)Math.Round(chrome.FontSize * 1.35), larger != charHeight))
@@ -1322,7 +1405,7 @@ namespace kOS.Screen
 
         /// <summary>
         /// The status strip (Phase 4; replaces the bottom bar): the state after a dot of its
-        /// color, the chips that apply, a copy notice and the size, placed by
+        /// color, the chips that apply, a notice (copy, presets) and the size, placed by
         /// <see cref="StatusStrip"/> so that nothing overlaps (BAR-01); the resize grip at its
         /// right end. Clicking <c>New output</c> brings the view back to the screen.
         /// </summary>
@@ -1338,13 +1421,13 @@ namespace kOS.Screen
             float dotWidth = dot + Mathf.Round(dot * 0.7f);
 
             TerminalStatus shown = status;
-            string notice = copyNotice != null && DateTime.Now < copyNoticeEnd ? copyNotice : null;
+            string shownNotice = notice != null && DateTime.Now < noticeEnd ? notice : null;
             ScreenRect content = chrome.StripContent(width, height);
             float chipInset = Math.Max(1, Mathf.Round(strip.height * 0.15f));
             var newOutputChip = new Rect(0, 0, 0, 0);
             // Laid out again only when something it shows changed (P-07):
             List<StatusStrip.Placement> parts = stripCache.Layout(label, measureStripText, chrome.Padding, chrome.Padding, dotWidth,
-                KOSStyle.Ellipsis, content.X, content.Width, shown, notice, screen.ColumnCount, screen.RowCount);
+                KOSStyle.Ellipsis, content.X, content.Width, shown, shownNotice, screen.ColumnCount, screen.RowCount);
             List<StatusChip> chips = stripCache.Chips;
             foreach (StatusStrip.Placement part in parts)
             {

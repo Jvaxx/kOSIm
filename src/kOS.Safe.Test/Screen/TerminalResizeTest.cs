@@ -65,8 +65,8 @@ namespace kOS.Safe.Test.Terminal
                 Assert.AreEqual(ResizeEdges.None, TerminalResize.EdgesAt(layout, w, h, button.X, 0, false), "a button's top left " + button);
                 Assert.AreEqual(ResizeEdges.None, TerminalResize.EdgesAt(layout, w, h, button.X + button.Width / 2, 1, false), "a button's top " + button);
             }
-            ScreenRect smaller = layout.SmallerTextButton(w);
-            Assert.AreEqual(T, TerminalResize.EdgesAt(layout, w, h, smaller.X - 1, 0, false), "the top edge left of the buttons");
+            ScreenRect first = layout.HeaderButtons(w); // from the first preset button (TerminalPresetLayoutTest)
+            Assert.AreEqual(T, TerminalResize.EdgesAt(layout, w, h, first.X - 1, 0, false), "the top edge left of the buttons");
             Assert.AreEqual(ResizeEdges.None, TerminalResize.EdgesAt(layout, w, h, w - 1, layout.HeaderHeight - 1, false));
             Assert.AreEqual(R, TerminalResize.EdgesAt(layout, w, h, w - 1, layout.HeaderHeight, false), "the right edge below the header");
         }

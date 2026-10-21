@@ -170,6 +170,17 @@ Structure
     divisible by 2.  If you try to set it to any other value, it
     will snap to the allowed range and increment.
 
+    **Geometry presets** (KOS Improved): the in-game GUI terminal's
+    header has three preset buttons, ``1``, ``2`` and ``3``.  A right
+    click saves the window's position, :attr:`WIDTH`, :attr:`HEIGHT`
+    and :attr:`CHARHEIGHT` into that preset; a left click applies it, as
+    if a script had set those values (resize watchers run, telnet
+    clients are asked to resize), and moves the window there, wholly on
+    the screen.  A preset not saved yet is drawn dim.  The three presets
+    are one set for every CPU, vessel and save, kept in
+    ``GameData/kOS/Plugins/PluginData/kOS/terminal-presets.txt``.  The
+    buttons are hidden on a window too narrow for them.
+
 .. attribute:: Terminal:INPUT
 
     :access: Get

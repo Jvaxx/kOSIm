@@ -279,6 +279,51 @@ namespace kOS.Screen
             return GUI.Button(where, GUIContent.none, GUIStyle.none) && enabled;
         }
 
+        private static int pressedMouseButton = -1; // the hot click button's press, until its release
+
+        /// <summary>
+        /// A flat text button like <see cref="TextButton"/> that tells which mouse button clicked
+        /// it: 0 for the left, 1 for the right, -1 for no click (the terminal's presets). Either
+        /// button's press over it is used at once, so the window's drag, the selection and the
+        /// edge resize do not see it; the click counts when the same button is released over it.
+        /// A <paramref name="dim"/> one still takes clicks.
+        /// </summary>
+        public static int ClickButton(Rect where, string text, int fontSize, bool dim)
+        {
+            // Asked on every event, so the id is the same in each; the press holds it as the hot control.
+            int controlId = GUIUtility.GetControlID(FocusType.Passive);
+            if (IsHovered(where))
+                Fill(where, Hover);
+            Text(where, text, CenteredBoldLabel(fontSize), dim ? DimText : ChromeText);
+            Event current = Event.current;
+            if (current == null) return -1;
+            switch (current.GetTypeForControl(controlId))
+            {
+                case EventType.MouseDown:
+                    if ((current.button == 0 || current.button == 1) && where.Contains(current.mousePosition))
+                    {
+                        GUIUtility.hotControl = controlId;
+                        pressedMouseButton = current.button;
+                        current.Use();
+                    }
+                    break;
+                case EventType.MouseDrag:
+                    if (GUIUtility.hotControl == controlId)
+                        current.Use();
+                    break;
+                case EventType.MouseUp:
+                    if (GUIUtility.hotControl != controlId) break;
+                    GUIUtility.hotControl = 0;
+                    current.Use();
+                    int pressed = pressedMouseButton;
+                    pressedMouseButton = -1;
+                    if (current.button == pressed && where.Contains(current.mousePosition))
+                        return pressed;
+                    break;
+            }
+            return -1;
+        }
+
         /// <summary>A flat text button.</summary>
         public static bool Button(Rect where, string text, int fontSize)
         {

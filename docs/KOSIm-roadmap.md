@@ -32,11 +32,13 @@ Base: upstream <https://github.com/KSP-KOS/KOS> `develop` at `8f281a45`. The ori
 
 **Post-release review** (2026-10-20, [review-report.md](review-report.md), of `e280f197`): **R-01** (game-thread telnet sends could block for seconds), **L-01** (the address picker leaked a component per toggle-close), the idle-work items **P-01 to P-06** (per-frame work and allocation of CPUs nobody looks at, the diff, the toolbar panel) with **R-04/R-05**, and (2026-10-21) **P-09** (scrollback trim), **P-10** (history saves at most every 2 s), the doc fixes **K-01 to K-12**, and **P-07/P-08** (an open terminal keeps its strip layout, title and row strings while they show the same) , then **L-02** (per-CPU files pruned once no save has the part, at a load from the main menu), **L-03** (leftover temporary save files swept by a listing), **P-11** (one walk and one Unix mapping per path for deletes under Wine), **L-04** (the install check names the sounds the terminal uses), **D-01/D-03/D-04** (unused code removed, duplicated key tables, part names and clamps shared) and **N-01** (`CpuTextFile.Write` reports success) are done, headless-tested and built, and checked in game on 2026-10-21 under Proton except the P-10 game-exit path, the L-01 component count and a vessel switch with a stalled telnet client ([testing-and-build.md](testing-and-build.md), "Fixes from the post-release review"). Measuring P-09 found the real cause of slower long pastes: the interpreter rebuilds its whole program for every command (**PERF-01**, inherited, compiler/VM: needs a user decision). Still open from the report: P-12, D-02, R-06/R-07.
 
+**Terminal geometry presets** (user feature, 2026-10-21): three header buttons, left-click applies, right-click saves; one set for the game in `PluginData`. Headless-tested and built; not checked in game yet (below, "Terminal geometry presets").
+
 The review's terminal items TERM-01 to TERM-08 are covered by Phases 2–4. Not done: the rest of EDIT-05 (find/replace, line numbers, highlighting), the deferred external-editor conveniences (below), and the open issues in [testing-and-build.md](testing-and-build.md), "Known issues and open findings". No further phase is planned: ask the user before starting new work.
 
-## Planned: terminal geometry presets
+## Terminal geometry presets
 
-Proposed by the user 2026-10-20 for later; decisions agreed the same day. A step plan still needs the user's approval before implementation (UI rule below).
+Proposed by the user 2026-10-20; decisions agreed the same day; step plan approved 2026-10-21 with Q1 and Q2 as proposed. **Implemented 2026-10-21** as planned (differences: "As built" below); headless-tested and full build; **not checked in game yet** (the "In game" list below). Behavior: [testing-and-build.md](testing-and-build.md), "Terminal geometry presets".
 
 - **Three preset buttons** (`1`, `2`, `3`) in the terminal's header: **left-click applies** the preset, **right-click saves** the window's current geometry into it.
 - **Feedback:** a short strip notice on save and on clicking an empty slot (as the copy notices: `Saved preset 2`, `Preset 3 is empty`); empty slots drawn dim, as the size buttons at the end of their range.
@@ -45,9 +47,9 @@ Proposed by the user 2026-10-20 for later; decisions agreed the same day. A step
 - **A preset holds** position, columns, rows and character height. Applying one is a resize like any other (resize watchers fire, telnet clients are asked to resize: D3) and is brought wholly on screen by the existing keep-on-screen rule.
 - **Not included:** the editor window, keyboard shortcuts, anything telnet-side.
 
-### Step plan (proposed 2026-10-20; awaiting the user's approval)
+### Step plan (approved 2026-10-21)
 
-Choices marked **(Q)** are proposals for the user to confirm.
+Choices marked **(Q)** were confirmed by the user as proposed.
 
 **Headless (`kOS.Safe.Screen`), each with tests:**
 
@@ -73,6 +75,15 @@ Choices marked **(Q)** are proposals for the user to confirm.
 **In game (Proton):** left and right clicks reach the buttons under Wine (right-click in IMGUI), without moving the window, starting a selection or reaching a part behind it (raycast blockers); the notices; the dim empty slots; hidden at a narrow width and back when widened; a preset saved by `cpu down` applied on `cpu top`; a preset saved at 2560×1440 applied at a smaller resolution comes back wholly on screen; presets kept after a game restart (the file); a script's resize watcher and a telnet client see one resize on apply; Alt+F12 locks over the buttons.
 
 **Not in this step:** names or more than three slots, per-save or per-vessel presets, the editor, keyboard shortcuts, telnet commands, a preset for the toolbar panel.
+
+### As built (2026-10-21)
+
+- **Threshold:** the buttons show while the title keeps 60 px (scaled), which at UI scale 1 is a window of **198 px** or more, not "about 260 px" as the plan estimated (six 20 px buttons, the gap, 6 px padding either side of the title). The default 50-column window shows them; the 15-column minimum window hides them at UI scales 1 and above (at 0.5, with 8 px cells, it shows them).
+- **Gap:** the chrome padding (6 px at scale 1, at least 4). `HeaderButtons` includes the gap, so the gap does not resize either.
+- **Clicks:** `KOSStyle.ClickButton`, a control of its own: a left or right press over the button is taken and used at `MouseDown` (hot control), the click counts on release of the same button over it. `GUI.Button` was not relied on for the right button.
+- **Apply order:** the left click only records the preset. At the next `OnGUI` the character height is set, the font looked up for it (the cell width), then `SetSize(rows, columns)` (one resize notification for scripts and telnet), then the position; `keeper.FitWhollyNext()` brings the window wholly on screen even when its size did not change. The size-button refit of the cells to the window is skipped for that change, so the preset's cells are kept.
+- **Shared parsing:** `TerminalGeometry.Entries`/`SetValue`/`AppendValues` (internal) serve both files; added `TerminalGeometry.IsComplete` and `Copy()` (public). The geometry file's format and parsing are unchanged.
+- The strip notice is now general (`ShowNotice`; was `ShowCopyNotice`, private).
 
 ## Binding decisions
 
@@ -122,7 +133,7 @@ A pure policy class in `kOS.Safe` with headless tests; a thin Unity adapter appl
 
 - **IMGUI**, one shared style (`KOSStyle`, `TerminalPalette`) following KSP's UI scale; testable layout logic in `kOS.Safe`. Another renderer only after a prototype justifies it.
 - **One modern green look**, no themes and no theme script API. No bundled font (Unity under Proton cannot load one at run time); the OS fallback order puts Lucida Console before Courier.
-- **Terminal window:** flat header (title, smaller/larger text, close), status strip, edge resizing snapped to cells; geometry saved per CPU next to its history; kept on screen, but movable partly off screen by its header (48 px rule). No settings on the window: visual beep, key click and brightness are mod options; reverse screen has no control. Script suffixes unchanged.
+- **Terminal window:** flat header (title, geometry presets `1`–`3` when wide enough, smaller/larger text, close), status strip, edge resizing snapped to cells; geometry saved per CPU next to its history; kept on screen, but movable partly off screen by its header (48 px rule). No settings on the window: visual beep, key click and brightness are mod options; reverse screen has no control. Script suffixes unchanged.
 - **Toolbar panel:** CPUs and Settings tabs; power read-only; settings labelled in words; number fields apply on Enter or leaving them.
 - **Other windows:** the editor is a free, resizable window kept for the session only (not saved); confirmations name their actions; Esc cancels in confirmations and the name tag. Script GUIs and KSP's own dialogs keep their look.
 - No UI redesign without a plan approved by the user.

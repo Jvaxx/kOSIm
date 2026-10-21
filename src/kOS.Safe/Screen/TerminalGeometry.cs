@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using kOS.Safe.Encapsulation;
@@ -58,18 +59,24 @@ namespace kOS.Safe.Screen
         {
             if (geometry == null) throw new ArgumentNullException("geometry");
             var text = new StringBuilder(HEADER).Append('\n');
-            AppendValue(text, "x", geometry.X);
-            AppendValue(text, "y", geometry.Y);
-            AppendValue(text, "columns", geometry.Columns);
-            AppendValue(text, "rows", geometry.Rows);
-            AppendValue(text, "charheight", geometry.CharacterHeight);
+            AppendValues(text, string.Empty, geometry);
             return text.ToString();
         }
 
-        private static void AppendValue(StringBuilder text, string key, int? value)
+        /// <summary>The known values' lines, each key after <paramref name="prefix"/> (a preset's <c>1.</c>).</summary>
+        internal static void AppendValues(StringBuilder text, string prefix, TerminalGeometry geometry)
+        {
+            AppendValue(text, prefix, "x", geometry.X);
+            AppendValue(text, prefix, "y", geometry.Y);
+            AppendValue(text, prefix, "columns", geometry.Columns);
+            AppendValue(text, prefix, "rows", geometry.Rows);
+            AppendValue(text, prefix, "charheight", geometry.CharacterHeight);
+        }
+
+        private static void AppendValue(StringBuilder text, string prefix, string key, int? value)
         {
             if (value.HasValue)
-                text.Append(key).Append(" = ").Append(value.Value.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                text.Append(prefix).Append(key).Append(" = ").Append(value.Value.ToString(CultureInfo.InvariantCulture)).Append('\n');
         }
 
         /// <summary>
@@ -81,26 +88,57 @@ namespace kOS.Safe.Screen
         /// </summary>
         public static TerminalGeometry Parse(string text)
         {
-            if (text == null) throw new ArgumentNullException("text");
             var geometry = new TerminalGeometry();
+            foreach (KeyValuePair<string, string> entry in Entries(text))
+                geometry.SetValue(entry.Key, entry.Value);
+            return geometry;
+        }
+
+        /// <summary>True when every value is known (a preset holds only complete geometries).</summary>
+        public bool IsComplete
+        {
+            get { return X.HasValue && Y.HasValue && Columns.HasValue && Rows.HasValue && CharacterHeight.HasValue; }
+        }
+
+        /// <summary>A geometry with the same values.</summary>
+        public TerminalGeometry Copy()
+        {
+            return new TerminalGeometry { X = X, Y = Y, Columns = Columns, Rows = Rows, CharacterHeight = CharacterHeight };
+        }
+
+        /// <summary>
+        /// The <c>key = value</c> lines of a saved file, in order, the key trimmed and in lower
+        /// case, the value trimmed; comments (<c>#</c>), empty lines and lines without a key are
+        /// left out. Shared with <see cref="TerminalPresets.Parse"/>.
+        /// </summary>
+        internal static IEnumerable<KeyValuePair<string, string>> Entries(string text)
+        {
+            if (text == null) throw new ArgumentNullException("text");
             foreach (string rawLine in text.Split('\n'))
             {
                 string line = rawLine.Trim();
                 if (line.Length == 0 || line[0] == '#') continue;
                 int equals = line.IndexOf('=');
                 if (equals <= 0) continue;
-                string key = line.Substring(0, equals).Trim().ToLowerInvariant();
-                string value = line.Substring(equals + 1).Trim();
-                switch (key)
-                {
-                    case "x": geometry.X = Number(value, -MAX_COORDINATE, MAX_COORDINATE); break;
-                    case "y": geometry.Y = Number(value, -MAX_COORDINATE, MAX_COORDINATE); break;
-                    case "columns": geometry.Columns = Number(value, TerminalStruct.MINCOLUMNS, TerminalStruct.MAXCOLUMNS); break;
-                    case "rows": geometry.Rows = Number(value, TerminalStruct.MINROWS, TerminalStruct.MAXROWS); break;
-                    case "charheight": geometry.CharacterHeight = Number(value, TerminalStruct.MINCHARPIXELS, TerminalStruct.MAXCHARPIXELS); break;
-                }
+                yield return new KeyValuePair<string, string>(line.Substring(0, equals).Trim().ToLowerInvariant(), line.Substring(equals + 1).Trim());
             }
-            return geometry;
+        }
+
+        /// <summary>
+        /// Set the value a file's <paramref name="key"/> (in lower case) names: unknown when it
+        /// cannot be believed (the limits of <see cref="Parse"/>). False for an unknown key.
+        /// </summary>
+        internal bool SetValue(string key, string value)
+        {
+            switch (key)
+            {
+                case "x": X = Number(value, -MAX_COORDINATE, MAX_COORDINATE); return true;
+                case "y": Y = Number(value, -MAX_COORDINATE, MAX_COORDINATE); return true;
+                case "columns": Columns = Number(value, TerminalStruct.MINCOLUMNS, TerminalStruct.MAXCOLUMNS); return true;
+                case "rows": Rows = Number(value, TerminalStruct.MINROWS, TerminalStruct.MAXROWS); return true;
+                case "charheight": CharacterHeight = Number(value, TerminalStruct.MINCHARPIXELS, TerminalStruct.MAXCHARPIXELS); return true;
+                default: return false;
+            }
         }
 
         private static int? Number(string text, int minimum, int maximum)

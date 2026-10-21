@@ -144,7 +144,7 @@ namespace kOS.Safe.Test.Terminal
                     foreach (ScreenRect rect in new[]
                     {
                         layout.Header(size), layout.CloseButton(size), layout.LargerTextButton(size), layout.SmallerTextButton(size),
-                        layout.HeaderButtons(size), layout.Title(size),
+                        layout.HeaderButtons(size), layout.Title(size), layout.PresetButton(1, size), layout.PresetButton(3, size),
                         layout.Body(size, size), layout.SelectionArea(size, size), layout.Gutter(size, size),
                         layout.Strip(size, size), layout.Grip(size, size), layout.StripContent(size, size),
                         layout.Field(-5, -5), layout.Field(0, 0)
@@ -211,9 +211,20 @@ namespace kOS.Safe.Test.Terminal
                         AssertApart(larger, close, where + ": larger and close");
                         Assert.Less(smaller.X, larger.X, where + ": smaller, then larger");
                         Assert.Less(larger.X, close.X, where + ": larger, then close");
-                        Assert.AreEqual(smaller.X, layout.HeaderButtons(width).X, where + ": the buttons start at the smaller one");
                         Assert.AreEqual(width, close.X + close.Width, where + ": close at the right edge");
-                        Assert.AreEqual(smaller.Width + larger.Width + close.Width, layout.HeaderButtons(width).Width, where + ": no gap in the buttons");
+                        if (layout.ShowsPresets(width))
+                        {
+                            // The presets' own checks: TerminalPresetLayoutTest.
+                            ScreenRect first = layout.PresetButton(1, width);
+                            Assert.AreEqual(first.X, layout.HeaderButtons(width).X, where + ": the buttons start at the first preset");
+                            AssertInside(first, header, where + ": a preset in the header");
+                            AssertApart(layout.Title(width), first, where + ": title and the presets");
+                        }
+                        else
+                        {
+                            Assert.AreEqual(smaller.X, layout.HeaderButtons(width).X, where + ": the buttons start at the smaller one");
+                            Assert.AreEqual(smaller.Width + larger.Width + close.Width, layout.HeaderButtons(width).Width, where + ": no gap in the buttons");
+                        }
                         Assert.Greater(layout.Title(width).Width, 0, where + ": room for a title");
                         AssertInside(layout.Grip(width, height), strip, where + ": grip");
                         AssertInside(layout.StripContent(width, height), strip, where + ": strip content");

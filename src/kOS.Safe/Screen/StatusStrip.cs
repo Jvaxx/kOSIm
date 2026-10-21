@@ -6,8 +6,8 @@ namespace kOS.Safe.Screen
     /// <summary>
     /// Lays out the GUI terminal's one-line status strip (Phase 4, step 1): the state on the
     /// left after its dot, then the chips (<see cref="TerminalStatus.Chips"/>); on the right
-    /// the size, with a copy notice before it while one shows. Nothing overlaps (BAR-01: the
-    /// telnet label covered the state). When the room is short, in this order:
+    /// the size, with a notice (copy, presets) before it while one shows. Nothing overlaps
+    /// (BAR-01: the telnet label covered the state). When the room is short, in this order:
     /// <list type="number">
     /// <item>chips are dropped, lowest priority first (the rightmost of equals first);</item>
     /// <item>the state text is shortened, ending with an ellipsis;</item>
@@ -62,7 +62,7 @@ namespace kOS.Safe.Screen
         /// <param name="width">its width</param>
         /// <param name="state">the state text, or null for no state (no dot either)</param>
         /// <param name="chips">in the order shown</param>
-        /// <param name="notice">a copy notice, or null</param>
+        /// <param name="notice">a notice (copy, presets), or null</param>
         /// <param name="size">the size text, or null</param>
         public List<Placement> Layout(float x, float width, string state, IList<StatusChip> chips, string notice, string size)
         {

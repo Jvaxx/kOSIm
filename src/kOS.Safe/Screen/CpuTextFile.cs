@@ -9,7 +9,8 @@ namespace kOS.Safe.Screen
 {
     /// <summary>
     /// A small UTF-8 text file a CPU keeps under the save's folder (the command history, the
-    /// terminal's geometry). The path is asked once, on first use; null means no file and
+    /// terminal's geometry), or the game keeps once (the terminal presets,
+    /// <see cref="TerminalPresetFile"/>). The path is asked once, on first use; null means no file and
     /// nothing is kept. Saves go through a complete temporary file
     /// (<see cref="ArchiveFileWriter"/>), so a failed save leaves the old file. Read and write
     /// failures are logged once and never thrown. Main thread only.
@@ -105,7 +106,7 @@ namespace kOS.Safe.Screen
 
         private void Report(string message, Exception e)
         {
-            if (reportedFailure) return; // once per CPU: a failing disk would otherwise log every save
+            if (reportedFailure) return; // once per file: a failing disk would otherwise log every save
             reportedFailure = true;
             if (SafeHouse.Logger == null) return;
             SafeHouse.Logger.LogWarning(e == null ? message : message + ": " + e.Message);

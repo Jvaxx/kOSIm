@@ -6,8 +6,8 @@ namespace kOS.Safe.Screen
 {
     /// <summary>
     /// Where the GUI terminal's parts go (Phase 4, step 1), in window coordinates (origin top
-    /// left, as Unity's GUI): a header on top (title; smaller text, larger text (step 3) and
-    /// close buttons), the character field below it with even padding, a gutter on its right
+    /// left, as Unity's GUI): a header on top (title; the preset buttons on a window wide
+    /// enough; smaller text, larger text (step 3) and close buttons), the character field below it with even padding, a gutter on its right
     /// for the scroll bar (step 2), and the status strip at the bottom with the resize grip at
     /// its right end. A
     /// band along the frame resizes the window (step 2, <see cref="TerminalResize"/>).
@@ -33,6 +33,8 @@ namespace kOS.Safe.Screen
         public const int BASE_MINIMUM_THUMB = 16;
         /// <summary>What the header (title, three buttons) and the strip (state, size, grip) need at least.</summary>
         public const int BASE_MINIMUM_WIDTH = 150;
+        /// <summary>The preset buttons show only while the title keeps at least this much room.</summary>
+        public const int BASE_MINIMUM_TITLE_WITH_PRESETS = 60;
 
         /// <summary>How much the header's smaller and larger text buttons change <c>CHARHEIGHT</c>.</summary>
         public const int CHARACTER_HEIGHT_STEP = 2;
@@ -58,6 +60,10 @@ namespace kOS.Safe.Screen
         public int Border { get; private set; }
         /// <summary>The header buttons are squares this wide; the grip is a square as high as the strip.</summary>
         public int ButtonWidth { get; private set; }
+        /// <summary>Between the preset buttons and the smaller text button.</summary>
+        public int PresetGap { get; private set; }
+        /// <summary>The title's least room with the preset buttons shown (<see cref="ShowsPresets"/>).</summary>
+        public int MinimumTitleWithPresets { get; private set; }
         public int FontSize { get; private set; }
         public int MinimumWidth { get; private set; }
         public int ResizeBand { get; private set; }
@@ -80,6 +86,8 @@ namespace kOS.Safe.Screen
             GutterWidth = Math.Max(Padding, ScrollBarWidth + 2);
             Border = Scaled(1);
             ButtonWidth = HeaderHeight;
+            PresetGap = Padding;
+            MinimumTitleWithPresets = Scaled(BASE_MINIMUM_TITLE_WITH_PRESETS);
             FontSize = Scaled(BASE_FONT_SIZE);
             MinimumWidth = Scaled(BASE_MINIMUM_WIDTH);
             ResizeBand = Scaled(BASE_RESIZE_BAND);
@@ -151,10 +159,38 @@ namespace kOS.Safe.Screen
             return new ScreenRect(Math.Max(0, windowWidth - 3 * ButtonWidth), 0, ButtonWidth, HeaderHeight);
         }
 
-        /// <summary>The header's buttons together, from the smaller text button to the window's right edge.</summary>
+        /// <summary>
+        /// Preset button <paramref name="slot"/> (1 to <see cref="TerminalPresets.SLOT_COUNT"/>,
+        /// left to right), left of the smaller text button after <see cref="PresetGap"/>. Drawn
+        /// only while <see cref="ShowsPresets"/>.
+        /// </summary>
+        public ScreenRect PresetButton(int slot, float windowWidth)
+        {
+            if (slot < 1 || slot > TerminalPresets.SLOT_COUNT)
+                throw new ArgumentOutOfRangeException("slot", slot, "A preset slot is 1 to " + TerminalPresets.SLOT_COUNT);
+            float x = SmallerTextButton(windowWidth).X - PresetGap - (TerminalPresets.SLOT_COUNT + 1 - slot) * ButtonWidth;
+            return new ScreenRect(Math.Max(0, x), 0, ButtonWidth, HeaderHeight);
+        }
+
+        /// <summary>
+        /// The preset buttons show while the title keeps at least
+        /// <see cref="MinimumTitleWithPresets"/> beside them; in a narrower window the title, the
+        /// size buttons and close keep the room.
+        /// </summary>
+        public bool ShowsPresets(float windowWidth)
+        {
+            float firstPreset = windowWidth - (3 + TerminalPresets.SLOT_COUNT) * ButtonWidth - PresetGap;
+            return firstPreset - 2 * Padding >= MinimumTitleWithPresets;
+        }
+
+        /// <summary>
+        /// The header's buttons together, from the first preset button (while shown, with the gap)
+        /// or the smaller text button to the window's right edge: no resize under them, and they
+        /// stay on screen when the window is moved off the left (DRAG-01).
+        /// </summary>
         public ScreenRect HeaderButtons(float windowWidth)
         {
-            ScreenRect first = SmallerTextButton(windowWidth);
+            ScreenRect first = ShowsPresets(windowWidth) ? PresetButton(1, windowWidth) : SmallerTextButton(windowWidth);
             return new ScreenRect(first.X, 0, NonNegative(windowWidth - first.X), HeaderHeight);
         }
 

@@ -64,7 +64,7 @@ namespace kOS.Safe.Screen
         /// <param name="x">as <see cref="StatusStrip.Layout"/>'s</param>
         /// <param name="width">as <see cref="StatusStrip.Layout"/>'s</param>
         /// <param name="status">the CPU state, or null for none (no dot either)</param>
-        /// <param name="notice">a copy notice, or null</param>
+        /// <param name="notice">a notice (copy, presets), or null</param>
         /// <param name="columns">the screen's columns</param>
         /// <param name="rows">the screen's rows</param>
         /// <returns>what <see cref="StatusStrip.Layout"/> gives for them</returns>
