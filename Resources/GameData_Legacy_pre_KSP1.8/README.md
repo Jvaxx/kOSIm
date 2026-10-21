@@ -1,4 +1,10 @@
-### Purpose of this folder
+# Historical upstream meshes (pre-KSP 1.8)
+
+Retained upstream compatibility assets, **not part of the normal kOSIM release**.
+This fork validates Windows KSP 1.12.5 under Proton only; no older-KSP backport
+is maintained or validated. The original explanation follows for provenance.
+
+### Original purpose of this folder
 
 When Kerbal Space Program got updated to version 1.8, it came with
 a large Unity engine upgrade that invalidated older part mesh files.

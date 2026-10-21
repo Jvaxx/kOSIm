@@ -1,5 +1,18 @@
-kOS 
+kOS Improved (kOSIM) — independent fork of kOS
 
-Based on Kevin Laity's Work @ https://github.com/Nivekk/KOS
+Fork source and releases: https://github.com/Jvaxx/kOSIm
+User manual source: https://github.com/Jvaxx/kOSIm/tree/master/doc
+Upstream language manual (not fork-specific UI help): https://ksp-kos.github.io/KOS_DOC/
 
-The source for this plugin can be found here: https://github.com/KSP-KOS/KOS
+Originally created by Kevin Laity (Nivekk): https://github.com/Nivekk/KOS
+Developed by the upstream kOS team and contributors: https://github.com/KSP-KOS/KOS
+Fork source baseline: upstream kOS 1.6.0.1; exact provenance is in kOS.props.
+Distributed under GNU GPL v3; retain original licenses, credits and notices.
+
+This replaces upstream kOS; do not install both. Keep GameData/kOS and preserve
+Plugins/PluginData when updating. ModuleManager is required separately. There is
+no dedicated fork CKAN package or guaranteed CKAN upgrade path. Back up saves,
+scripts and configuration before changing installations.
+
+Runtime validation: Windows KSP 1.12.5.3190 under GE-Proton11-7 on Linux only.
+Report fork bugs to https://github.com/Jvaxx/kOSIm/issues, not upstream.

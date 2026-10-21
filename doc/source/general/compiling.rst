@@ -141,4 +141,4 @@ Downsides to Using KSM Files
 More Reading and Fiddling with Your Bits
 ----------------------------------------
 
-So, if you are intrigued by all this and want to see how it all *REALLY* works under the hood, Computronix has decided to make `internal document MLfile-zx1/a <https://github.com/KSP-KOS/KOS/blob/develop/src/kOS.Safe/Compilation/CompiledObject-doc.md>`__ on the basic plan of the ML file system open for public viewing, if you are one of those rare Kerbals that enjoys fiddling with your bits. No, not THOSE kind of bits, the computery kind!
+So, if you are intrigued by all this and want to see how it all *REALLY* works under the hood, Computronix has decided to make `internal document MLfile-zx1/a <https://github.com/Jvaxx/kOSIm/blob/master/src/kOS.Safe/Compilation/CompiledObject-doc.md>`__ on the basic plan of the ML file system open for public viewing, if you are one of those rare Kerbals that enjoys fiddling with your bits. No, not THOSE kind of bits, the computery kind!

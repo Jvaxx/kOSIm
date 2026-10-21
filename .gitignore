@@ -3,9 +3,13 @@
 [Bb]in/
 [Oo]bj/
 
-# Headless test reports and Python tooling caches
+# Local test/manual outputs and Python tooling environments/caches
 /artifacts/
 __pycache__/
+.venv/
+.env
+.env.*
+!.env.example
 
 # User-specific files
 *.suo
@@ -42,7 +46,9 @@ packages/
 Resources/GameData/kOS/kOS.version
 [Rr]esources/UnitTests/*.dll
 [Rr]esources/UnitTests/*.pdb
-!Resources/GameData/kOS/ICSharpCode.SharpZipLib.dll
+!Resources/GameData/kOS/Plugins/
+Resources/GameData/kOS/Plugins/*
+!Resources/GameData/kOS/Plugins/ICSharpCode.SharpZipLib.dll
 
 # Symlink to KSP directory
 KSPdirlink

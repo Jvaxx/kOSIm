@@ -1,97 +1,35 @@
-# Coding Guidelines
+# Coding style
 
-## Definitions
+Use the surrounding code and `.editorconfig` as the starting point. Keep style-only
+changes separate from functional fixes; do not reformat inherited code wholesale.
 
-* [CamelCase](http://en.wikipedia.org/wiki/CamelCase) is a casing convention where the first letter is lower-case, words are not separated by any character but have their first letter capitalized. Example: <code>thisIsCamelCased</code>.
-* [PascalCase](http://c2.com/cgi/wiki?PascalCase) is a casing convention where the first letter of each word is capitalized, and no separating character is included between words. Example: <code>ThisIsPascalCased</code>.
+## C#
 
-## C# coding conventions
+- Allman braces; `using` directives outside the namespace.
+- PascalCase for types, methods, properties and events; camelCase for fields,
+  parameters and locals; `I` prefix for interfaces. No Hungarian notation or
+  new `_`/`m_`/`s_` field prefixes.
+- Prefer private fields and properties over new public fields. Use `internal`
+  test seams rather than expanding the public mod API unnecessarily.
+- Use `var` when the type is evident from the initializer or is anonymous.
+- Prefer one top-level public type per file; narrowly scoped helpers may be nested.
+  A kerboscript constructor function may be nested in the structure it returns.
+- Avoid `#region` and commented-out code. Preserve existing copyright/license notices.
+- Keep Unity/KSP adapters thin. Model/policy code belongs in `kOS.Safe` when it can
+  be independent of game types.
+- Respect `net48` and KSP's shipped Unity runtime. A newer build SDK is not permission
+  to introduce APIs unavailable in game.
 
-We should use the [Allman bracing style](http://en.wikipedia.org/wiki/Indent_style#Allman_style) for consistency.
+## Behavior and documentation
 
-We are using the C# coding conventions described in this document as a guide, not everything in this doc is gospel and is open to debate: [C# Coding Guidelines](http://blogs.msdn.com/brada/articles/361363.aspx) with the following exceptions:
-
-* Each file should not start with a copyright notice. The ones at the root of the source tree will suffice.
-* Regions (#region) are not used.
-* using statements are on top of a file (outside of namespace {...})
-* Use var only if you have an anonymous type or you can clearly tell what the type is from the right hand side of the expression
-* Member variables should always be private, public access should be provided by an encapsulated property.
-* While each source file should be limited to a single public class, nested
-  classes applicable to only their parent class are permited.
-* In the case of defining a kerboscript function class to serve as a constructor
-  for a specific structure, this function class should be nested at the top of
-  the structure it returns.  For example:
-  ```
-      public class ExampleStructure : Structure
-	  {
-		  [Function("example")] // insert the function at the top of the class
-		  public class FunctionExampleStructureConstructor
-		  {
-			  public override void Execute()
-			  {
-				  // insert logic here
-			  }
-		  }
-
-		  // insert member variables/constructors/methods per the style guide
-	  }
-  ```
-
-#### Naming
-Follow all .NET Framework Design Guidelines for both internal and external members. Highlights of these include:
-* Do use camelCasing for member variables, parameters and local variables
-* Do use PascalCasing for function, property, event, and class names
-* Do prefix interfaces names with “I”
-* Do __not__ use Hungarian notation
-* Do __not__ use a prefix for member variables (_, m_, s_, etc.). If you want to distinguish between local and member variables you should use “this.”
-* Do __not__ prefix enums, classes, or delegates with any letter
-
-Here is some sample code that follows these conventions.
-
-	using System;
-	namespace NuGet
-	{
-		public class ClassName
-		{
-			private List<SomeType> privateMember;
-
-			public List<SomeType> SomeProperty
-			{
-				get
-				{
-					return privateMember;
-				}
-			}
-
-			public string SomeAutoProperty { get; set; }
-
-			public string SomeMethod(bool someCondition)
-			{
-				if (someCondition)
-				{
-					DoSomething(someArgument);
-				}
-				else
-				{
-					return someArray[10];
-				}
-
-				switch (status)
-				{
-					case Status.Foo:
-						return "Foo";
-
-					case Status.Bar:
-						return "Bar";
-
-					default:
-						return "Bar";
-				}
-				return String.Empty;
-			}
-
-			private string AnotherMethod(){
-				return privateMember.Count;
-			}
-		}
-    }		
+- Preserve existing public signatures used by scripts or other mods; do not apply
+  style rules by renaming a compatibility API.
+- Document ownership, thread boundaries and non-obvious compatibility decisions,
+  not a narration of each statement.
+- Use invariant formats for persisted machine-readable state and tolerant parsing
+  consistent with the relevant file contract.
+- Tests should describe observable behavior and use deterministic clocks/inputs
+  where possible. Do not replace real-model regression coverage with mocks alone.
+- User documentation lives in `doc/source/` (reStructuredText); maintained developer
+  guidance lives in `docs/` (Markdown). Keep session transcripts and local paths out
+  of both. Historical snapshots are explicitly marked as such.

@@ -4,7 +4,6 @@ from pathlib import Path
 import runpy
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
@@ -14,8 +13,7 @@ CONFIG = ROOT / "doc/source/conf.py"
 
 
 def load_config(path):
-    theme = SimpleNamespace(get_html_theme_path=lambda: "/unused-theme")
-    with patch.dict(sys.modules, {"sphinx_rtd_theme": theme}), patch.object(sys, "path", sys.path.copy()):
+    with patch.object(sys, "path", sys.path.copy()):
         return runpy.run_path(str(path))
 
 

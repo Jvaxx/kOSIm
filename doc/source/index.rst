@@ -1,7 +1,15 @@
 .. _index:
 
-kOS: Kerbal Operating System
-============================
+kOS Improved: Kerbal Operating System
+=====================================
+
+This is the manual for **kOS Improved (kOSIM)**, an independent fork of kOS,
+version |release|, based on upstream |upstream_release|. It is not an official
+upstream release. The inherited kerboscript reference and tutorials are retained;
+fork UI, installation and compatibility details are updated separately.
+
+See :ref:`about`, :ref:`obtain` and :ref:`gettinghelp` for fork information.
+Historical screenshots may show the older upstream UI.
 
 ==================================== ======================== ===================================
 :ref:`Full Documentation <contents>` :ref:`Download <obtain>` :ref:`Getting started <quickstart>`
@@ -61,7 +69,7 @@ Like other Kerbal Space Program mods, simply copy the contents
 of the zip file into your Kerbal Space Program folder, where it
 will install into your ``GameData`` folder.
 
-:ref:`The mod is downloadable from a number of locations <obtain>`.
+:ref:`Download this fork and read the replacement/CKAN cautions <obtain>`.
 
 Documentation
 -------------

@@ -1,4 +1,9 @@
-# kOS Mod Changelog
+# kOS Improved changelog
+
+Fork entries come first; inherited upstream release history follows under
+**Upstream kOS 1.6.0.1** and older entries. Historical upstream issue/PR numbers
+and credits refer to KSP-KOS/KOS. Current development contracts and known issues:
+[developer documentation](docs/README.md).
 
 ## kOS Improved 1.6.0.103 (Unreleased)
 
@@ -15,6 +20,9 @@ Versioning correction; no new gameplay or terminal behavior.
   `kOS.version` become **1.6.0.103**; KSP's three-field assembly identity
   becomes **1.6.0**. Scripts that compare version numbers and mods that
   inspect KSP assembly versions will see the corrected values.
+- Prepare repository documentation for an independent public fork: replace stale
+  contribution/release instructions, clarify fork download/support links, consolidate
+  developer notes and remove obsolete Travis automation. No gameplay changes.
 - Add local version-consistency checks and correct the baseline and
   release documentation. Sphinx documentation now reads the fork version
   and upstream baseline from `kOS.props`, instead of advertising 1.4.0.0. No script syntax, KSM/save/craft format or
@@ -36,17 +44,15 @@ or a new in-game validation record.
 
 Headless-tested and built; the user's in-game opacity checks passed on
 Windows KSP 1.12.5.3190 under GE-Proton11-7. Scripts, KSM files, saves,
-craft and existing public mod APIs remain compatible. Details and the
-validation record: `docs/testing-and-build.md`, "Terminal window opacity"
-and "In-game coverage".
+craft and existing public mod APIs remain compatible. Behavior: [compatibility contracts](docs/compatibility.md); validation scope:
+[build/testing guide](docs/testing-and-build.md#game-checks).
 
 ## kOS Improved 1.5.1.101 (2026-10-21)
 
 Terminal geometry presets, and the fixes from the review of 1.5.1.100.
 Built for KSP 1.12.5 and tested in game under Proton (GE-Proton11-7)
 only. Scripts, KSM files, saves, craft and the public mod APIs stay
-compatible. Details, reasons and limits: `docs/testing-and-build.md`,
-"Terminal geometry presets" and "Fixes from the post-release review".
+compatible. Details and limits: [compatibility contracts](docs/compatibility.md).
 
 ### Terminal
 
@@ -93,8 +99,8 @@ changelog heading differed). The inherited changes since 1.5.1.0 are
 listed under "Upstream kOS 1.6.0.1" below. The published fork version
 is retained here as history despite its incorrect `1.5.1` prefix. Built
 for KSP 1.12.5 and tested in game under Proton (GE-Proton11-7) only. Scripts, KSM files, saves, craft and the public mod
-APIs stay compatible. The full list, with the reasons and limits, is in
-`docs/testing-and-build.md`, "Behavior changes from upstream".
+APIs stay compatible. The maintained summary and limits are in
+[Changes from upstream and compatibility contracts](docs/compatibility.md).
 
 ### Terminal
 

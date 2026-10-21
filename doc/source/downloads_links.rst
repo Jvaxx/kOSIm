@@ -1,53 +1,51 @@
-Downloads and Video Links
-==========================
+Downloads and Community Links
+=============================
 
-    Useful link resources for kOS:
+Fork downloads are separate from upstream kOS. The tutorials and community links
+below are inherited resources, not endorsements or fork-specific support channels.
 
 .. _obtain:
 
-Obtaining kOS itself
----------------------
+Obtaining kOS Improved
+----------------------
 
-    The kOS mod can be obtained a number of ways:
+Download packaged builds from `this fork's releases <https://github.com/Jvaxx/kOSIm/releases>`_.
+Extract ``GameData/kOS`` into your game's ``GameData`` folder. ModuleManager is
+required separately. Back up saves, scripts and configuration before updating;
+preserve ``GameData/kOS/Plugins/PluginData/``.
 
-    - `Use CKAN <https://github.com/KSP-CKAN/CKAN/releases>`__.  The Comprehensive Kerbal
-      Archive Network.  If you install the CKAN program, it can manage your mods for you
-      and check for updates whenever you run it.  kOS sends update information to CKAN
-      so kOS updates should appear in your CKAN manager tool as soon as they're released.
-    - `Download from github directly <https://github.com/KSP-KOS/KOS/releases>`__
-      Github is where development of the mod occurs, and new releases will appear there
-      first, without delays, and its where old obsolete releases can be found, if you
-      need one for use with an older version of KSP.
-    - `Use SpaceDock <https://spacedock.info/mod/60/kOS:%20Scriptable%20Autopilot%20System>`__
-      SpaceDock is a community supported Kerbal Space Program mod hosting site that behaves
-      much like Curse, but without Curse's embedded advertisements all over the webpage.  It
-      was designed as the successor to KerbalStuff.
-    - `Download from Curse <https://www.curseforge.com/kerbal/ksp-mods/kos-scriptable-autopilot-system>`__
-      Love it or Loathe it, Curse is the official place SQUAD points people to for KSP addons, so we
-      make it available there too.
+**kOSIM replaces upstream kOS; do not install both.** The compatible assembly/part
+names and ``GameData/kOS`` location are intentionally unchanged. Runtime validation
+covers Windows KSP 1.12.5.3190 under GE-Proton11-7 on Linux, not other platforms.
+
+There is no dedicated fork CKAN package or validated CKAN upgrade path. An unchanged
+``kOS.dll`` can be auto-detected as upstream kOS, and overwriting a CKAN-managed
+install does not transfer its registry ownership. The absence of AVC update URLs
+does not stop CKAN from replacing files it owns. See the repository's
+`installation cautions <https://github.com/Jvaxx/kOSIm/blob/master/docs/compatibility.md#installation-and-versioning>`_.
+
+`Upstream releases <https://github.com/KSP-KOS/KOS/releases>`_, upstream CKAN entries,
+SpaceDock and CurseForge distribute **upstream kOS**, not this fork.
 
 .. _changelog:
 
 Change Log
 ----------
 
-    - `Change Log <https://github.com/KSP-KOS/KOS/blob/develop/CHANGELOG.md>`__ on Github.
+- `Fork changelog <https://github.com/Jvaxx/kOSIm/blob/master/CHANGELOG.md>`_
+  includes the fork's changes and clearly labelled inherited upstream history.
+- :ref:`changes` retains historical upstream documentation notes.
 
 .. _koscommunity:
 
 Online Community
 ----------------
 
-There are two good places to go for help and sharing of ideas with other
-users of kOS, and the developers of the mod frequent those locations too:
+These independent upstream communities share general kerboscript ideas and examples.
+For fork-specific problems use :ref:`gettinghelp`:
 
 - `/r/kos on reddit <https://www.reddit.com/r/kos>`__
 - `On Kerbal Space Program's forum <https://forum.kerbalspaceprogram.com/index.php?/topic/165628-*/>`__
-
-Of these two locations, the Reddit one tends to be more active because it
-allows multiple sub-threads about kOS.  On the Kerbal Space Program
-forum, all kOS talk occurs in one uniform thread, which is a little less
-useful for discussing different ideas and different scripts.
 
 .. _showandtell:
 
@@ -56,8 +54,7 @@ Show and Tell, and Tutorials
 
     There are a number of people who have created helpful tutorials for kOS, and
     others who've created show and tell videos showing the nifty things they've done with kOS.
-    If you'd like to have your video added to this section please contact the authors of
-    over on github at `https://github.com/KSP-KOS/KOS <https://github.com/KSP-KOS/KOS>`__.
+    These links were inherited from upstream and may show older versions of the mod.
 
     Note that there is category overlap as often a showoff video is also a sort of tutorial too.
 

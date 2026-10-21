@@ -1,59 +1,76 @@
-# Historical upstream release checklist
+# kOS Improved release checklist
 
-**For kOS Improved, use [Versions and releases](docs/testing-and-build.md#versions-and-releases).**
-Set the fork version only in `kOS.props`; assembly attributes and
-`kOS.version` are generated. Do not follow the upstream publishing,
-manual assembly-version edits or hosted automation instructions below.
-They are retained as upstream history, not the fork's release procedure.
+Releases are prepared locally and published manually to **this fork**. No hosted
+build/release automation, upstream publishing, automatic game deployment or history
+rewrites. Publishing, tagging, deployment and game launches each require maintainer
+approval; preparing a build does not imply that approval.
 
-## Original upstream checklist
+## Prepare
 
-Note, some of these steps are different if this is a backport to an
-older version of KSP instead of the most recent version.  Please
-note where it says "(*backport*)" below if you are doing a backport.
+- [ ] Review [known issues](docs/KOSIm-roadmap.md) and remaining manual checks.
+- [ ] Set the version **only in `kOS.props`**. Follow the [version policy](docs/compatibility.md#installation-and-versioning): upstream major/minor/patch + continuous fork counter.
+- [ ] Add/update the top `## kOS Improved <version> (Unreleased)` entry in `CHANGELOG.md`;
+  replace `Unreleased` with the release date only when releasing. Keep inherited
+  upstream entries and historical release identifiers unchanged.
+- [ ] Check README/manual, installation instructions, provenance and compatibility claims.
+  Resolve the [binary distribution audit findings](docs/binary-distribution.md): the
+  existing `.100`–`.102` ZIPs have missing license materials and stale source directions.
+- [ ] Ensure no credentials, proprietary assemblies, local config or generated files
+  are staged. Review [publication checks](docs/publication.md) for a first public release.
 
-### Pre-Build
-- [ ] Assign the new kOS version number to `AssemblyVersion` and `AssemblyFileVersion` in these C# files:
-  - [ ] In `src/kOS/Properties/AssemblyInfo.cs`
-  - [ ] In `src/kOS.Safe/Properties/AssemblyInfo.cs`
-  - [ ] In `src/kOS.Safe.Test/Properties/AssemblyInfo.cs`
-- [ ] Update `Resources\GameData\kOS\kOS.version`
-- [ ] Update `CHANGELOG.MD``
-- [ ] If this is a normal release for the most recent KSP version supported:
-  - [ ] Update `doc\source\conf.py`
-  - [ ] Update `doc\source\changes.rst`
-  - [ ] Above changes merged into `develop` branch on repo.
-- [ ] Else if this for a *backport* to an older KSP release than the most recent version supported:
-  - [ ] Above changes merged into `backport-for-KSPversion.number.here` branch on repo instead of into `develop` branch.
+## Verify the release commit
 
-### Build
-- [ ] Configure build for "Release" mode not Debug
-- [ ] Fully rebuild kOS solution (clean, then build) in release mode
-- [ ] Run all unit tests
-- [ ] Ensure that all required resources are in place (module manager) (*backport* : Note if this is a backport you may need to use an older modulemanager DLL here.)
-- [ ] Create a ZIP file that has only the `GameData` folder of the `\Resources\` directory in it.  Make sure the ZIP's folder structure starts with `GameData`.
-  - In other words, filenames like this: `GameData\kOS\kOS.version`, NOT this `\kOS\kOS.version`.)
-- [ ] Name the zip file with the following pattern `kOS-v<major>.<minor>.<patch>.<build>.zip` (eg kOS-v1.1.3.0.zip )
-- [ ] Build the documentation (unless this is a *backport*) with:
-  - (if Linux or Mac: `cd docs ; make clean ; make html`)
-- [ ] Push the contents of `docs\gh-pages` to the gh-pages branch of KSP-KOS/KOS and verify correct rendering (unless this is a *backport*)
+```bash
+bash .ci/test.sh
+dotnet build kOS.sln -c Release --no-incremental
+python3 .ci/check-version.py --built
+```
 
-### Post-Build
-- [ ] If this is a *normal release* for the most recent KSP version suported:
-  - [ ] Update master branch from develop branch.
-- [ ] Else if this is a *backport* then do NOT update the master branch.  Keep it in the `backport-for-KSPversion.number.here` branch.
-- [ ] Build Github release with changelog and title, using the ZIP made above in Build step.
-- [ ] CurseForge: Copy Github release text, and ZIP to [Curseforge](http://kerbal.curseforge.com/projects/kos-scriptable-autopilot-system?gameCategorySlug=ksp-mods&projectID=220265), as follows:
-  - [ ] If this is a *normal release* for the most recent KSP version suported, mark the file as "release".
-  - [ ] If this is a *backport*, mark the file as "alpha".  (So Curse won't present this as the default version).
-- [ ] Copy Github release to [Spacedock](http://spacedock.info/mod/60/kOS:%20Scriptable%20Autopilot%20System)
-  - [ ] If this is a *normal release* for the most recent KSP version supported, Make sure it is set as the default (using the "changelog" link on the Spacedock page).
-  - [ ] If this is a *backport*, make sure it did NOT become the default, and set the default back to the most recent non-backport version (using the "changelog" link on Spacedock).
-- [ ] Update [Forum thread](https://forum.kerbalspaceprogram.com/index.php?/topic/165628-13-kos-v1130-kos-scriptable-autopilot-system/) with new change log, release date and version
-- [ ] Post update in the forum thread
-- [ ] Post update on [reddit board](http://www.reddit.com/r/kos)
-- [ ] Push the gh-pages branch to KSP-KOS/KOS_DOC (unless this is a *backport*). Note, if the previous push of gh-pages to KOS_DOC was done in a sloppy fashion, the attempt to do this push may result in a ridiculously large number of merge conflicts that are too much to handle.  It may be necessecary to force this push with ``git push -f``.  (The merge conflicts can happen because Sphinx re-numbers the HTML ID tags across all the HTML elements in all the files when you insert one thing.  Thus git thinks you've changed *everything* on each new commit of gh-pages.)
+- [ ] Record actual test counts/results, full-build warnings and unperformed checks.
+- [ ] Render the [manual locally](doc/README.md); review warnings and changed pages.
+- [ ] Commit the reviewed source/version/docs, then rebuild **that commit** and rerun
+  the built-version checker. Informational versions embed the commit ID.
+- [ ] Inspect the actual DLL assembly/file/informational versions and KSP assembly
+  attribute (e.g. with `monodis`), not only generated source. Hash both DLLs.
+- [ ] Verify generated `kOS.version` matches and contains no `URL` or `DOWNLOAD`.
+  If stale fields survive from an older build, delete that generated file and rebuild.
 
-### CKAN FIX (Post-Post-Build)
+## Package and smoke-test
 
-- [ ] If this is a *backport* it will be important to check up on CKAN's database over the next day to ensure you didn't confuse it.  If all the version numbers were entered correctly in kOS.version in the branch from which you made the ZIP, it should be okay, but if not, there is potential to really mess it up.  Double check that the CKAN database is giving correct information.  (That is, that the backport is NOT being offered on new KSP installations, and is only being offered on older ones.)
+From the repository root (replace `<version>`):
+
+```bash
+mkdir -p artifacts
+(cd Resources && zip -rX ../artifacts/kOS-v<version>.zip GameData/kOS \
+  -x 'GameData/kOS/Plugins/PluginData/*' 'GameData/kOS/Parts/@thumbs/*')
+unzip -t artifacts/kOS-v<version>.zip
+unzip -l artifacts/kOS-v<version>.zip
+sha256sum artifacts/kOS-v<version>.zip
+```
+
+- [ ] Start with a **new archive filename**: `zip` updates an existing archive and can
+  retain stale entries. Audit `Resources/GameData/kOS` for stale/unintended files too.
+- [ ] Confirm layout begins with `GameData/kOS/`, contains both mod DLLs, SharpZipLib,
+  required assets and version metadata, but no PluginData, thumbnails, test binaries,
+  logs, local settings or proprietary game files. Supply `LICENSE.md`,
+  `THIRD_PARTY_NOTICES.md` and applicable dependency licenses/source arrangements with
+  distributions; the zip command alone does not assemble those compliance materials.
+- [ ] State the ModuleManager dependency; it is not bundled by the command above.
+- [ ] With permission and the isolated dev game closed, back up its mod folder and
+  deploy the package without replacing user configuration. Compare DLL hashes.
+- [ ] Check main-menu version/commit in Player.log and run relevant functional checks
+  under the recorded KSP/Proton versions. A version smoke is not a full gameplay pass.
+
+## Publish (only when approved)
+
+- [ ] Tag the verified commit with an annotated `v<version>` tag; push to the fork remote
+  only. Never push to upstream or move a published tag.
+- [ ] Create a release at `Jvaxx/kOSIm` with the verified zip, checksum, changes,
+  validation scope, known issues and installation/CKAN cautions. Do not publish to
+  upstream's SpaceDock, CurseForge, documentation site or release pages.
+- [ ] Compare the uploaded asset digest with the local hash.
+- [ ] Record the release commit/tag and concise validation result; keep detailed local
+  receipts/logs outside tracked docs. Do not report the next development version as released.
+
+No dedicated CKAN metadata or hosted fork documentation deployment is configured.
+Those require separate design and validation, not guesses copied from upstream.

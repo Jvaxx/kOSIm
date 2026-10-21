@@ -1,7 +1,13 @@
 .. _changes:
 
-Changes from version to version
-===============================
+Historical upstream documentation changes
+=========================================
+
+This page preserves upstream documentation notes; it is not the fork changelog
+and its last listed version is not the current fork version. For kOSIM changes,
+including inherited upstream release history, read the
+`fork changelog <https://github.com/Jvaxx/kOSIm/blob/master/CHANGELOG.md>`_.
+Historical issue/PR links below intentionally refer to upstream.
 
 This is a place to mention important documentation changes that
 come with each version release.  Mostly it's here so you can
@@ -114,7 +120,7 @@ Random seed
 
 Added :func:`RANDOMSEED(key, seed)`.
 
-Suppress Autopilot 
+Suppress Autopilot
 ::::::::::::::::::
 
 Added :attr:`Config:SUPPRESSAUTOPILOT`
@@ -433,7 +439,7 @@ New suffixes on Body page
 to go with the new :HASOCEAN, :HASSURFACE, and :CHILDREN suffixes
 
 New Basic tutorial
-:::::::::::::::::
+::::::::::::::::::
 
 New Basic Tutorial page.
 
@@ -770,7 +776,7 @@ Changes in 0.19.3
 -----------------
 
 Interruptible Triggers
-:::::::::::::::::::::
+::::::::::::::::::::::
 
 Triggers are no longer required to complete within a single update frame,
 allowing them to be more than the IPU instructions long.  This also means that
