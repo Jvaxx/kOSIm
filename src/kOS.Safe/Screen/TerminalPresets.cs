@@ -8,7 +8,8 @@ namespace kOS.Safe.Screen
 {
     /// <summary>
     /// The GUI terminal's geometry presets: three slots, each a complete
-    /// <see cref="TerminalGeometry"/> (position, cells, character height) or empty. One set for
+    /// <see cref="TerminalGeometry"/> (position, cells, character height; optional background
+    /// opacity, default 100%) or empty. One set for
     /// every CPU, vessel and save (<see cref="TerminalPresetFile"/>); the header's preset buttons
     /// apply a slot (left click) or save the window's geometry into it (right click).
     /// </summary>
@@ -72,8 +73,9 @@ namespace kOS.Safe.Screen
         /// <summary>
         /// The presets in a saved file, as tolerant as <see cref="TerminalGeometry.Parse"/>, with
         /// the same limits per value. Keys without a known slot number or value name are ignored.
-        /// A slot counts only when all its values are known and believed; otherwise it is empty,
-        /// so a preset never applies half a geometry.
+        /// A slot counts only when all five geometry values are known and believed; otherwise
+        /// it is empty, so a preset never applies half a geometry. Missing or invalid opacity
+        /// defaults to 100%, so older presets remain valid.
         /// </summary>
         public static TerminalPresets Parse(string text)
         {

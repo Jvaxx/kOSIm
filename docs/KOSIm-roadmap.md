@@ -36,6 +36,25 @@ Base: upstream <https://github.com/KSP-KOS/KOS> `develop` at `8f281a45`. The ori
 
 The review's terminal items TERM-01 to TERM-08 are covered by Phases 2–4. Not done: the rest of EDIT-05 (find/replace, line numbers, highlighting), the deferred external-editor conveniences (below), and the open issues in [testing-and-build.md](testing-and-build.md), "Known issues and open findings". No further phase is planned: ask the user before starting new work.
 
+## Terminal window opacity
+
+**Implemented 2026-10-21; unreleased.** The user selected backgrounds-only opacity and a header context menu, confirmed the proposed range/defaults/older-preset behavior, then approved implementation, headless-only testing, documentation and a commit. This is a focused addition, not a new UI phase. No deployment or in-game checks this session, by request. Behavior and pending Proton checks: [testing-and-build.md](testing-and-build.md), "Terminal window opacity" and "In-game coverage".
+
+### Agreed behavior and as built
+
+- **Per terminal window**, remembered per CPU with ordinary geometry, and saved/restored by geometry presets. Shared presets retain their existing left-apply/right-save behavior; applying affects only the receiving window, and saving is not a broadcast.
+- **All terminal backgrounds** (body, header, status strip and chip backgrounds), not text, cursor, selection, control graphics or focus border. Brightness remains separate. No click-through, script suffix, telnet or other-window change; `config.xml` and the runtime target are unchanged.
+- **Right-click unused title/header space** for an opaque menu with a **0–100% slider**, rounded to whole percent, readout and live preview. No new header button or layout-width change. The right press/release is captured so it does not drag, resize or select; preset/size/close buttons are excluded. This deliberate user click takes keyboard focus so Esc works; script opens still do not.
+- **Outside press or Esc dismisses**; outside presses retain their normal recipient. Terminal typing is suppressed while the menu is open. Close, focus/power loss, hidden UI (with `ObeyHideUI`), flight results, paste confirmation and render faults dismiss it too; becoming available again does not reopen it. The popup follows UI scale and stays on screen, has its own mouse/raycast-blocking area and counts as part of its terminal for focus. Its mouse area is unregistered on destruction and its own held controls are released when dismissed.
+- **Optional `opacity = 75` / `1.opacity = 75`** in the two existing text files, using the same atomic writer, size limits and save timing. Valid values are whole numbers 0–100. Missing or invalid values mean **100%**, never "keep the last window's value". `TerminalGeometry.IsComplete` still requires only the original five fields, so older presets remain valid. No migration or file rewrite until something changes.
+- **No opaque underlay on the normal terminal.** Body, header and strip paint once; chip backgrounds get holes in the strip background so alphas do not stack. Reverse screen/visual beep compose their background color at the existing text brightness before applying opacity once. The opacity menu, paste confirmation, broken-install message and render-fault recovery stay opaque. Shared palette/style resources are not changed.
+
+### Implementation and verification
+
+- New `kOS.Safe.Screen.TerminalOpacity` (per-window state, readout, background color composition and reusable strip tiling), `TerminalOpacityMenu`/`TerminalOpacityMenuLayout` (context-click state, hit testing, popup placement and dismissal), and `src/kOS.Safe.Test/Screen/TerminalOpacityTest.cs`.
+- `TerminalGeometry` adds optional opacity to equality/hash, copies and shared parsing/formatting; `TerminalPresets` retains its five-field completeness rule. `TermWindow` connects persistence, presets, rendering, the menu and lifecycle; `KOSManagedWindow` only has a comment updated. User help is in `doc/source/structures/misc/terminal.rst`.
+- Gate **1435/1435** (34 new cases; `minimum_tests` 1401 → 1435; no baseline failures). **24/24 mutants killed** (compiled, full test assembly each time); final gate rerun after restoring sources. Headless allocation coverage: unchanged new drawing/layout/readout paths allocate 0 bytes after warmup. Full build: **0 errors, 44 existing warnings**, no new ones. `TermWindow`/Unity rendering and input are not headless-tested: **no Proton pass yet**, explicitly deferred at the user's request.
+
 ## Terminal geometry presets
 
 Proposed by the user 2026-10-20; decisions agreed the same day; step plan approved 2026-10-21 with Q1 and Q2 as proposed. **Implemented 2026-10-21** as planned (differences: "As built" below); headless-tested, full build, **passed in game 2026-10-21** (the user's own test of the "In game" list below); released in **1.5.1.101**. Behavior: [testing-and-build.md](testing-and-build.md), "Terminal geometry presets".
@@ -133,7 +152,7 @@ A pure policy class in `kOS.Safe` with headless tests; a thin Unity adapter appl
 
 - **IMGUI**, one shared style (`KOSStyle`, `TerminalPalette`) following KSP's UI scale; testable layout logic in `kOS.Safe`. Another renderer only after a prototype justifies it.
 - **One modern green look**, no themes and no theme script API. No bundled font (Unity under Proton cannot load one at run time); the OS fallback order puts Lucida Console before Courier.
-- **Terminal window:** flat header (title, geometry presets `1`–`3` when wide enough, smaller/larger text, close), status strip, edge resizing snapped to cells; geometry saved per CPU next to its history; kept on screen, but movable partly off screen by its header (48 px rule). No settings on the window: visual beep, key click and brightness are mod options; reverse screen has no control. Script suffixes unchanged.
+- **Terminal window:** flat header (title, geometry presets `1`–`3` when wide enough, smaller/larger text, close), status strip, edge resizing snapped to cells; geometry saved per CPU next to its history; kept on screen, but movable partly off screen by its header (48 px rule). Visual beep, key click and brightness are mod options; reverse screen has no control. The previous "no settings on the window" rule has one exception: the opacity-only header context menu (above). Script suffixes unchanged.
 - **Toolbar panel:** CPUs and Settings tabs; power read-only; settings labelled in words; number fields apply on Enter or leaving them.
 - **Other windows:** the editor is a free, resizable window kept for the session only (not saved); confirmations name their actions; Esc cancels in confirmations and the name tag. Script GUIs and KSP's own dialogs keep their look.
 - No UI redesign without a plan approved by the user.

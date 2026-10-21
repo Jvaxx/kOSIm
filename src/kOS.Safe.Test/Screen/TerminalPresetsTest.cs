@@ -170,6 +170,69 @@ namespace kOS.Safe.Test.Terminal
         }
 
         [Test]
+        public void PresetsSaveAndRestoreOpacityWithoutSharingTheWindowsValue()
+        {
+            var presets = new TerminalPresets();
+            var first = new TerminalOpacity { Percent = 25 };
+            var second = new TerminalOpacity { Percent = 80 };
+            TerminalGeometry geometry = Geometry(120, 50);
+            geometry.Opacity = first.Percent;
+            presets.Set(1, geometry);
+            geometry.Opacity = 99;
+            first.Percent = 40;
+            Assert.AreEqual(80, second.Percent, "saving a slot is not a broadcast to other windows");
+            second.Restore(presets.Get(1));
+            Assert.AreEqual(25, second.Percent, "applying restores the captured opacity");
+            Assert.AreEqual(40, first.Percent, "applying in another window leaves the source alone");
+            presets.Get(1).Opacity = 75;
+            TerminalPresets read = TerminalPresets.Parse(TerminalPresets.Format(presets));
+            Assert.AreEqual(25, read.Get(1).Opacity, "slot and copies preserve opacity");
+            StringAssert.Contains("1.opacity = 25\n", TerminalPresets.Format(presets));
+            foreach (int percent in new[] { 0, 100 })
+            {
+                geometry.Opacity = percent;
+                presets.Set(2, geometry);
+                Assert.AreEqual(percent, TerminalPresets.Parse(TerminalPresets.Format(presets)).Get(2).Opacity);
+            }
+        }
+
+        [Test]
+        public void OlderPresetsAndInvalidOpacityStillApplyCompleteGeometryAndOpaqueBackgrounds()
+        {
+            string old = Slot(1, 120, 80, 50, 36, 14);
+            foreach (string extra in new[] { "", "1.opacity=-1", "1.opacity=101", "1.opacity=0.5", "1.opacity=abc" })
+            {
+                TerminalPresets presets = TerminalPresets.Parse(old + extra);
+                Assert.IsTrue(presets.IsFilled(1), "opacity is not a required sixth geometry value: " + extra);
+                TerminalGeometry geometry = presets.Get(1);
+                Assert.AreEqual(Geometry(120, 50), geometry);
+                var opacity = new TerminalOpacity { Percent = 12 };
+                opacity.Restore(geometry);
+                Assert.AreEqual(100, opacity.Percent, extra);
+            }
+            Assert.IsFalse(TerminalPresets.Parse("1.opacity=25\n").IsFilled(1), "opacity alone is no geometry");
+            Assert.IsFalse(TerminalPresets.Parse(old.Replace("1.rows = 36\n", "") + "1.opacity=25").IsFilled(1));
+        }
+
+        [Test]
+        public void OpacityIsKeptByTheSharedFileStoreAcrossAReopen()
+        {
+            var store = new TerminalPresetFile(() => FilePath);
+            TerminalGeometry geometry = Geometry(120, 50);
+            geometry.Opacity = 37;
+            Assert.IsTrue(store.Save(1, geometry));
+            Assert.AreEqual(37, store.Get(1).Opacity);
+            Assert.AreEqual(37, new TerminalPresetFile(() => FilePath).Get(1).Opacity);
+            geometry.Opacity = 0;
+            Assert.IsTrue(store.Save(3, geometry));
+            var reopened = new TerminalPresetFile(() => FilePath);
+            Assert.AreEqual(37, reopened.Get(1).Opacity);
+            Assert.AreEqual(0, reopened.Get(3).Opacity);
+            Assert.IsFalse(reopened.IsFilled(2));
+            CollectionAssert.IsEmpty(logger.Warnings);
+        }
+
+        [Test]
         public void TheGeometryFileReadsAsBefore()
         {
             // The per-CPU file shares the presets' value checks; its own keys are unchanged.

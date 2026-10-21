@@ -95,8 +95,8 @@ namespace kOS.Screen
         private Func<string, float> measureStripText;
         private Func<string, float> measureTitleText;
 
-        // Geometry and scrolling (Phase 4, step 2). The window's position, cells and character
-        // height are saved per CPU (TerminalGeometryFile) when they change, at most every
+        // Geometry and scrolling (Phase 4, step 2). The window's position, cells, character
+        // height and background opacity are saved per CPU (TerminalGeometryFile) when they change, at most every
         // geometrySaveInterval and not during a drag, and once more when the window goes:
         private ITerminalGeometryStore geometryStore;
         private TerminalGeometry savedGeometry; // what the store holds, as far as this window knows
@@ -145,6 +145,15 @@ namespace kOS.Screen
         // next OnGUI, between passes, as the size buttons' character height.
         private static TerminalPresetFile presets;
         private TerminalGeometry pendingPreset;
+
+        // Per-window backgrounds only. The opaque context menu is a separate IMGUI window,
+        // with its own mouse area; its clicks still belong to this terminal's keyboard owner.
+        private readonly TerminalOpacity opacity = new TerminalOpacity();
+        private readonly TerminalOpacityMenu opacityMenu = new TerminalOpacityMenu();
+        private readonly List<ScreenRect> stripBackgroundRects = new List<ScreenRect>();
+        private MouseBlocking.Area opacityMenuMouseArea;
+        private int opacityContextControl;
+        private int opacitySliderControl;
         
         // The CPU state (Phase 3, D2), in the status strip and after the telnet title; worked
         // out at most every statusInterval, which also bounds the title updates telnet clients get:
@@ -227,6 +236,8 @@ namespace kOS.Screen
             SaveGeometryIfChanged(true); // scene change, vessel unloaded: the last move is kept
             LoseFocus();
             guiPaste.Cancel();
+            CloseOpacityMenu();
+            KOSMouseBlocking.Unregister(ref opacityMenuMouseArea);
             KOSMouseBlocking.Unregister(ref pasteConfirmationMouseArea);
             GameEvents.onHideUI.Remove(OnHideUI);
             GameEvents.onShowUI.Remove(OnShowUI);
@@ -253,6 +264,8 @@ namespace kOS.Screen
         void OnHideUI()
         {
             uiGloballyHidden = true;
+            if (SafeHouse.Config == null || SafeHouse.Config.ObeyHideUI)
+                CloseOpacityMenu();
         }
         
         void OnShowUI()
@@ -301,6 +314,7 @@ namespace kOS.Screen
         {
             // Diable GUI and release all locks
             guiPaste.Cancel(); // a paste waiting for confirmation is dropped with the window
+            CloseOpacityMenu();
             resizeEdges = ResizeEdges.None; // a drag cut short changes nothing
             scrollDragging = false;
             rowTexts.Clear(); // the rows' lines and strings can go while nothing draws them
@@ -328,6 +342,7 @@ namespace kOS.Screen
         {
             KOSInputOwnership.Update();
             bool hasKeyboard = HasKeyboard;
+            if (!hasKeyboard) CloseOpacityMenu();
             if (hasKeyboard && !hadKeyboard)
                 ShowCursor = true; // as focusing always did: a CPU loaded already powered never set it
             hadKeyboard = hasKeyboard;
@@ -338,7 +353,11 @@ namespace kOS.Screen
         {
             if (!IsOpen || !IsPowered)
                 guiPaste.Cancel(); // nobody can answer the confirmation (IsOpen may be set without Close())
-            if (!IsOpen) return;
+            if (!IsOpen)
+            {
+                CloseOpacityMenu();
+                return;
+            }
 
             if (postponedCharPixelHeight >= 0 && shared != null && shared.Screen != null)
             {
@@ -355,14 +374,12 @@ namespace kOS.Screen
 
             // Hidden UI and the flight-results dialog suspend the keyboard focus, so a terminal
             // that is not drawn does not read keys (INPUT-01):
-            if (RefreshKeyboard()) ProcessKeyEvents();
-            if (FlightResultsDialog.isDisplaying) return;
-            if (uiGloballyHidden)
-            {
-                kOS.Safe.Encapsulation.IConfig cfg = kOS.Safe.Utilities.SafeHouse.Config;
-                if (cfg == null || cfg.ObeyHideUI)
-                    return;
-            }
+            bool hasKeyboard = RefreshKeyboard();
+            bool hidden = FlightResultsDialog.isDisplaying ||
+                (uiGloballyHidden && (SafeHouse.Config == null || SafeHouse.Config.ObeyHideUI));
+            RefreshOpacityMenu(!hidden && IsPowered && hasKeyboard && !guiPaste.IsAwaitingConfirmation && !renderFaultRecovery.IsFaulted);
+            if (hasKeyboard) ProcessKeyEvents();
+            if (hidden) return;
 
             GUI.skin = HighLogic.Skin;
             
@@ -377,6 +394,8 @@ namespace kOS.Screen
             BlockMouseOver(WindowRect);
             if (guiPaste.IsAwaitingConfirmation)
                 DrawPasteConfirmation();
+            if (IsOpen && opacityMenu.IsOpen)
+                DrawOpacityMenu();
             
             if (consumeEvent)
             {
@@ -484,6 +503,13 @@ namespace kOS.Screen
             Event e = Event.current;
             if (e.type == EventType.KeyDown)
             {
+                if (opacityMenu.IsOpen)
+                {
+                    // Do not type commands (or run a paste) while adjusting appearance.
+                    if (e.keyCode == KeyCode.Escape && opacityMenu.Escape()) CloseOpacityMenu();
+                    e.Use();
+                    return;
+                }
                 // This ugly hack is here to solve a bug with Unity mapping
                 // Keycodes to Unicode chars incorrectly on its Linux version:
                 char c;
@@ -740,6 +766,8 @@ namespace kOS.Screen
             formerCharPixelWidth = screen.CharacterPixelWidth;
             formerCharPixelHeight = screen.CharacterPixelHeight;
             screen.SetSize(preset.Rows.Value, preset.Columns.Value);
+            opacity.Restore(preset);
+            CloseOpacityMenu();
             FitWindowToScreen(screen); // also when the cells did not change (SetSize then does not notify)
             WindowRect = new Rect(preset.X.Value, preset.Y.Value, WindowRect.width, WindowRect.height);
             keeper.FitWhollyNext();
@@ -751,6 +779,100 @@ namespace kOS.Screen
             if (shared == null || shared.Screen == null) return;
             bool saved = Presets.Save(slot, CurrentGeometry()); // never throws for I/O; a failure is logged once
             ShowNotice(saved ? string.Format("Saved preset {0}", slot) : "Preset save failed (see KSP.log)");
+        }
+
+        /// <summary>Only the menu owns these hot controls; never release another window's drag.</summary>
+        private void CloseOpacityMenu()
+        {
+            opacityMenu.Close();
+            if ((opacityContextControl != 0 && GUIUtility.hotControl == opacityContextControl) ||
+                (opacitySliderControl != 0 && GUIUtility.hotControl == opacitySliderControl))
+                GUIUtility.hotControl = 0;
+            opacitySliderControl = 0;
+        }
+
+        private void RefreshOpacityMenu(bool available)
+        {
+            if (!opacityMenu.IsOpen) return;
+            opacityMenu.Refresh(KOSStyle.UiScale, UnityEngine.Screen.width, UnityEngine.Screen.height, available);
+            Event current = Event.current;
+            if (current != null && current.type == EventType.MouseDown)
+                opacityMenu.PointerDown(current.mousePosition.x, current.mousePosition.y);
+            if (!opacityMenu.IsOpen) CloseOpacityMenu();
+        }
+
+        protected override bool ContainsPoint(Vector2 point)
+        {
+            return base.ContainsPoint(point) || opacityMenu.Contains(point.x, point.y);
+        }
+
+        /// <summary>Capture a right press before the resize, selection and header drag see it.</summary>
+        private void HandleOpacityContextClick()
+        {
+            opacityContextControl = GUIUtility.GetControlID(FocusType.Passive);
+            Event current = Event.current;
+            if (current == null) return;
+            switch (current.GetTypeForControl(opacityContextControl))
+            {
+                case EventType.MouseDown:
+                    if (!IsPowered || guiPaste.IsAwaitingConfirmation || renderFaultRecovery.IsFaulted || missingInstallFiles.Count != 0 ||
+                        !TerminalOpacityMenu.CanOpen(Layout, WindowRect.width, current.mousePosition.x, current.mousePosition.y, current.button) ||
+                        !IsInsideMyExposedPortion(MouseOnScreen())) return;
+                    CloseOpacityMenu();
+                    if (!opacityMenu.BeginContext(Layout, WindowRect.width, current.mousePosition.x, current.mousePosition.y, current.button)) return;
+                    // Take focus on the press, so an unfocused terminal keeps this hot control
+                    // through the intervening OnGUI/Update passes until the right release.
+                    GetFocus();
+                    BringToFront();
+                    GUIUtility.hotControl = opacityContextControl;
+                    current.Use();
+                    break;
+                case EventType.MouseDrag:
+                    if (GUIUtility.hotControl == opacityContextControl) current.Use();
+                    break;
+                case EventType.MouseUp:
+                    if (GUIUtility.hotControl != opacityContextControl || current.button != 1) return;
+                    GUIUtility.hotControl = 0;
+                    if (IsPowered && !guiPaste.IsAwaitingConfirmation && !renderFaultRecovery.IsFaulted &&
+                        opacityMenu.EndContext(Layout, WindowRect.width, current.mousePosition.x, current.mousePosition.y, current.button))
+                    {
+                        // A deliberate user click takes focus, unlike a script's Open Terminal.
+                        GetFocus();
+                        BringToFront();
+                        opacityMenu.Open(WindowRect.x + current.mousePosition.x, WindowRect.y + Layout.HeaderHeight,
+                            KOSStyle.UiScale, UnityEngine.Screen.width, UnityEngine.Screen.height);
+                    }
+                    else CloseOpacityMenu();
+                    current.Use();
+                    break;
+            }
+        }
+
+        private void DrawOpacityMenu()
+        {
+            Rect bounds = ToRect(opacityMenu.Bounds);
+            Rect drawn = GUI.Window(UniqueId + 1, bounds, DrawOpacityMenuContents, GUIContent.none, GUIStyle.none);
+            GUI.BringWindowToFront(UniqueId + 1);
+            KOSMouseBlocking.Show(ref opacityMenuMouseArea, "TermWindowOpacity" + UniqueId, drawn);
+        }
+
+        private void DrawOpacityMenuContents(int windowId)
+        {
+            TerminalOpacityMenuLayout menu = opacityMenu.Layout;
+            // Not affected by opacity: the user can always see how to restore the background.
+            var bounds = new Rect(0, 0, menu.Width, menu.Height);
+            KOSStyle.Fill(bounds, KOSStyle.PanelBackground);
+            KOSStyle.Frame(bounds, menu.Border, KOSStyle.FrameColor);
+            KOSStyle.Text(ToRect(menu.Caption), "Opacity", KOSStyle.Label(menu.FontSize), KOSStyle.ChromeText);
+            KOSStyle.Text(ToRect(menu.Readout), opacity.Readout, KOSStyle.CenteredLabel(menu.FontSize), KOSStyle.ChromeText);
+            int before = GUIUtility.hotControl;
+            opacity.Percent = (int)Math.Round(KOSStyle.Slider(ToRect(menu.Slider), opacity.Percent, 0, 100), MidpointRounding.AwayFromZero);
+            if (GUIUtility.hotControl != before && GUIUtility.hotControl != 0)
+                opacitySliderControl = GUIUtility.hotControl;
+            if (GUIUtility.hotControl == 0) opacitySliderControl = 0;
+            // Padding, right clicks and wheel input must not reach the terminal under the popup.
+            Event current = Event.current;
+            if (current.isMouse || current.type == EventType.ScrollWheel) current.Use();
         }
 
         private FlatWindowLayout FlatLayout
@@ -1013,8 +1135,9 @@ namespace kOS.Screen
 
         void TerminalGui(int windowId)
         {
-            // Under everything, the fallback screens too (no window skin draws a background):
-            KOSStyle.Fill(new Rect(0, 0, WindowRect.width, WindowRect.height), KOSStyle.WindowBackground);
+            // No underlay in the normal terminal: body, header and strip each paint once.
+            // An opaque underlay would defeat transparency (two faded fills would stack, too).
+            HandleOpacityContextClick();
             if (!renderFaultRecovery.IsFaulted)
                 BeginResizeAtEdge(); // before the selection and DragWindow see the press
             ScrollViewWithWheel();
@@ -1028,6 +1151,8 @@ namespace kOS.Screen
                 {
                     GUI.color = color;
                     GUI.skin = HighLogic.Skin;
+                    CloseOpacityMenu();
+                    KOSStyle.Fill(new Rect(0, 0, WindowRect.width, WindowRect.height), KOSStyle.WindowBackground);
                     DrawRenderFaultFallback();
                 }
             }
@@ -1231,6 +1356,7 @@ namespace kOS.Screen
         {
             if (missingInstallFiles.Count > 0)
             {
+                KOSStyle.Fill(new Rect(0, 0, WindowRect.width, WindowRect.height), KOSStyle.WindowBackground);
                 GUI.Label(new Rect(15, 15, 450, 300),
                     "Error: kOS is not installed where it should be.\n" +
                     "These files were not found in your KSP folder:\n\n" +
@@ -1298,11 +1424,7 @@ namespace kOS.Screen
             DateTime nowTime = DateTime.Now;
             bool reversingScreen = (nowTime > blinkEndTime) ? screen.ReverseScreen : (!screen.ReverseScreen);
             Rect body = ToRect(chrome.Body(width, height));
-            KOSStyle.Fill(body, bgColor);
-            if (reversingScreen)
-            {   // In reverse screen mode, draw a big rectangle in foreground color across the whole active screen area:
-                KOSStyle.Fill(body, AdjustColor(textColor, screen.Brightness));
-            }
+            KOSStyle.Fill(body, KOSStyle.ToColor(opacity.Body(reversingScreen, screen.Brightness)));
             Rect field = CharacterField(screen);
             Color previousTextColor = terminalLetterSkin.label.normal.textColor;
             // +4 so descenders and underscores visible on bottom row; within the body, so that while
@@ -1368,7 +1490,7 @@ namespace kOS.Screen
         /// </summary>
         private void DrawHeader(IScreenBuffer screen, TerminalChromeLayout chrome, float width)
         {
-            KOSStyle.Fill(ToRect(chrome.Header(width)), KOSStyle.ChromeBackground);
+            KOSStyle.Fill(ToRect(chrome.Header(width)), KOSStyle.ToColor(opacity.Background(TerminalPalette.Chrome)));
             titleLabel = KOSStyle.TitleLabel(chrome.FontSize);
             if (measureTitleText == null)
                 measureTitleText = text => KOSStyle.Measure(titleLabel, text);
@@ -1412,7 +1534,6 @@ namespace kOS.Screen
         private void DrawStrip(IScreenBuffer screen, TerminalChromeLayout chrome, float width, float height)
         {
             Rect strip = ToRect(chrome.Strip(width, height));
-            KOSStyle.Fill(strip, KOSStyle.ChromeBackground);
             GUIStyle label = KOSStyle.Label(chrome.FontSize);
             stripLabel = label;
             if (measureStripText == null)
@@ -1429,6 +1550,7 @@ namespace kOS.Screen
             List<StatusStrip.Placement> parts = stripCache.Layout(label, measureStripText, chrome.Padding, chrome.Padding, dotWidth,
                 KOSStyle.Ellipsis, content.X, content.Width, shown, shownNotice, screen.ColumnCount, screen.RowCount);
             List<StatusChip> chips = stripCache.Chips;
+            DrawStripBackground(strip, parts, chipInset);
             foreach (StatusStrip.Placement part in parts)
             {
                 var where = new Rect(part.X, strip.y, part.Width, strip.height);
@@ -1441,7 +1563,7 @@ namespace kOS.Screen
                     case StatusStrip.Part.Chip:
                         StatusChip chip = chips[part.ChipIndex];
                         var background = new Rect(where.x, where.y + chipInset, where.width, Math.Max(0, where.height - 2 * chipInset));
-                        KOSStyle.Fill(background, KOSStyle.ChipBackground);
+                        KOSStyle.Fill(background, KOSStyle.ToColor(opacity.Background(TerminalPalette.Chip)));
                         Color chipColor = KOSStyle.ChromeText;
                         if (chip.Kind == StatusChipKind.NoConnection)
                             chipColor = KOSStyle.Warning;
@@ -1468,6 +1590,16 @@ namespace kOS.Screen
 
             // A press on the grip is the bottom-right corner's (BeginResizeAtEdge):
             KOSStyle.DrawIcon(ToRect(chrome.Grip(width, height)), KOSStyle.Icon.Grip, IconSize(chrome), KOSStyle.DimText);
+        }
+
+        /// <summary>Leave holes behind chip backgrounds, so their opacity does not stack with the strip's.</summary>
+        private void DrawStripBackground(Rect strip, List<StatusStrip.Placement> parts, float chipInset)
+        {
+            if (Event.current.type != EventType.Repaint) return;
+            Color background = KOSStyle.ToColor(opacity.Background(TerminalPalette.Chrome));
+            TerminalOpacity.StripBackground(ToScreenRect(strip), parts, chipInset, stripBackgroundRects);
+            foreach (ScreenRect rectangle in stripBackgroundRects)
+                KOSStyle.Fill(ToRect(rectangle), background);
         }
 
         /// <summary>The <c>New output</c> chip was clicked: the view goes back to the screen, as typing brings it.</summary>
@@ -1668,7 +1800,8 @@ namespace kOS.Screen
                 Y = (int)Math.Round(WindowRect.y),
                 Columns = screen.ColumnCount,
                 Rows = screen.RowCount,
-                CharacterHeight = screen.CharacterPixelHeight
+                CharacterHeight = screen.CharacterPixelHeight,
+                Opacity = opacity.Percent
             };
         }
 
@@ -1676,7 +1809,7 @@ namespace kOS.Screen
         /// Save the geometry if it changed: looked at every <see cref="geometryCheckInterval"/>,
         /// saved at most every <see cref="geometrySaveInterval"/>, not while the mouse button is
         /// held (a move or a resize in progress). <paramref name="now"/> skips those waits.
-        /// Every change counts: moving, resizing, the character size, a script's TERMINAL suffixes.
+        /// Every change counts: moving, resizing, character size, opacity, a script's TERMINAL suffixes.
         /// </summary>
         private void SaveGeometryIfChanged(bool now)
         {
@@ -1811,6 +1944,7 @@ namespace kOS.Screen
             shared.Screen.CharacterPixelWidth = 8; // will be overridden later when drawing the font.
             shared.Screen.CharacterPixelHeight = saved.CharacterHeight ?? SafeHouse.Config.TerminalFontDefaultSize;
             shared.Screen.Brightness = SafeHouse.Config.TerminalBrightness;
+            opacity.Restore(saved);
             shared.Screen.VisualBeep = kOS.Suffixed.Config.Instance.TerminalVisualBeep; // a mod option since Phase 4 step 3
             formerCharPixelWidth = shared.Screen.CharacterPixelWidth;
             formerCharPixelHeight = shared.Screen.CharacterPixelHeight;

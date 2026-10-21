@@ -1,5 +1,12 @@
 # kOS Mod Changelog
 
+## kOS Improved — Unreleased
+
+- Per-window terminal background opacity: right-click unused header
+  space for a 0–100% slider. Text and controls retain their visibility.
+  Opacity is remembered per CPU and saved with geometry presets; older
+  presets use 100%. Headless-tested and built; Proton validation pending.
+
 ## kOS Improved 1.5.1.101 (2026-10-21)
 
 Terminal geometry presets, and the fixes from the review of 1.5.1.100.

@@ -125,6 +125,43 @@ namespace kOS.Safe.Test.Terminal
             Assert.IsFalse(Full().Equals(null));
         }
 
+        [Test]
+        public void OptionalOpacityRoundTripsAndParticipatesInCopiesAndEquality()
+        {
+            TerminalGeometry old = Full();
+            Assert.IsNull(TerminalGeometry.Parse(TerminalGeometry.Format(old)).Opacity);
+            foreach (int value in new[] { 0, 37, 100 })
+            {
+                TerminalGeometry geometry = Full();
+                geometry.Opacity = value;
+                string text = TerminalGeometry.Format(geometry);
+                StringAssert.Contains("opacity = " + value + "\n", text);
+                Assert.AreEqual(geometry, TerminalGeometry.Parse(text));
+                Assert.AreEqual(geometry, geometry.Copy());
+                Assert.AreEqual(geometry.GetHashCode(), geometry.Copy().GetHashCode());
+                Assert.AreNotEqual(old, geometry, "opacity changes trigger the ordinary geometry save");
+                TerminalGeometry copy = geometry.Copy();
+                copy.Opacity = value == 0 ? 100 : 0;
+                Assert.AreNotEqual(geometry, copy);
+                Assert.AreEqual(value, geometry.Opacity, "copy is independent");
+            }
+        }
+
+        [Test]
+        public void OpacityParsingIsTolerantAndInvalidValuesUseTheOpaqueDefault()
+        {
+            Assert.AreEqual(25, TerminalGeometry.Parse(" OPACITY = 75\r\nopacity = +25\r\n").Opacity);
+            foreach (string value in new[] { "-1", "101", "999999999999", "0.5", "75%", "NaN", "Infinity", "abc", "" })
+            {
+                TerminalGeometry geometry = TerminalGeometry.Parse("columns=50\nopacity=25\nopacity=" + value);
+                Assert.IsNull(geometry.Opacity, value);
+                Assert.AreEqual(50, geometry.Columns, "invalid opacity does not damage geometry");
+                var opacity = new TerminalOpacity { Percent = 12 };
+                opacity.Restore(geometry);
+                Assert.AreEqual(100, opacity.Percent, value);
+            }
+        }
+
         // The file:
 
         [Test]
@@ -132,10 +169,12 @@ namespace kOS.Safe.Test.Terminal
         {
             var store = new TerminalGeometryFile(() => FilePath);
             Assert.IsNull(store.Load(), "no file yet");
-            store.Save(Full());
+            TerminalGeometry geometry = Full();
+            geometry.Opacity = 37;
+            store.Save(geometry);
             Assert.IsTrue(File.Exists(FilePath), "the folders are created");
             Assert.AreEqual(FilePath, store.Path);
-            Assert.AreEqual(Full(), new TerminalGeometryFile(() => FilePath).Load());
+            Assert.AreEqual(geometry, new TerminalGeometryFile(() => FilePath).Load());
             Assert.AreNotEqual(0xEF, File.ReadAllBytes(FilePath)[0], "no byte order mark");
             CollectionAssert.IsEmpty(Directory.GetFiles(Path.GetDirectoryName(FilePath), "*.tmp"), "no temporary file left");
             CollectionAssert.IsEmpty(logger.Warnings);

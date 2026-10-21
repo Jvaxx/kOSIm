@@ -172,14 +172,30 @@ Structure
 
     **Geometry presets** (KOS Improved): the in-game GUI terminal's
     header has three preset buttons, ``1``, ``2`` and ``3``.  A right
-    click saves the window's position, :attr:`WIDTH`, :attr:`HEIGHT`
-    and :attr:`CHARHEIGHT` into that preset; a left click applies it, as
+    click saves the window's position, :attr:`WIDTH`, :attr:`HEIGHT`,
+    :attr:`CHARHEIGHT` and background opacity into that preset; a left click applies it, as
     if a script had set those values (resize watchers run, telnet
     clients are asked to resize), and moves the window there, wholly on
     the screen.  A preset not saved yet is drawn dim.  The three presets
     are one set for every CPU, vessel and save, kept in
     ``GameData/kOS/Plugins/PluginData/kOS/terminal-presets.txt``.  The
     buttons are hidden on a window too narrow for them.
+
+    **Window opacity** (KOS Improved): right-click unused title/header
+    space (not a button) to open an opacity slider.  It adjusts this
+    window's backgrounds from 0% (transparent) to 100% (opaque), with a
+    percentage readout and live preview.  The letters, cursor, controls
+    and focus border retain their existing visibility; text brightness
+    is still controlled separately by :attr:`BRIGHTNESS`.  Transparency
+    does not make the window click-through.  The opacity menu stays
+    opaque; click outside it or press Escape to dismiss it.  While it is
+    open, typing does not enter terminal commands.
+
+    Opacity is remembered per CPU with its window geometry, and is also
+    captured by the three geometry presets.  New windows and older
+    geometry files or presets without opacity use 100%.  The editor,
+    toolbar panel and telnet display are not affected.  There is no
+    terminal script suffix for window opacity.
 
 .. attribute:: Terminal:INPUT
 

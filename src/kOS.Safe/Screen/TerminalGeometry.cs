@@ -9,9 +9,9 @@ namespace kOS.Safe.Screen
 {
     /// <summary>
     /// A CPU's GUI terminal window as saved between game sessions (Phase 4, step 2): its
-    /// position in screen pixels, its size in cells and the character height. A value that
-    /// is not known (missing or rejected from a file) is null, and the terminal keeps its
-    /// default for it.
+    /// position in screen pixels, size in cells, character height and background opacity.
+    /// A value that is not known (missing or rejected from a file) is null, and the terminal
+    /// uses its default for it (100% for opacity).
     /// </summary>
     public sealed class TerminalGeometry : IEquatable<TerminalGeometry>
     {
@@ -26,10 +26,13 @@ namespace kOS.Safe.Screen
         public int? Rows { get; set; }
         public int? CharacterHeight { get; set; }
 
+        /// <summary>Background opacity in whole percent (0–100); null means 100%, including older files.</summary>
+        public int? Opacity { get; set; }
+
         public bool Equals(TerminalGeometry other)
         {
             return other != null && X == other.X && Y == other.Y && Columns == other.Columns &&
-                Rows == other.Rows && CharacterHeight == other.CharacterHeight;
+                Rows == other.Rows && CharacterHeight == other.CharacterHeight && Opacity == other.Opacity;
         }
 
         public override bool Equals(object obj)
@@ -45,7 +48,8 @@ namespace kOS.Safe.Screen
                 hash = hash * 31 + Y.GetHashCode();
                 hash = hash * 31 + Columns.GetHashCode();
                 hash = hash * 31 + Rows.GetHashCode();
-                return hash * 31 + CharacterHeight.GetHashCode();
+                hash = hash * 31 + CharacterHeight.GetHashCode();
+                return hash * 31 + Opacity.GetHashCode();
             }
         }
 
@@ -71,6 +75,7 @@ namespace kOS.Safe.Screen
             AppendValue(text, prefix, "columns", geometry.Columns);
             AppendValue(text, prefix, "rows", geometry.Rows);
             AppendValue(text, prefix, "charheight", geometry.CharacterHeight);
+            AppendValue(text, prefix, "opacity", geometry.Opacity);
         }
 
         private static void AppendValue(StringBuilder text, string prefix, string key, int? value)
@@ -84,7 +89,8 @@ namespace kOS.Safe.Screen
         /// ends, unknown keys and spaces around <c>=</c> are accepted, keys ignore case, and the
         /// last of a repeated key wins. A value that is not a whole number, or is outside the
         /// limits a script has (<c>TERMINAL:WIDTH</c>, <c>HEIGHT</c>, <c>CHARHEIGHT</c>) or
-        /// <see cref="MAX_COORDINATE"/>, is left unknown.
+        /// <see cref="MAX_COORDINATE"/>, is left unknown. Opacity is a whole percent in 0–100;
+        /// missing or rejected opacity defaults to 100% without invalidating a preset.
         /// </summary>
         public static TerminalGeometry Parse(string text)
         {
@@ -94,7 +100,7 @@ namespace kOS.Safe.Screen
             return geometry;
         }
 
-        /// <summary>True when every value is known (a preset holds only complete geometries).</summary>
+        /// <summary>True when all five geometry values are known. Opacity is optional for backward compatibility.</summary>
         public bool IsComplete
         {
             get { return X.HasValue && Y.HasValue && Columns.HasValue && Rows.HasValue && CharacterHeight.HasValue; }
@@ -103,7 +109,7 @@ namespace kOS.Safe.Screen
         /// <summary>A geometry with the same values.</summary>
         public TerminalGeometry Copy()
         {
-            return new TerminalGeometry { X = X, Y = Y, Columns = Columns, Rows = Rows, CharacterHeight = CharacterHeight };
+            return new TerminalGeometry { X = X, Y = Y, Columns = Columns, Rows = Rows, CharacterHeight = CharacterHeight, Opacity = Opacity };
         }
 
         /// <summary>
@@ -137,6 +143,7 @@ namespace kOS.Safe.Screen
                 case "columns": Columns = Number(value, TerminalStruct.MINCOLUMNS, TerminalStruct.MAXCOLUMNS); return true;
                 case "rows": Rows = Number(value, TerminalStruct.MINROWS, TerminalStruct.MAXROWS); return true;
                 case "charheight": CharacterHeight = Number(value, TerminalStruct.MINCHARPIXELS, TerminalStruct.MAXCHARPIXELS); return true;
+                case "opacity": Opacity = Number(value, 0, 100); return true;
                 default: return false;
             }
         }
