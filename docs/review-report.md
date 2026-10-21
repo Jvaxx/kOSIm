@@ -186,6 +186,8 @@ performed. This is the case it would catch.
 
 ### L-02 (Low, kOSIm): per-CPU history and geometry files are never removed
 
+**Status: done** (2026-10-21, with L-03, P-11, L-04, D-01, D-03, D-04 and N-01). User decision: prune at save load. After a save is loaded from the main menu (not on a quickload or revert), a worker thread removes the files of parts that neither the loaded game nor any `.sfs` of the save folder or its `Backup` has (`persistentId` lines of every node), unless changed in the last minute; nothing is removed when a save cannot be read whole. Craft files are not read. Tests: `CpuFilePruneTest`; the trigger (`CpuFilePruner`, Unity) is not tested headless. Details: `testing-and-build.md`, "Fixes from the post-release review".
+
 `kOSProcessor.CpuFilePath` (`src/kOS/Module/kOSProcessor.cs:579-592`) writes
 `saves/<save>/kOS/{history,terminal}/<persistentId>[-n].txt`. Nothing deletes them when
 a vessel is destroyed or recovered, or when a part is removed.
@@ -203,6 +205,8 @@ Options:
 
 ### L-03 (Low, kOSIm): leftover archive temp files are visible to scripts
 
+**Status: done** (2026-10-21, with L-03, P-11, L-04, D-01, D-03, D-04 and N-01). User decision: sweep. A listing of a folder deletes the `.kosim-save-<32 hex>.tmp` files in it last written a minute ago or more (never a link), and leaves them out of the listing. Tests: `ArchiveTempFilesTest`. Details: `testing-and-build.md`, "Fixes from the post-release review".
+
 `ArchiveFileWriter` writes `.kosim-save-<guid>.tmp` beside the destination
 (`src/kOS.Safe/Persistence/ArchiveFileWriter.cs:24`). After a crash mid-save, the file
 stays, as documented in `testing-and-build.md:267` ("no sweep"), and `LIST`/`OPEN` show
@@ -214,6 +218,8 @@ Possible fixes:
 - or sweep files older than a minute when the archive is first listed.
 
 ### L-04 (Info, kOSIm): unused textures still loaded
+
+**Status: done** (2026-10-21, with L-03, P-11, L-04, D-01, D-03, D-04 and N-01). The textures are no longer loaded; the check is `File.Exists` on the two terminal sounds under the game folder, once per game, and the message names the missing ones (a nested kOS folder is now caught). Tests: `TerminalInstallCheckTest`. Details: `testing-and-build.md`, "Fixes from the post-release review".
 
 `TermWindow.installTextures` (`TermWindow.cs:79-86`, checked at `:191`) still loads 7
 `dds` textures that are no longer drawn, to detect a broken install. This is a
@@ -406,6 +412,8 @@ The geometry file already does this (`testing-and-build.md:192`).
 
 ### P-11 (Low, kOSIm): link checks walk the tree twice under Wine
 
+**Status: done** (2026-10-21, with L-03, P-11, L-04, D-01, D-03, D-04 and N-01). A delete under Wine is one walk that refuses on the first link or deletes the entries it walked; each path is mapped to Unix once per walk; the `FileSystemInfo`s are passed down. Counted headless with a stand-in mapping: a 7-entry delete 28 mappings → 8, a move 42 → 16. Tests: `ArchiveLinkTest`. Not timed under Proton. Details: `testing-and-build.md`, "Fixes from the post-release review".
+
 Under Wine, `LinkSafeDelete.IsLink` (`src/kOS.Safe/Persistence/LinkSafeDelete.cs:77-85`)
 makes two `wine_get_unix_file_name` P/Invokes per entry (`ResolvesElsewhere`).
 
@@ -440,6 +448,8 @@ consider a combined check-then-delete walk that collects the entries once.
 
 ### D-01 (Low, kOSIm): public members never referenced
 
+**Status: done** (2026-10-21, with L-03, P-11, L-04, D-01, D-03, D-04 and N-01). All three removed, with the unreachable branch (no subclass of `TermWindow` in the repository; `CheckResizeDrag()` was protected and never called). Details: `testing-and-build.md`, "Fixes from the post-release review".
+
 I verified each of these with grep over `src/`:
 
 - `InputOwnership.IsSuspended` (`src/kOS.Safe/UserIO/InputOwnership.cs:78`).
@@ -470,6 +480,8 @@ API:
 
 ### D-03 (Low, kOSIm and inherited): duplicated logic
 
+**Status: done** (2026-10-21, with L-03, P-11, L-04, D-01, D-03, D-04 and N-01). One key table (`VT100Keys`), one part name (`CpuNames.PartName`), one type dispatch (`TerminalTypeNames.InputDialectFor`), one clamp (`WindowPlacement.KeepInside`); `CalculateTitle` renamed, the name-tag lookup shared. Behavior changes: a part title empty or starting with a space; a script GUI popup larger than the screen now keeps its top-left on screen. Tests: `VT100KeysTest`, `CpuNamesTest`, `WindowPlacementTest`. Details: `testing-and-build.md`, "Fixes from the post-release review".
+
 - **VT100 key tables:** `TerminalInputDecoder.cs:246-264` and
   `TerminalVT100Mapper.cs:179-202`. The old one is kept for binary compatibility; one
   should be built from the other so they cannot drift.
@@ -486,6 +498,8 @@ API:
   renaming it is safe within the assembly.
 
 ### D-04 (Info, inherited): `DumpDepthSort` is debug code that nothing calls
+
+**Status: done** (2026-10-21, with L-03, P-11, L-04, D-01, D-03, D-04 and N-01). The commented-out calls are gone; the public method is kept, empty, for mods built against upstream. Details: `testing-and-build.md`, "Fixes from the post-release review".
 
 `KOSManagedWindow.cs:261`/`:277` contain only commented-out calls to `DumpDepthSort`,
 and its loop body is empty.
@@ -581,6 +595,7 @@ same.
   (`src/kOS.Safe/Screen/CpuTextFile.cs:84-98`). Changing it to return `bool` is
   backward-compatible (it is `internal`). Note it in the plan's first step, so the
   preset UI does not assume it.
+  **Status: done** (2026-10-21): it returns whether it saved; the roadmap's step plan says so. Test: `CpuTextFileTest`.
 
 ---
 
@@ -634,5 +649,5 @@ placement changes.
    the scrollback" item, measured before and after (it was not the cause: PERF-01).
 6. **P-04, P-05, P-07, P-08, P-10 (done):** allocation and I/O trims, ideally with a simple
    allocation counter in a headless test so the gains can be shown, not assumed.
-7. **L-02, L-03:** decide on pruning or hiding, then document.
-8. **D-01–D-04, R-02–R-07:** cleanup when touching those files.
+7. **L-02, L-03 (done):** prune at save load; sweep old temp files (user decisions).
+8. **D-01, D-03, D-04, R-02–R-05 (done), D-02, R-06, R-07:** cleanup when touching those files. Also done with L-02/L-03: P-11, L-04, N-01. Still open: P-12, D-02, R-06, R-07.

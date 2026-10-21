@@ -214,9 +214,13 @@ namespace kOS.Safe.Persistence
                 return false;
             }
 
-            CheckDeletable(path, fileSystemInfo);
-
-            if (fileSystemInfo is FileInfo)
+            if (!LinkSafeDelete.LinksCanBeDeleted)
+            {
+                // Under Wine one walk both refuses a link and deletes (review P-11).
+                if (LinkSafeDelete.DeleteUnlessLinked(fileSystemInfo.FullName) != null)
+                    throw LinkRefused(path);
+            }
+            else if (fileSystemInfo is FileInfo)
             {
                 LinkSafeDelete.DeleteFile(fileSystemInfo.FullName); // a link, not its target (IO-04)
             }
@@ -244,9 +248,14 @@ namespace kOS.Safe.Persistence
         {
             if (!LinkSafeDelete.LinksCanBeDeleted && LinkSafeDelete.FirstLinkIn(fileSystemInfo.FullName) != null)
             {
-                throw new KOSPersistenceException("Can't delete " + path + ": it is or contains a link, and under " +
-                    "Wine (Proton) deleting a link would delete what it points to. Remove the link outside the game.");
+                throw LinkRefused(path);
             }
+        }
+
+        private static KOSPersistenceException LinkRefused(VolumePath path)
+        {
+            return new KOSPersistenceException("Can't delete " + path + ": it is or contains a link, and under " +
+                "Wine (Proton) deleting a link would delete what it points to. Remove the link outside the game.");
         }
 
         public override VolumeFile SaveFile(VolumePath path, FileContent content, bool verifyFreeSpace = true)

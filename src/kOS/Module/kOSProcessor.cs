@@ -576,18 +576,19 @@ namespace kOS.Module
         /// </summary>
         private string CommandHistoryPath()
         {
-            return CpuFilePath("history");
+            return CpuFilePath(CpuFilePrune.HISTORY_FOLDER);
         }
 
         /// <summary>This CPU's terminal geometry file (Phase 4, step 2), next to its history.</summary>
         private string TerminalGeometryPath()
         {
-            return CpuFilePath("terminal");
+            return CpuFilePath(CpuFilePrune.GEOMETRY_FOLDER);
         }
 
         /// <summary>
         /// <c>saves/&lt;save&gt;/kOS/&lt;folder&gt;/&lt;persistentId&gt;[-&lt;index&gt;].txt</c>, or null
-        /// outside the flight scene or without a <c>persistentId</c>.
+        /// outside the flight scene or without a <c>persistentId</c>. Removed once no save has
+        /// the part (<see cref="CpuFilePruner"/>, review L-02).
         /// </summary>
         private string CpuFilePath(string folder)
         {
@@ -597,7 +598,7 @@ namespace kOS.Module
             int index = part.Modules.GetModules<kOSProcessor>().IndexOf(this);
             string name = part.persistentId.ToString(System.Globalization.CultureInfo.InvariantCulture) +
                 (index > 0 ? "-" + index.ToString(System.Globalization.CultureInfo.InvariantCulture) : "") + ".txt";
-            return System.IO.Path.Combine(KSPUtil.ApplicationRootPath, "saves", HighLogic.SaveFolder, "kOS", folder, name);
+            return System.IO.Path.Combine(CpuFilePruner.SaveFolderPath(HighLogic.SaveFolder), "kOS", folder, name);
         }
 
         public void InitObjects()

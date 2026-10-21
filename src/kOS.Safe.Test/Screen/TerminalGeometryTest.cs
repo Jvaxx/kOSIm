@@ -250,6 +250,41 @@ namespace kOS.Safe.Test.Terminal
                 "a broken position");
         }
 
+        [Test]
+        public void AWindowIsKeptInsideAnyArea()
+        {
+            // Review D-03: the clamp also used for script GUI popups (RectExtensions).
+            var area = Rect(100, 50, 800, 600); // right edge 900, bottom 650
+            AssertRect(150, 70, 400, 300, WindowPlacement.KeepInside(Rect(150, 70, 400, 300), area), "inside");
+            AssertRect(100, 50, 400, 300, WindowPlacement.KeepInside(Rect(20, -40, 400, 300), area), "above and left");
+            AssertRect(500, 350, 400, 300, WindowPlacement.KeepInside(Rect(800, 700, 400, 300), area), "below and right");
+            AssertRect(100, 50, 1000, 700, WindowPlacement.KeepInside(Rect(300, 200, 1000, 700), area), "larger: at the left and top edges");
+            AssertRect(100, 50, 400, 300, WindowPlacement.KeepInside(Rect(float.NaN, float.PositiveInfinity, 400, 300), area), "a broken position");
+            AssertRect(-5, 9000, 400, 300, WindowPlacement.KeepInside(Rect(-5, 9000, 400, 300), Rect(100, 50, 0, -1)), "no area");
+        }
+
+        [Test]
+        public void KeepingOnScreenIsKeepingInsideTheScreen()
+        {
+            // The same results as before KeepInside, on a seeded sample.
+            var random = new Random(4181);
+            for (int i = 0; i < 2000; ++i)
+            {
+                float screenWidth = random.Next(-1, 3000), screenHeight = random.Next(-1, 2000);
+                var window = Rect(random.Next(-4000, 4000), random.Next(-4000, 4000), random.Next(0, 3500), random.Next(0, 2500));
+                AssertRect(OldAlong(window.X, window.Width, screenWidth), OldAlong(window.Y, window.Height, screenHeight),
+                    window.Width, window.Height, WindowPlacement.KeepOnScreen(window, screenWidth, screenHeight), window + " on " + screenWidth + "x" + screenHeight);
+            }
+        }
+
+        private static float OldAlong(float position, float size, float screen)
+        {
+            if (!(screen > 0) || float.IsInfinity(screen)) return position;
+            if (float.IsNaN(position) || float.IsInfinity(position)) return 0;
+            if (size >= screen) return 0;
+            return Math.Max(0, Math.Min(position, screen - size));
+        }
+
         // DRAG-01: a 400x300 window, its header 20 high, its buttons from x 340 (60 wide), 48 reachable.
 
         private static kOS.Safe.UserIO.ScreenRect Reachable(float x, float y)

@@ -240,31 +240,10 @@ namespace kOS.Safe.UserIO
             char final = sequence[sequence.Length - 1];
 
             if (bodyLength == 0)
-            {
-                switch (final)
-                {
-                    case 'A': key = (char)UnicodeCommand.UPCURSORONE; return true;
-                    case 'B': key = (char)UnicodeCommand.DOWNCURSORONE; return true;
-                    case 'C': key = (char)UnicodeCommand.RIGHTCURSORONE; return true;
-                    case 'D': key = (char)UnicodeCommand.LEFTCURSORONE; return true;
-                    case 'H': key = (char)UnicodeCommand.HOMECURSOR; return true;
-                    case 'F': key = (char)UnicodeCommand.ENDCURSOR; return true;
-                }
-                return false;
-            }
-            // VT220 editing keys, ESC [ n ~:
-            if (bodyLength == 1 && final == '~')
-            {
-                switch (sequence[bodyStart])
-                {
-                    case '1': key = (char)UnicodeCommand.HOMECURSOR; return true;
-                    case '3': key = (char)UnicodeCommand.DELETERIGHT; return true;
-                    case '4': key = (char)UnicodeCommand.ENDCURSOR; return true;
-                    case '5': key = (char)UnicodeCommand.PAGEUPCURSOR; return true;
-                    case '6': key = (char)UnicodeCommand.PAGEDOWNCURSOR; return true;
-                }
-            }
-            return false;
+                key = VT100Keys.ForFinal(final);
+            else if (bodyLength == 1 && final == '~') // VT220 editing keys, ESC [ n ~
+                key = VT100Keys.ForTilde(sequence[bodyStart]);
+            return key != '\0';
         }
 
         /// <summary>

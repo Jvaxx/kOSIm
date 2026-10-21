@@ -185,9 +185,7 @@ namespace kOS.Safe.Test.Terminal
         [Test]
         public void TheRowsText()
         {
-            Assert.AreEqual("CX-4181", ToolbarCpuList.PartName("CX-4181 Scriptable Control System"));
-            Assert.AreEqual("KAL9000", ToolbarCpuList.PartName("  KAL9000 "));
-            Assert.AreEqual("CPU", ToolbarCpuList.PartName(null));
+            // The part's name itself: CpuNamesTest.
             Assert.AreEqual("CX-4181", ToolbarCpuList.CpuLabel(Cpu("ship"), " · "));
             Assert.AreEqual("CX-4181 · second", ToolbarCpuList.CpuLabel(Cpu("ship", "second"), " · "));
 

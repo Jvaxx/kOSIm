@@ -1,6 +1,7 @@
 ﻿// this file is based on RectExtensions.cs from InfernalRobotics
 
 using System;
+using kOS.Safe.Screen;
 using UnityEngine;
 
 namespace kOS.Screen
@@ -35,16 +36,19 @@ namespace kOS.Screen
             return EnsureCompletelyInside(pos, ScreenRect());
         }
 
+        /// <summary>
+        /// The rectangle moved, as little as possible, wholly inside the target, by
+        /// <see cref="WindowPlacement.KeepInside"/> (review D-03). One larger than the target
+        /// along an axis is put at the target's left or top edge; upstream put it at the far
+        /// edge, so its top or left went out of the target.
+        /// </summary>
         public static Rect EnsureCompletelyInside(Rect pos, Rect target)
         {
-            float xMin = target.x;
-            float xMax = target.xMax - pos.width;
-            float yMin = target.y;
-            float yMax = target.yMax - pos.height;
-
-            pos.x = Mathf.Clamp(pos.x, xMin, xMax);
-            pos.y = Mathf.Clamp(pos.y, yMin, yMax);
-
+            // Qualified: ScreenRect() is also a method of this class.
+            Safe.UserIO.ScreenRect kept = WindowPlacement.KeepInside(new Safe.UserIO.ScreenRect(pos.x, pos.y, pos.width, pos.height),
+                new Safe.UserIO.ScreenRect(target.x, target.y, target.width, target.height));
+            pos.x = kept.X;
+            pos.y = kept.Y;
             return pos;
         }
 

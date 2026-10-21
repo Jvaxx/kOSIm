@@ -80,20 +80,26 @@ namespace kOS.Safe.Screen
             }
         }
 
-        /// <summary>Replace the file's text (UTF-8, no byte order mark), creating its folders.</summary>
-        internal void Write(string text)
+        /// <summary>
+        /// Replace the file's text (UTF-8, no byte order mark), creating its folders. True once
+        /// the text is saved; false when there is no file or the save failed (logged once; the
+        /// old file is kept), so a caller can say so (review N-01).
+        /// </summary>
+        internal bool Write(string text)
         {
             string file = ResolvePath();
-            if (file == null) return;
+            if (file == null) return false;
             try
             {
                 Directory.CreateDirectory(System.IO.Path.GetDirectoryName(file));
                 writer.Write(file, new UTF8Encoding(false).GetBytes(text));
+                return true;
             }
             catch (Exception e) when (e is IOException || e is UnauthorizedAccessException ||
                 e is System.Security.SecurityException || e is KOSPersistenceException)
             {
                 Report(label + ": cannot save " + file, e);
+                return false;
             }
         }
 

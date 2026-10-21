@@ -255,10 +255,6 @@ namespace kOS.Screen
             isOpen = true;
             BringToFront();
             KOSInputOwnership.Instance.Open(InputWindow, takeFocus);
-            
-            // I was having trouble before with this.  If it crops up again, I want
-            // to re-enable this line:
-            // DumpDepthSort();
         }
         
         /// <summary>
@@ -271,10 +267,6 @@ namespace kOS.Screen
             isOpen = false;
             depthSort.Remove(this);
             KOSInputOwnership.Instance.Close(InputWindow);
-
-            // I was having trouble before with this.  If it crops up again, I want
-            // to re-enable this line:
-            // DumpDepthSort();
         }
         
         /// <summary>
@@ -296,12 +288,13 @@ namespace kOS.Screen
             }
         }
         
-        public void DumpDepthSort() // exists purely for debugging.
+        /// <summary>
+        /// Does nothing, as in upstream, where it was a debugging aid whose loop did nothing and
+        /// whose calls were commented out. Kept so mods built against upstream still load
+        /// (review D-04).
+        /// </summary>
+        public void DumpDepthSort()
         {
-            for (int i=0 ; i< depthSort.Count ; ++i)
-            {
-                KOSManagedWindow w = depthSort[i];
-            }
         }
         
         /// <summary>

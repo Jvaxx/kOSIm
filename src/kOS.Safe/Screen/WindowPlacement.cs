@@ -19,8 +19,19 @@ namespace kOS.Safe.Screen
         /// </summary>
         public static ScreenRect KeepOnScreen(ScreenRect window, float screenWidth, float screenHeight)
         {
-            return new ScreenRect(Along(window.X, window.Width, screenWidth), Along(window.Y, window.Height, screenHeight),
-                window.Width, window.Height);
+            return KeepInside(window, new ScreenRect(0, 0, screenWidth, screenHeight));
+        }
+
+        /// <summary>
+        /// <see cref="KeepOnScreen"/> for any area: the window moved, as little as possible, wholly
+        /// into it; larger than it along an axis, at its left or top edge; an area whose size is
+        /// not positive leaves it where it is along that axis. The one clamp of a window into an
+        /// area, also for <c>RectExtensions.EnsureCompletelyInside</c> (review D-03).
+        /// </summary>
+        public static ScreenRect KeepInside(ScreenRect window, ScreenRect area)
+        {
+            return new ScreenRect(Along(window.X, window.Width, area.X, area.Width),
+                Along(window.Y, window.Height, area.Y, area.Height), window.Width, window.Height);
         }
 
         /// <summary>At a UI scale of 1, how much of the header's draggable part a window moved partly off screen keeps on it (DRAG-01).</summary>
@@ -127,12 +138,12 @@ namespace kOS.Safe.Screen
             return position >= 0 && position + size <= screen && other <= otherScreen;
         }
 
-        private static float Along(float position, float size, float screen)
+        private static float Along(float position, float size, float start, float length)
         {
-            if (!(screen > 0) || float.IsInfinity(screen)) return position;
-            if (float.IsNaN(position) || float.IsInfinity(position)) return 0;
-            if (size >= screen) return 0;
-            return Math.Max(0, Math.Min(position, screen - size));
+            if (!(length > 0) || float.IsInfinity(length)) return position;
+            if (float.IsNaN(position) || float.IsInfinity(position)) return start;
+            if (size >= length) return start;
+            return Math.Max(start, Math.Min(position, start + length - size));
         }
     }
 }

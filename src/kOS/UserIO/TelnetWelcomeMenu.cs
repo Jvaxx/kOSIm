@@ -6,6 +6,7 @@ using System.Linq;
 using kOS.Safe.Utilities;
 using UnityEngine;
 using kOS.Module;
+using kOS.Safe.Screen;
 using kOS.Safe.UserIO;
 using Math = System.Math;
 
@@ -224,7 +225,7 @@ namespace kOS.UserIO
                 Part thisPart = kModule.part;
                 KOSNameTag partTag = thisPart.Modules.OfType<KOSNameTag>().FirstOrDefault();
                 string partLabel = String.Format("{0}({1})",
-                                             thisPart.partInfo.title.Split(' ')[0], // just the first word of the name, i.e "CX-4181"
+                                             CpuNames.PartName(thisPart.partInfo.title), // just the first word of the name, i.e "CX-4181"
                                              ((partTag == null) ? "" : partTag.nameTag)
                                             );
                 Vessel vessel = (thisPart == null) ? null/*can this even happen?*/ : thisPart.vessel;

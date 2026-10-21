@@ -170,20 +170,18 @@ namespace kOS.UserIO
         /// <returns>The UnicdeCommand equivalent.  NOTE that if numConsumed is zero, this value shouldn't be used as nothing was actually done.</returns>
         protected char ConvertVT100InputCSI(char[] inChars, int offset, out int numConsumed)
         {
+            // The keys are VT100Keys', shared with TerminalInputDecoder (review D-03); what this
+            // returns and consumes is unchanged.
             char returnChar = '\0'; // default until changed.
             numConsumed = 0; // default if all the clauses below get skipped.
             if (offset < inChars.Length)
             {
-                switch (inChars[offset])
+                char key = VT100Keys.ForFinal(inChars[offset]);
+                if (key != '\0')
                 {
-                    case 'A': returnChar = (char)UnicodeCommand.UPCURSORONE;    numConsumed = 1; break;
-                    case 'B': returnChar = (char)UnicodeCommand.DOWNCURSORONE;  numConsumed = 1; break;
-                    case 'C': returnChar = (char)UnicodeCommand.RIGHTCURSORONE; numConsumed = 1; break;
-                    case 'D': returnChar = (char)UnicodeCommand.LEFTCURSORONE;  numConsumed = 1; break;
-                    case 'H': returnChar = (char)UnicodeCommand.HOMECURSOR;     numConsumed = 1; break;
-                    case 'F': returnChar = (char)UnicodeCommand.ENDCURSOR;      numConsumed = 1; break;
-                    default: numConsumed = 0; break; // Do nothing if it's not a recognized sequence.  Leave the chars to be read normally.
-                }
+                    returnChar = key;
+                    numConsumed = 1;
+                } // else nothing: leave the chars to be read normally.
             }
             // The following are technically VT220 codes, not VT100, but I couldn't be bothered making a separate
             // mapper just for them.  (i.e. the proper way would be to make a VT220Mapper that inherits from this VT100Mapper,
@@ -191,15 +189,14 @@ namespace kOS.UserIO
             // These codes look like ESC [ _num_ ~.  For example: PgUp is ESC [ 5 ~
             if (offset + 1 < inChars.Length && inChars[offset + 1] == '~')
             {
-                switch (inChars[offset])
+                char key = VT100Keys.ForTilde(inChars[offset]);
+                if (key != '\0')
                 {
-                    case '1': returnChar = (char)UnicodeCommand.HOMECURSOR;     numConsumed = 2; break;
-                    case '3': returnChar = (char)UnicodeCommand.DELETERIGHT;    numConsumed = 2; break;
-                    case '4': returnChar = (char)UnicodeCommand.ENDCURSOR;      numConsumed = 2; break;
-                    case '5': returnChar = (char)UnicodeCommand.PAGEUPCURSOR;   numConsumed = 2; break;
-                    case '6': returnChar = (char)UnicodeCommand.PAGEDOWNCURSOR; numConsumed = 2; break;
-                    default: numConsumed = 0; break; // Do nothing if it's not a recognized sequence.  Leave the chars to be read normally.
+                    returnChar = key;
+                    numConsumed = 2;
                 }
+                else
+                    numConsumed = 0; // not recognized: leave the chars to be read normally.
             }
 
             // There's a lot more keyboard controls that could be added to here to really get everything the keyboard can do.

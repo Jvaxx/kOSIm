@@ -75,8 +75,6 @@ namespace kOS.Safe.UserIO
             this.sink = sink;
         }
 
-        public bool IsSuspended { get { return suspended; } }
-
         /// <summary>The window that receives keys, or null.</summary>
         public Window KeyboardOwner
         {

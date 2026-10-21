@@ -58,23 +58,19 @@ namespace kOS.UserIO
 
         public static TerminalType GuessTypeId(string typeString)
         {
-            // Short names like "ANSI" or "dumb" must not throw (NET-03):
-            if (TerminalTypeNames.IsXterm(typeString))
-                return TerminalType.XTERM;
-            // This should catch either vt100 or vt102:
-            if (TerminalTypeNames.IsVT100(typeString))
-                return TerminalType.VT100;
-
-                //
-                // The following condition isn't implemented yet:
-                //
-                // else if (typeString.Substring(0,4).Equals("ansi", StringComparison.CurrentCultureIgnoreCase))
-                //     return TerminalType.XTERM;
-            
-                // Add more cases here if more subclasses of this class are created later.
-
-            else
-                return TerminalType.UNKNOWN;
+            // The input side's dialect picks the mapper too, so the two always agree (review
+            // D-03). Short names like "ANSI" or "dumb" must not throw (NET-03). "ansi" is not
+            // implemented (TerminalAnsiMapper); add more cases in TerminalTypeNames if more
+            // subclasses of this class are created later.
+            switch (TerminalTypeNames.InputDialectFor(typeString))
+            {
+                case TerminalInputDialect.Xterm:
+                    return TerminalType.XTERM;
+                case TerminalInputDialect.VT100: // vt100 or vt102
+                    return TerminalType.VT100;
+                default:
+                    return TerminalType.UNKNOWN;
+            }
         }
 
         /// <summary>

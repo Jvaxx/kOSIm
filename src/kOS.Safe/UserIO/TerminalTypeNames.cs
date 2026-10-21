@@ -22,8 +22,8 @@ namespace kOS.Safe.UserIO
         }
 
         /// <summary>
-        /// The key encoding to expect from a terminal type, matching the mapper that
-        /// <c>TerminalUnicodeMapper.TerminalMapperFactory</c> picks for it.
+        /// The key encoding to expect from a terminal type; <c>TerminalUnicodeMapper.GuessTypeId</c>
+        /// picks the output mapper from it, so the two agree (review D-03).
         /// </summary>
         public static TerminalInputDialect InputDialectFor(string typeString)
         {

@@ -188,4 +188,58 @@ namespace kOS.Safe.Test.UserIO
             return sb.ToString();
         }
     }
+
+    /// <summary>Review D-03: one table of VT100/VT220 keys for the decoder and the old mapper.</summary>
+    [TestFixture]
+    public class VT100KeysTest
+    {
+        [Test]
+        public void TheTableHoldsTheUpstreamKeysAndNothingElse()
+        {
+            int finals = 0, tildes = 0;
+            for (int c = 0; c <= char.MaxValue; ++c)
+            {
+                if (VT100Keys.ForFinal((char)c) != '\0') ++finals;
+                if (VT100Keys.ForTilde((char)c) != '\0') ++tildes;
+            }
+            Assert.AreEqual(6, finals);
+            Assert.AreEqual(5, tildes);
+            Assert.AreEqual((char)UnicodeCommand.UPCURSORONE, VT100Keys.ForFinal('A'));
+            Assert.AreEqual((char)UnicodeCommand.DOWNCURSORONE, VT100Keys.ForFinal('B'));
+            Assert.AreEqual((char)UnicodeCommand.RIGHTCURSORONE, VT100Keys.ForFinal('C'));
+            Assert.AreEqual((char)UnicodeCommand.LEFTCURSORONE, VT100Keys.ForFinal('D'));
+            Assert.AreEqual((char)UnicodeCommand.HOMECURSOR, VT100Keys.ForFinal('H'));
+            Assert.AreEqual((char)UnicodeCommand.ENDCURSOR, VT100Keys.ForFinal('F'));
+            Assert.AreEqual((char)UnicodeCommand.HOMECURSOR, VT100Keys.ForTilde('1'));
+            Assert.AreEqual((char)UnicodeCommand.DELETERIGHT, VT100Keys.ForTilde('3'));
+            Assert.AreEqual((char)UnicodeCommand.ENDCURSOR, VT100Keys.ForTilde('4'));
+            Assert.AreEqual((char)UnicodeCommand.PAGEUPCURSOR, VT100Keys.ForTilde('5'));
+            Assert.AreEqual((char)UnicodeCommand.PAGEDOWNCURSOR, VT100Keys.ForTilde('6'));
+        }
+
+        [Test]
+        public void TheDecoderUsesTheTable()
+        {
+            foreach (TerminalInputDialect dialect in new[] { TerminalInputDialect.VT100, TerminalInputDialect.Xterm })
+            {
+                for (char c = (char)0x40; c <= (char)0x7E; ++c)
+                {
+                    var decoder = new TerminalInputDecoder(dialect);
+                    string keys = decoder.Decode("\u001b[" + c) + decoder.Flush();
+                    char key = VT100Keys.ForFinal(c);
+                    if (key != '\0')
+                        Assert.AreEqual(key.ToString(), keys, dialect + " ESC [ " + c);
+                    else
+                        Assert.AreEqual("[" + c, keys, dialect + " ESC [ " + c + " is typed as text");
+                }
+                for (char n = '0'; n <= '9'; ++n)
+                {
+                    var decoder = new TerminalInputDecoder(dialect);
+                    string keys = decoder.Decode("\u001b[" + n + "~") + decoder.Flush();
+                    char key = VT100Keys.ForTilde(n);
+                    Assert.AreEqual(key != '\0' ? key.ToString() : "[" + n + "~", keys, dialect + " ESC [ " + n + " ~");
+                }
+            }
+        }
+    }
 }

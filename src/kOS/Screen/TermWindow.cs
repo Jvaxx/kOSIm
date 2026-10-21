@@ -56,7 +56,6 @@ namespace kOS.Screen
         
         private bool collapseFastBeepsToOneBeep = false; // This is a setting we might want to fiddle with depending on opinion.
 
-        private bool allTexturesFound = true;
         private float cursorBlinkTime;
 
         private Font font;
@@ -74,17 +73,9 @@ namespace kOS.Screen
         /// <summary>text color that changes depending on if the computer is on</summary>
         private Color currentTextColor;
 
-        // The textures the terminal was drawn with before Phase 4. It no longer uses them, but
-        // still says when they are missing, as a sign of a broken install (see DrawTerminalGui):
-        private static readonly string[] installTextures = {
-            "kOS/GFX/dds_monitor_minimal",
-            "kOS/GFX/dds_monitor_minimal_frame",
-            "kOS/GFX/dds_monitor_minimal_frame_active",
-            "kOS/GFX/dds_resize-button",
-            "kOS/GFX/dds_network-zigzag",
-            "kOS/GFX/dds_brightness-button",
-            "kOS/GFX/dds_font-height-button"
-        };
+        // The terminal's files that are missing, a sign of a broken install it says so for
+        // (review L-04; see DrawTerminalGui): looked for once per game, by the first window.
+        private static IList<string> missingInstallFiles;
         private int guiTerminalBeepsPending;
 
         // The chrome (Phase 4, step 1): our own header, frame and status strip, laid out by
@@ -199,7 +190,12 @@ namespace kOS.Screen
 
         public void Awake()
         {
-            allTexturesFound = installTextures.All(path => Utilities.Utils.GetTextureWithErrorMsg(path, false) != null);
+            if (missingInstallFiles == null)
+            {
+                missingInstallFiles = TerminalInstallCheck.Missing(KSPUtil.ApplicationRootPath);
+                foreach (string file in missingInstallFiles)
+                    UnityEngine.Debug.LogWarning("kOS: missing " + file + " under the game's folder: kOS is not installed where it should be");
+            }
 
             popupEditor = gameObject.AddComponent<KOSTextEditPopup>();
             popupEditor.SetUniqueId(UniqueId + 5);
@@ -217,7 +213,7 @@ namespace kOS.Screen
         /// The window goes with its processor (P2-3): the telnet clients are detached with a
         /// message (the session is disposed), the screen forgets this window's resize notifier,
         /// and the skin cloned in <see cref="Awake"/> is destroyed. The textures are shared
-        /// (<see cref="Utilities.Utils.GetTextureWithErrorMsg"/>, <see cref="KOSStyle"/>) and stay.
+        /// (<see cref="KOSStyle"/>) and stay.
         /// </summary>
         new public void OnDestroy()
         {
@@ -1160,25 +1156,20 @@ namespace kOS.Screen
                 resizeOldSize = new Vector2(WindowRect.width, WindowRect.height);
             }
             fontGotResized = false;
-            CheckResizeDrag(false); // Pixel-only here; model resize belongs inside the guarded retry.
+            CheckFaultResizeDrag(); // Pixel-only here; model resize belongs inside the guarded retry.
             GUI.DragWindow();
         }
 
         private void DrawTerminalGui()
         {
-            if (!allTexturesFound)
+            if (missingInstallFiles.Count > 0)
             {
                 GUI.Label(new Rect(15, 15, 450, 300),
-                    "Error: Some or all kOS textures were not found.\n" +
-                    "Please go to the following folder: \n\n" +
-                    "<Your KSP Folder>\\GameData\\kOS\\GFX\\ \n\n" +
-                    "and ensure that the dds texture files are there.\n" +
-                    "Check the game log to see error messages \n" +
-                    "starting with \"kOS:\" that talk about Texture files." +
-                    "\n" +
-                    "If you see this message, it probably means that\n" +
-                    "kOS isn't installed correctly and you should try\n" +
-                    "installing it again.");
+                    "Error: kOS is not installed where it should be.\n" +
+                    "These files were not found in your KSP folder:\n\n" +
+                    string.Join("\n", missingInstallFiles.ToArray()) + "\n\n" +
+                    "The kOS folder must be directly in GameData.\n" +
+                    "Please try installing kOS again.");
 
                 if (GUI.Button(new Rect(WindowRect.width - 75, WindowRect.height - 30, 50, 25), "Close"))
                 {
@@ -1617,25 +1608,23 @@ namespace kOS.Screen
             nextGeometryCheck = time + geometrySaveInterval;
         }
 
-        protected void CheckResizeDrag()
-        {
-            CheckResizeDrag(true);
-        }
-
-        private void CheckResizeDrag(bool updateScreenSize)
+        /// <summary>
+        /// The render-fault fallback's resize button (the window's own resizing is the edges':
+        /// <see cref="TerminalResize"/>): the window follows the drag in pixels, at least 200 x 200
+        /// for its buttons, and on release the guarded retry fits the screen to it. Upstream's
+        /// protected <c>CheckResizeDrag()</c>, its resize for the whole window, is gone (review D-01).
+        /// </summary>
+        private void CheckFaultResizeDrag()
         {
             if (Input.GetMouseButton(0) && !fontGotResized ) // mouse button is maybe dragging the frame
             {
                 if (resizeMouseDown) // and it's in the midst of a drag.
                 {
                     Vector2 dragDelta = MousePosAbsolute - MouseButtonDownPosAbsolute;
-                    // No smaller than the script minimum of cells; the fault fallback needs its buttons.
-                    float minWidth = updateScreenSize ? Layout.MinimumWindowWidth : 200;
-                    float minHeight = updateScreenSize ? Layout.MinimumWindowHeight : 200;
                     WindowRect = new Rect(WindowRect.xMin,
                                           WindowRect.yMin,
-                                          Math.Max(resizeOldSize.x + dragDelta.x, minWidth),
-                                          Math.Max(resizeOldSize.y + dragDelta.y, minHeight));
+                                          Math.Max(resizeOldSize.x + dragDelta.x, 200),
+                                          Math.Max(resizeOldSize.y + dragDelta.y, 200));
                 }
             }
             else // mouse button is up
@@ -1650,13 +1639,8 @@ namespace kOS.Screen
                     // until the drag is done before trying to calculate this.
                     // The effect the user sees is that the text can float in space past the edge of the window (when
                     // shrinking the size) until the resize drag is done, and then it redraws itself.
-                    if (updateScreenSize)
-                        shared.Screen.SetSize(HowManyRowsFit(), HowManyColumnsFit());
-                    else
-                    {
-                        resizeFromFault = true;
-                        renderFaultRecovery.RequestRetry();
-                    }
+                    resizeFromFault = true; // the model resize belongs inside the guarded retry
+                    renderFaultRecovery.RequestRetry();
                 }
             }
         }
@@ -1753,7 +1737,7 @@ namespace kOS.Screen
             NotifyOfScreenResize(shared.Screen);
             savedGeometry = CurrentGeometry(); // only a change is saved: a window nobody touched leaves no file
             shared.Screen.AddResizeNotifier(NotifyOfScreenResize);
-            baseTitle = CalcualteTitle();
+            baseTitle = CalculateTitle();
             headerTitle = CalculateHeaderTitle();
             session.ChangeTitle(baseTitle); // the state follows in the next update
 
@@ -1780,7 +1764,7 @@ namespace kOS.Screen
         {
             if (shared == null || shared.Vessel == null || shared.KSPPart == null) return;
             nextStatusTime = now + statusInterval;
-            baseTitle = CalcualteTitle();
+            baseTitle = CalculateTitle();
             headerTitle = CalculateHeaderTitle();
             try
             {
@@ -1832,27 +1816,34 @@ namespace kOS.Screen
             return status;
         }
 
-        internal string CalcualteTitle()
+        /// <summary>The telnet title: <c>vessel CPU: CX-4181 (tag)</c>, as upstream.</summary>
+        internal string CalculateTitle()
         {
-           KOSNameTag partTag = shared.KSPPart.Modules.OfType<KOSNameTag>().FirstOrDefault();
            return String.Format("{0} CPU: {1} ({2})",
                                 shared.Vessel.vesselName,
-                                shared.KSPPart.partInfo.title.Split(' ')[0], // just the first word of the name, i.e "CX-4181"
-                                ((partTag==null) ? "" : partTag.nameTag)
+                                CpuNames.PartName(shared.KSPPart.partInfo.title),
+                                NameTag() ?? ""
                                 );
         }
 
         /// <summary>
         /// The GUI header's title (Phase 4): <c>vessel · CX-4181 · tag</c>, without the tag when
-        /// there is none. Telnet keeps <see cref="CalcualteTitle"/>.
+        /// there is none. Telnet keeps <see cref="CalculateTitle"/>.
         /// </summary>
         private string CalculateHeaderTitle()
         {
-            KOSNameTag partTag = shared.KSPPart.Modules.OfType<KOSNameTag>().FirstOrDefault();
-            string title = shared.Vessel.vesselName + KOSStyle.Separator + shared.KSPPart.partInfo.title.Split(' ')[0];
-            if (partTag != null && !string.IsNullOrEmpty(partTag.nameTag))
-                title += KOSStyle.Separator + partTag.nameTag;
+            string title = shared.Vessel.vesselName + KOSStyle.Separator + CpuNames.PartName(shared.KSPPart.partInfo.title);
+            string tag = NameTag();
+            if (!string.IsNullOrEmpty(tag))
+                title += KOSStyle.Separator + tag;
             return title;
+        }
+
+        /// <summary>The part's name tag; null without a <see cref="KOSNameTag"/> module.</summary>
+        private string NameTag()
+        {
+            KOSNameTag partTag = shared.KSPPart.Modules.OfType<KOSNameTag>().FirstOrDefault();
+            return partTag == null ? null : partTag.nameTag;
         }
         
         /// <summary>

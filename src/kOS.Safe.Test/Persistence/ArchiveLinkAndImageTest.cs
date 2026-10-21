@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -58,6 +59,7 @@ namespace kOS.Safe.Test.Persistence
         public void TearDown()
         {
             LinkSafeDelete.linksCanBeDeletedOverride = null;
+            LinkSafeDelete.unixPathOverride = null;
             // Links first, so the cleanup itself never depends on the code under test.
             foreach (string path in Directory.GetFileSystemEntries(baseDir, "*", SearchOption.AllDirectories)
                 .Where(p => SymbolicLinks.IsLink(p)).OrderByDescending(p => p.Length))
@@ -263,6 +265,100 @@ namespace kOS.Safe.Test.Persistence
             file.Clear();
             Assert.IsTrue(SymbolicLinks.IsLink(link));
             Assert.AreEqual("", File.ReadAllText(target));
+        }
+
+        // Review P-11: under Wine each entry's check maps its path to Unix (a P/Invoke), and a
+        // delete checked the tree, then walked it again checking each entry. Simulated here: the
+        // override stands in for Wine's mapping, the identity except for the "links" given.
+
+        private int unixPathCalls;
+
+        private void SimulateWine(Dictionary<string, string> fileLinks)
+        {
+            LinkSafeDelete.linksCanBeDeletedOverride = false;
+            unixPathCalls = 0; // one fixture object runs every test
+            LinkSafeDelete.unixPathOverride = path =>
+            {
+                ++unixPathCalls;
+                string target;
+                return fileLinks != null && fileLinks.TryGetValue(path, out target) ? target : path;
+            };
+        }
+
+        private string MakeTree()
+        {
+            string dir = Path.Combine(root, "dir");
+            File.WriteAllText(Path.Combine(dir, "a.ks"), "a\n");
+            File.WriteAllText(Path.Combine(dir, "b.ks"), "b\n");
+            Directory.CreateDirectory(Path.Combine(dir, "sub", "deeper"));
+            File.WriteAllText(Path.Combine(dir, "sub", "c.ks"), "c\n");
+            File.WriteAllText(Path.Combine(dir, "sub", "deeper", "d.ks"), "d\n");
+            return dir; // 7 entries: dir, a, b, sub, c, deeper, d
+        }
+
+        [Test]
+        public void UnderWineADeleteWalksTheTreeOnceAndMapsEachPathOnce()
+        {
+            string dir = MakeTree();
+            SimulateWine(null);
+
+            Assert.IsTrue(archive.Delete(VolumePath.FromString("/dir")));
+            Assert.IsFalse(Directory.Exists(dir));
+            Assert.AreEqual(7 + 1, unixPathCalls, "each entry, and the parent of the first (was 4 per entry: 28)");
+        }
+
+        [Test]
+        public void UnderWineAMoveChecksBeforeCopyingAndDeletesInOneMoreWalk()
+        {
+            string dir = MakeTree();
+            SimulateWine(null);
+            var manager = new VolumeManager();
+            manager.Add(archive);
+
+            Assert.IsTrue(manager.Move(GlobalPath.FromString("0:/dir"), GlobalPath.FromString("0:/moved")));
+            Assert.IsFalse(Directory.Exists(dir));
+            Assert.AreEqual("d\n", File.ReadAllText(Path.Combine(root, "moved", "sub", "deeper", "d.ks")));
+            Assert.AreEqual(2 * (7 + 1), unixPathCalls, "the check before the copy, then the delete (was 6 per entry: 42)");
+        }
+
+        [Test]
+        public void UnderWineAFileLinkShownAsItsTargetIsFoundAndKept()
+        {
+            // Wine shows a file link as the file it points to; only its Unix path differs.
+            string dir = MakeTree();
+            string link = Path.Combine(dir, "sub", "c.ks");
+            SimulateWine(new Dictionary<string, string> { { link, "/elsewhere/c.ks" } });
+
+            var error = Assert.Throws<KOSPersistenceException>(() => archive.Delete(VolumePath.FromString("/dir")));
+            StringAssert.Contains("is or contains a link", error.Message);
+            foreach (string kept in new[] { "a.ks", "b.ks", Path.Combine("sub", "c.ks"), Path.Combine("sub", "deeper", "d.ks") })
+                Assert.IsTrue(File.Exists(Path.Combine(dir, kept)), "nothing deleted: " + kept);
+            Assert.AreEqual(link, LinkSafeDelete.FirstLinkIn(dir));
+            Assert.Throws<KOSPersistenceException>(() => archive.Delete(VolumePath.FromString("/dir/sub/c.ks")), "the link alone");
+            Assert.IsTrue(File.Exists(link));
+        }
+
+        [Test]
+        public void UnderWineAPathThatCannotBeMappedIsRefused()
+        {
+            string dir = MakeTree();
+            SimulateWine(new Dictionary<string, string> { { Path.Combine(dir, "sub"), null } });
+
+            Assert.Throws<KOSPersistenceException>(() => archive.Delete(VolumePath.FromString("/dir")));
+            Assert.IsTrue(File.Exists(Path.Combine(dir, "sub", "deeper", "d.ks")));
+            Assert.IsTrue(File.Exists(Path.Combine(dir, "a.ks")));
+        }
+
+        [Test]
+        public void UnderWineADanglingLinkInsideIsRefused()
+        {
+            string dir = MakeTree();
+            SymbolicLinks.Create(Path.Combine(outside, "missing"), Path.Combine(dir, "sub", "dangling"));
+            SimulateWine(null);
+
+            Assert.Throws<KOSPersistenceException>(() => archive.Delete(VolumePath.FromString("/dir")));
+            Assert.IsTrue(File.Exists(Path.Combine(dir, "a.ks")), "nothing deleted");
+            Assert.IsTrue(SymbolicLinks.IsLink(Path.Combine(dir, "sub", "dangling")));
         }
     }
 

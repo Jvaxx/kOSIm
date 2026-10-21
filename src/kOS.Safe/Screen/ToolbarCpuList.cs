@@ -85,19 +85,10 @@ namespace kOS.Safe.Screen
             return last.Y + last.Height;
         }
 
-        /// <summary>The part's name: the first word of its title (<c>CX-4181</c>), as upstream's panel.</summary>
-        public static string PartName(string partTitle)
-        {
-            string title = (partTitle ?? string.Empty).Trim();
-            if (title.Length == 0) return "CPU";
-            int space = title.IndexOf(' ');
-            return space < 0 ? title : title.Substring(0, space);
-        }
-
         /// <summary>The row's first line: the part's name, then its tag (<c>CX-4181 · probe</c>).</summary>
         public static string CpuLabel(ToolbarCpuEntry entry, string separator)
         {
-            string name = PartName(entry.PartTitle);
+            string name = CpuNames.PartName(entry.PartTitle);
             return string.IsNullOrEmpty(entry.Tag) ? name : name + separator + entry.Tag;
         }
 

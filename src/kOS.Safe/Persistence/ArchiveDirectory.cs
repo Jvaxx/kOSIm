@@ -21,7 +21,8 @@ namespace kOS.Safe.Persistence
 
         public override IDictionary<string, VolumeItem> List()
         {
-            string[] files = Directory.GetFiles(archivePath);
+            // Temporary files a crash left in the middle of a save go first (review L-03).
+            string[] files = ArchiveTempFiles.Sweep(Directory.GetFiles(archivePath), DateTime.UtcNow);
             var filterHid = files.Where(f => (File.GetAttributes(f) & FileAttributes.Hidden) != 0);
             var filterSys = files.Where(f => (File.GetAttributes(f) & FileAttributes.System) != 0);
             var visFiles = files.Except(filterSys).Except(filterHid).ToArray();

@@ -165,11 +165,6 @@ namespace kOS.Safe.Screen
 
         // Scrolling, in pixels from the content's top (PixelScroll):
 
-        public static float MaximumScroll(float contentHeight, float viewHeight)
-        {
-            return PixelScroll.Maximum(contentHeight, viewHeight);
-        }
-
         public static float ClampScroll(float scroll, float contentHeight, float viewHeight)
         {
             return PixelScroll.Clamp(scroll, contentHeight, viewHeight);

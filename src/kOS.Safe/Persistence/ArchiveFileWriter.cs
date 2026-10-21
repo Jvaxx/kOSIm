@@ -21,7 +21,7 @@ namespace kOS.Safe.Persistence
 
         internal void Write(string destination, byte[] content)
         {
-            string temporary = Path.Combine(Path.GetDirectoryName(destination), ".kosim-save-" + Guid.NewGuid().ToString("N") + ".tmp");
+            string temporary = Path.Combine(Path.GetDirectoryName(destination), ArchiveTempFiles.NewName());
             bool ownsTemporary = false;
             try
             {
@@ -53,7 +53,8 @@ namespace kOS.Safe.Persistence
                     catch (Exception cleanupError) when (cleanupError is IOException || cleanupError is UnauthorizedAccessException)
                     {
                         // Do not hide either failure or report success. The path is useful
-                        // for manual cleanup; never sweep other temporary files on startup.
+                        // for manual cleanup; a later listing of the folder deletes it once it
+                        // is old enough (ArchiveTempFiles, review L-03).
                         throw new KOSPersistenceException("Archive save failed for '" + destination +
                             "'; could not remove temporary file '" + temporary + "'.",
                             new AggregateException(saveError, cleanupError));
