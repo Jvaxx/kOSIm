@@ -7,7 +7,7 @@ and credits refer to KSP-KOS/KOS. Current development contracts and known issues
 
 ## kOS Improved 1.6.0.103 (Unreleased)
 
-Versioning correction; no new gameplay or terminal behavior.
+Versioning correction and CKAN packaging; no new gameplay or terminal behavior.
 
 - Correct the fork's version prefix to `1.6.0`. The actual source base has
   always been upstream `develop` at `8f281a45`, identical to upstream
@@ -27,6 +27,15 @@ Versioning correction; no new gameplay or terminal behavior.
   release documentation. Sphinx documentation now reads the fork version
   and upstream baseline from `kOS.props`, instead of advertising 1.4.0.0. No script syntax, KSM/save/craft format or
   public API signature changes; no migration is needed.
+- CKAN packaging under the new identifier **`kOSImproved`**: it provides `kOS` for
+  add-ons that depend on kOS and conflicts with upstream kOS. Releases attach a
+  standalone `.ckan`; a NetKAN submission is planned. See `docs/ckan.md` for tested
+  CKAN behavior, including replacing a CKAN-installed upstream kOS.
+- `kOS.version` now claims **KSP 1.12 only** instead of the inherited 1.8–1.12, so CKAN
+  offers the fork only to 1.12 games. No 1.8–1.11 code was removed.
+- Release ZIPs are built by `.ci/package.py` and now include the GPLv3 text,
+  third-party notices, the SharpZipLib GPLv2 text and `SOURCE.txt` with the exact
+  source tag/commit. The SharpZipLib source archive is attached to the release.
 
 Published `1.5.1.100`, `.101` and `.102` names, tags and artifacts remain
 unchanged historical identifiers. Their `1.5.1` prefix was a numbering

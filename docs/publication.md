@@ -20,7 +20,8 @@ publish a release or grant permission to deploy/launch the game.
   not the modern project's license. See [third-party notices](../THIRD_PARTY_NOTICES.md).
   The [binary audit](binary-distribution.md) verified its exact NuGet-distribution identity,
   but found all three existing release ZIPs lack required license/notice materials and
-  point their packaged source readme at upstream. Resolve those gaps; do not remove notices.
+  point their packaged source readme at upstream. `.ci/package.py` adds those materials
+  to new packages; the historical ZIPs are unchanged. Do not remove notices.
 - Active developer docs contain reusable contracts and remaining work, not workstation
   inventories, Steam shortcut IDs, personal save details, deployment hashes or chat transcripts.
   The original review is the explicit archival exception, preserved unchanged and labelled
@@ -56,10 +57,12 @@ also remain in some original binary art-source metadata; those files are retaine
 - [ ] Decide which releases to make available and their support claims. Current development
   `1.6.0.103` is unreleased; historical `1.5.1.100`–`.102` names are intentionally unchanged.
 - [ ] Review installation as a replacement for upstream, ModuleManager dependency,
-  no CKAN upgrade guarantee and the narrow Proton validation scope.
+  [CKAN behavior](ckan.md#client-behavior) and the narrow Proton validation scope.
 - [ ] Run local tests and a manual HTML build; document unresolved warnings. For a new
   binary release, follow the full [release checklist](../RELEASECHECKLIST.md), including
   committed rebuild, binary metadata, package inspection and approved game verification.
 
 The source documentation is available under `doc/`; **no fork-hosted documentation
-site or dedicated CKAN package is configured**. Do not advertise either as available.
+site is configured**. CKAN metadata exists ([CKAN packaging](ckan.md)), but until a
+release attaches a `.ckan` and the NetKAN pull request is merged, do not describe the
+fork as available in the CKAN index.

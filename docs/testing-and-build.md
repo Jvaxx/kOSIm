@@ -77,9 +77,23 @@ warnings rather than treating that number as a permanent acceptance rule.
 Use `KSP_x64_Data/Managed`, not native Linux `KSP_Data` for the validated target.
 
 Headless runs rebuild safe outputs without mod metadata. **Run the full build again
-before packaging/deploying.** The built-version checker examines generated assembly
+before packaging/deploying.** `check-version.py --built` also checks that the generated
+`kOS.version` KSP range matches the explicit values in `src/kOS/kOS.csproj`. The built-version checker examines generated assembly
 metadata and JSON, not DLL contents; inspect binary metadata separately for releases.
 Builds embed their source commit, so rebuild after committing before recording hashes.
+
+## Packaging and CKAN checks
+
+```bash
+python3 .ci/package.py --allow-dirty --output-dir artifacts/tests/package   # local test ZIP
+python3 .ci/ckan.py --test artifacts/tests/package/kOS-v<version>-dirty.zip --output artifacts/tests/package/test.ckan
+python3 .ci/ckan-solver-check.py --test artifacts/tests/package/kOS-v<version>-dirty.zip
+```
+
+New files must be tracked (at least staged) to be packaged. Release packages need a
+clean committed tree; see the [release checklist](../RELEASECHECKLIST.md). The solver check
+is manual: it needs network access and the `ckan` command, and is not part of
+`.ci/test.sh`. See [CKAN packaging](ckan.md) for what it covers and how it isolates CKAN.
 
 ## Test harness maintenance
 

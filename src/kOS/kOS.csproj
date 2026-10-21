@@ -17,7 +17,11 @@
   <ItemGroup>
     <KSPVersionFile Include=".">
       <Destination>$(KSPBT_ModRoot)/kOS.version</Destination>
-      <!-- kOS Improved: no URL/DOWNLOAD, so KSP-AVC never offers upstream's releases as updates. -->
+      <!-- kOS Improved: no URL/DOWNLOAD, so KSP-AVC never offers upstream's releases as updates.
+           Only KSP 1.12 is claimed; CKAN reads this range for the kOSImproved package. -->
+      <KSP_Version>1.12</KSP_Version>
+      <KSP_Version_Min>1.12</KSP_Version_Min>
+      <KSP_Version_Max>1.12</KSP_Version_Max>
     </KSPVersionFile>
   </ItemGroup>
   <ItemGroup>

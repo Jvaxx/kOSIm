@@ -10,9 +10,13 @@ Fork source baseline: upstream kOS 1.6.0.1; exact provenance is in kOS.props.
 Distributed under GNU GPL v3; retain original licenses, credits and notices.
 
 This replaces upstream kOS; do not install both. Keep GameData/kOS and preserve
-Plugins/PluginData when updating. ModuleManager is required separately. There is
-no dedicated fork CKAN package or guaranteed CKAN upgrade path. Back up saves,
+Plugins/PluginData when updating. ModuleManager is required. The fork's CKAN
+identifier is kOSImproved; it provides kOS to add-ons and conflicts with upstream
+kOS. Remove a CKAN-installed upstream kOS before installing it. Back up saves,
 scripts and configuration before changing installations.
+
+Licenses: LICENSE.md (GNU GPL v3), THIRD_PARTY_NOTICES.md and Licenses/.
+Corresponding source for this build: SOURCE.txt.
 
 Runtime validation: Windows KSP 1.12.5.3190 under GE-Proton11-7 on Linux only.
 Report fork bugs to https://github.com/Jvaxx/kOSIm/issues, not upstream.

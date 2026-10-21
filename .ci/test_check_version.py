@@ -23,12 +23,17 @@ class VersionCheckTest(unittest.TestCase):
 <KOSIM_UpstreamCommit>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</KOSIM_UpstreamCommit>
 <Version>$(KSPBT_ModVersion)</Version>
 </PropertyGroup></Project>''', encoding="utf-8")
+        self.project = self.root / "src/kOS/kOS.csproj"
+        self.project.parent.mkdir(parents=True)
+        self.project.write_text('''<Project><ItemGroup><KSPVersionFile Include=".">
+<KSP_Version>1.12</KSP_Version><KSP_Version_Min>1.11</KSP_Version_Min><KSP_Version_Max>1.12</KSP_Version_Max>
+</KSPVersionFile></ItemGroup></Project>''', encoding="utf-8")
         self.changelog = self.root / "CHANGELOG.md"
         self.changelog.write_text("## kOS Improved 2.3.4.123 (Unreleased)\n"
                                   "## kOS Improved 2.3.4.122 (2026-01-01)\n"
                                   "## Upstream kOS 2.3.4.9 - 2026-01-01\n", encoding="utf-8")
         for name in ("kOS", "kOS.Safe"):
-            self.assembly_path(name).parent.mkdir(parents=True)
+            self.assembly_path(name).parent.mkdir(parents=True, exist_ok=True)
             self.assembly_path(name).write_text('''[assembly: System.Reflection.AssemblyVersionAttribute("2.3.4.123")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("2.3.4.123")]
 [assembly: System.Reflection.AssemblyInformationalVersionAttribute("2.3.4.123+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
@@ -36,7 +41,14 @@ class VersionCheckTest(unittest.TestCase):
 ''', encoding="utf-8")
         self.metadata = self.root / "Resources/GameData/kOS/kOS.version"
         self.metadata.parent.mkdir(parents=True)
-        self.metadata.write_text(json.dumps({"VERSION": "2.3.4.123"}), encoding="utf-8")
+        self.metadata.write_text(json.dumps(self.valid_metadata()), encoding="utf-8")
+
+    @staticmethod
+    def valid_metadata(**extra):
+        metadata = {"VERSION": "2.3.4.123", "KSP_VERSION": "1.12",
+                    "KSP_VERSION_MIN": "1.11", "KSP_VERSION_MAX": "1.12"}
+        metadata.update(extra)
+        return metadata
 
     def assembly_path(self, name):
         return self.root / "src" / name / "obj/Release/net48" / f"{name}.AssemblyInfo.cs"
@@ -114,8 +126,29 @@ class VersionCheckTest(unittest.TestCase):
 
     def test_rejects_update_urls_even_when_empty(self):
         for key in ("URL", "DOWNLOAD"):
-            self.metadata.write_text(json.dumps({"VERSION": "2.3.4.123", key: ""}), encoding="utf-8")
+            self.metadata.write_text(json.dumps(self.valid_metadata(**{key: ""})), encoding="utf-8")
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, "update URLs"):
+                versions.check_version(self.root, built=True)
+
+    def test_requires_explicit_ksp_range_in_project(self):
+        original = self.project.read_text(encoding="utf-8")
+        for field in ("KSP_Version_Min", "KSP_Version_Max", "KSP_Version"):
+            element = original[original.index(f"<{field}>"):original.index(f"</{field}>") + len(field) + 3]
+            for replacement in ("", element * 2, element.replace(">1.1", ">latest")):
+                self.project.write_text(original.replace(element, replacement, 1), encoding="utf-8")
+                with self.subTest(field=field, replacement=replacement), \
+                        self.assertRaisesRegex(ValueError, field):
+                    versions.check_version(self.root)
+
+    def test_rejects_stale_or_missing_ksp_range_in_version_file(self):
+        for key, value in (("KSP_VERSION_MIN", "1.8"), ("KSP_VERSION_MAX", "1.11"), ("KSP_VERSION", None)):
+            metadata = self.valid_metadata()
+            if value is None:
+                del metadata[key]
+            else:
+                metadata[key] = value
+            self.metadata.write_text(json.dumps(metadata), encoding="utf-8")
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, key):
                 versions.check_version(self.root, built=True)
 
     def test_source_check_needs_no_build_and_built_check_requires_it(self):

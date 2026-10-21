@@ -86,9 +86,15 @@ its notices and maintaining availability.
 - Decide how to address earlier releases explicitly: supplemental license/source
   assets and corrected notes, or clearly identified replacement packages. **Do not
   silently overwrite historical ZIPs, move tags or claim this audit repaired them.**
-- Follow [the release checklist](../RELEASECHECKLIST.md). The current manual `zip`
-  example alone does not add these compliance materials. No `1.6.0.103` package has
+- Follow [the release checklist](../RELEASECHECKLIST.md). No `1.6.0.103` package has
   been produced or certified by this audit.
+
+**Follow-up (packaging):** `.ci/package.py` now adds `LICENSE.md`, the third-party
+notices, the pinned SharpZipLib GPLv2 text and a generated `SOURCE.txt` with the
+fork tag/commit and dependency source. The release checklist attaches the
+SharpZipLib 0.86.0.518 source archive beside the binaries. This addresses gaps 1–2 for
+new packages and gives gap 3–4 a concrete arrangement; it is not a legal review, and
+the historical ZIPs remain as published.
 
 Detailed manifests, API metadata, extracted-DLL metadata and NuGet comparison are
 kept locally under ignored `artifacts/tests/package-license-audit/`. No packaged DLL

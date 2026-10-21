@@ -23,14 +23,22 @@ for unresolved findings. The [manual](../doc/README.md) documents user/script op
 - Historical `1.5.1.100`–`.102` already inherited upstream 1.6.0.1; their incorrect
   prefixes, tags and artifacts remain history. Correcting to `1.6.0.103` changes exact
   version comparisons/pins and KSP identity, but requires no data migration.
-- Generated `kOS.version` deliberately has no AVC `URL`/`DOWNLOAD`. **This does not
-  protect against CKAN replacement:** the unchanged DLL can be auto-detected as upstream
-  `kOS`, and manually overwriting a CKAN-managed install leaves upstream's registry/file
-  ownership intact. There is no fork CKAN package or tested install/upgrade path.
-  Upstream CKAN uses epoch `1:` (`1:1.6.0.1`); do not assume plain `1.6.0.103` supersedes it.
-  A dedicated identifier, dependencies, conflicts/provides and solver tests need separate work.
-- Inherited generated KSP 1.8–1.12 compatibility metadata is **not** runtime validation.
-  The validated target is Windows KSP 1.12.5.3190 under GE-Proton11-7 only.
+- Generated `kOS.version` deliberately has no AVC `URL`/`DOWNLOAD`, so KSP-AVC never
+  offers upstream releases as updates.
+- **CKAN:** the fork is packaged as `kOSImproved`, which provides and conflicts with `kOS`
+  (see [CKAN packaging](ckan.md)). Upstream's `kOS` entry uses epoch `1:`
+  (`1:1.6.0.1`); fork versions never compete with it. Manually overwriting a
+  CKAN-managed upstream install still leaves upstream's registry/file ownership
+  intact, and a manually installed DLL can be auto-detected as upstream `kOS`. Use
+  CKAN to remove upstream `kOS`, then install `kOSImproved`.
+- **Intentional change (1.6.0.103):** `kOS.version` claims **KSP 1.12 only**
+  (`KSP_VERSION`, `_MIN` and `_MAX`), not the inherited 1.8–1.12. CKAN therefore offers
+  the fork only to 1.12 instances, and KSP-AVC may report it as incompatible with older
+  games. The 1.8–1.11 code paths were not removed, only no longer claimed. Even 1.12
+  is a metadata claim; runtime validation is Windows KSP 1.12.5.3190 under GE-Proton11-7 only.
+- Release ZIPs come from `.ci/package.py`: tracked `GameData/kOS` files, built DLLs and
+  `kOS.version`, plus `LICENSE.md`, `THIRD_PARTY_NOTICES.md`, `Licenses/` and a generated
+  `SOURCE.txt`. CKAN installs and removes those files and leaves `Plugins/PluginData/` alone.
 
 ## Screen, session and threading
 

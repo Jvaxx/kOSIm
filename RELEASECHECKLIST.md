@@ -13,8 +13,9 @@ approval; preparing a build does not imply that approval.
   replace `Unreleased` with the release date only when releasing. Keep inherited
   upstream entries and historical release identifiers unchanged.
 - [ ] Check README/manual, installation instructions, provenance and compatibility claims.
-  Resolve the [binary distribution audit findings](docs/binary-distribution.md): the
-  existing `.100`–`.102` ZIPs have missing license materials and stale source directions.
+  `.ci/package.py` adds the license and source materials the
+  [binary distribution audit](docs/binary-distribution.md) found missing from the
+  `.100`–`.102` ZIPs; those historical ZIPs remain unchanged.
 - [ ] Ensure no credentials, proprietary assemblies, local config or generated files
   are staged. Review [publication checks](docs/publication.md) for a first public release.
 
@@ -37,25 +38,34 @@ python3 .ci/check-version.py --built
 
 ## Package and smoke-test
 
-From the repository root (replace `<version>`):
+From the repository root, after the full build of the committed release tree:
 
 ```bash
-mkdir -p artifacts
-(cd Resources && zip -rX ../artifacts/kOS-v<version>.zip GameData/kOS \
-  -x 'GameData/kOS/Plugins/PluginData/*' 'GameData/kOS/Parts/@thumbs/*')
-unzip -t artifacts/kOS-v<version>.zip
-unzip -l artifacts/kOS-v<version>.zip
-sha256sum artifacts/kOS-v<version>.zip
+python3 .ci/package.py                                    # artifacts/kOS-v<version>.zip
+unzip -t artifacts/kOS-v<version>.zip && unzip -l artifacts/kOS-v<version>.zip
+python3 .ci/ckan.py artifacts/kOS-v<version>.zip          # artifacts/kOSImproved-<version>.ckan
+python3 .ci/ckan-solver-check.py artifacts/kOS-v<version>.zip
+curl -fL -o artifacts/SharpZipLib-0.86.0.518-source.zip \
+  https://github.com/icsharpcode/SharpZipLib/archive/cfc69a68fefbc5858fe70b35f7b69fc505b8c2d6.zip
+sha256sum artifacts/kOS-v<version>.zip artifacts/kOSImproved-<version>.ckan \
+  artifacts/SharpZipLib-0.86.0.518-source.zip
 ```
 
-- [ ] Start with a **new archive filename**: `zip` updates an existing archive and can
-  retain stale entries. Audit `Resources/GameData/kOS` for stale/unintended files too.
-- [ ] Confirm layout begins with `GameData/kOS/`, contains both mod DLLs, SharpZipLib,
-  required assets and version metadata, but no PluginData, thumbnails, test binaries,
-  logs, local settings or proprietary game files. Supply `LICENSE.md`,
-  `THIRD_PARTY_NOTICES.md` and applicable dependency licenses/source arrangements with
-  distributions; the zip command alone does not assemble those compliance materials.
-- [ ] State the ModuleManager dependency; it is not bundled by the command above.
+- [ ] `package.py` refuses a dirty tree, a DLL built from another commit, stale
+  `kOS.version` metadata, an unaudited SharpZipLib and an existing output file. It
+  packages only **tracked** `GameData/kOS` files plus the built DLLs and `kOS.version`;
+  PluginData and part thumbnails are never included. Use `--allow-dirty` only for local
+  test packages (`-dirty` name, never published).
+- [ ] Confirm the layout begins with `GameData/kOS/` and holds both mod DLLs,
+  SharpZipLib, assets, `kOS.version`, `LICENSE.md`, `THIRD_PARTY_NOTICES.md`,
+  `Licenses/SharpZipLib-0.86.0.518-COPYING.txt` and `SOURCE.txt` naming the tag and
+  commit. Compare the file list with the previous release; explain additions/removals.
+- [ ] Run the [CKAN solver check](docs/ckan.md#release-steps) and record its result.
+  It needs network access and the CKAN command line; it uses isolated fake instances.
+- [ ] The SharpZipLib source archive is offered beside the binaries on the release page
+  (see [binary audit](docs/binary-distribution.md)); unpack it once to check it is the
+  0.86.0.518 source tree.
+- [ ] State the ModuleManager dependency for manual installs; CKAN installs it automatically.
 - [ ] With permission and the isolated dev game closed, back up its mod folder and
   deploy the package without replacing user configuration. Compare DLL hashes.
 - [ ] Check main-menu version/commit in Player.log and run relevant functional checks
@@ -65,12 +75,19 @@ sha256sum artifacts/kOS-v<version>.zip
 
 - [ ] Tag the verified commit with an annotated `v<version>` tag; push to the fork remote
   only. Never push to upstream or move a published tag.
-- [ ] Create a release at `Jvaxx/kOSIm` with the verified zip, checksum, changes,
-  validation scope, known issues and installation/CKAN cautions. Do not publish to
-  upstream's SpaceDock, CurseForge, documentation site or release pages.
-- [ ] Compare the uploaded asset digest with the local hash.
+- [ ] Create a **non-prerelease** release at `Jvaxx/kOSIm` with the verified zip,
+  `kOSImproved-<version>.ckan`, `SharpZipLib-0.86.0.518-source.zip`, checksums,
+  changes, validation scope, known issues and [CKAN notes](docs/ckan.md#client-behavior).
+  Use a prerelease for anything not meant for CKAN users. Do not publish to upstream's
+  SpaceDock, CurseForge, documentation site or release pages.
+- [ ] Compare uploaded asset digests with the local hashes; download the ZIP and confirm
+  its SHA-256 matches the `.ckan` `download_hash`. **Never replace a published asset:**
+  CKAN metadata pins its hash. Publish a new version instead.
+- [ ] Once the fork is in the CKAN index, a published release is picked up by CKAN's bot
+  automatically. Check `ckan show kOSImproved` after indexing. Until then, see the
+  [NetKAN submission steps](docs/ckan.md#netkan-submission-maintainer-action-after-the-first-release).
 - [ ] Record the release commit/tag and concise validation result; keep detailed local
   receipts/logs outside tracked docs. Do not report the next development version as released.
 
-No dedicated CKAN metadata or hosted fork documentation deployment is configured.
-Those require separate design and validation, not guesses copied from upstream.
+CKAN metadata and its checks are described in [CKAN packaging](docs/ckan.md).
+No hosted fork documentation deployment is configured.

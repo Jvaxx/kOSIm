@@ -18,11 +18,12 @@ preserve ``GameData/kOS/Plugins/PluginData/``.
 names and ``GameData/kOS`` location are intentionally unchanged. Runtime validation
 covers Windows KSP 1.12.5.3190 under GE-Proton11-7 on Linux, not other platforms.
 
-There is no dedicated fork CKAN package or validated CKAN upgrade path. An unchanged
-``kOS.dll`` can be auto-detected as upstream kOS, and overwriting a CKAN-managed
-install does not transfer its registry ownership. The absence of AVC update URLs
-does not stop CKAN from replacing files it owns. See the repository's
-`installation cautions <https://github.com/Jvaxx/kOSIm/blob/master/docs/compatibility.md#installation-and-versioning>`_.
+The fork's CKAN identifier is ``kOSImproved``. It provides ``kOS`` to add-ons that
+depend on kOS and conflicts with upstream kOS. Releases from 1.6.0.103 attach a
+``.ckan`` file to install with CKAN; the fork is not yet in the main CKAN index.
+Remove a CKAN-installed upstream kOS through CKAN first: overwriting a CKAN-managed
+install by hand does not transfer its registry ownership. See the repository's
+`CKAN packaging notes <https://github.com/Jvaxx/kOSIm/blob/master/docs/ckan.md>`_.
 
 `Upstream releases <https://github.com/KSP-KOS/KOS/releases>`_, upstream CKAN entries,
 SpaceDock and CurseForge distribute **upstream kOS**, not this fork.

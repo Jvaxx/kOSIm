@@ -14,6 +14,7 @@ import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parent.parent
+KSP_RANGE_FIELDS = ("KSP_Version", "KSP_Version_Min", "KSP_Version_Max")
 
 
 def version_parts(value):
@@ -46,6 +47,17 @@ def check_version(root, built=False):
     if property_value("Version") != "$(KSPBT_ModVersion)":
         raise ValueError("Version must use the single KSPBT_ModVersion source")
 
+    version_file = ET.parse(root / "src/kOS/kOS.csproj").getroot().findall("./ItemGroup/KSPVersionFile")
+    if len(version_file) != 1:
+        raise ValueError("Expected one KSPVersionFile item in src/kOS/kOS.csproj")
+    # Explicit values, not KSPBuildTools defaults: CKAN reads this range from kOS.version.
+    ksp_range = {}
+    for field in KSP_RANGE_FIELDS:
+        values = version_file[0].findall(field)
+        if len(values) != 1 or not re.fullmatch(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?", (values[0].text or "").strip()):
+            raise ValueError(f"KSPVersionFile must set one literal {field}")
+        ksp_range[field.upper()] = values[0].text.strip()
+
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     entries = re.findall(r"^## kOS Improved ([0-9.]+) ", changelog, re.MULTILINE)
     if not entries or entries[0] != version:
@@ -73,6 +85,9 @@ def check_version(root, built=False):
             raise ValueError("Generated kOS.version does not match kOS.props")
         if "URL" in metadata or "DOWNLOAD" in metadata:
             raise ValueError("Generated kOS.version must not contain update URLs")
+        for key, value in ksp_range.items():
+            if metadata.get(key) != value:
+                raise ValueError(f"Generated kOS.version {key} does not match kOS.csproj ({value})")
 
     return f"kOSIM {version}; upstream {upstream}; {'source and generated build' if built else 'source'} versions consistent"
 

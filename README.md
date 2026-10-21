@@ -27,16 +27,28 @@ See [changes from upstream and compatibility](docs/compatibility.md),
 
 ## Install
 
-Download a packaged build from **[this fork's releases](https://github.com/Jvaxx/kOSIm/releases)**
-and extract its `GameData/kOS` into your KSP installation's `GameData`.
-Install ModuleManager separately if needed.
 Back up your saves, scripts and existing mod configuration first.
-
 **This replaces upstream kOS; do not install both.** Assembly names, part names and
-`GameData/kOS` are intentionally retained for compatibility. Preserve
-`GameData/kOS/Plugins/PluginData/` when updating. Upstream's CKAN, SpaceDock and
-CurseForge listings distribute upstream kOS, not this fork. There is no dedicated
-CKAN package or validated CKAN upgrade path; see [installation cautions](docs/compatibility.md#installation-and-versioning).
+`GameData/kOS` are intentionally retained for compatibility.
+
+**Manually:** download a packaged build from **[this fork's releases](https://github.com/Jvaxx/kOSIm/releases)**
+and extract its `GameData/kOS` into your KSP installation's `GameData`.
+Install ModuleManager separately if needed. Preserve
+`GameData/kOS/Plugins/PluginData/` when updating.
+
+**With CKAN:** the fork's CKAN identifier is `kOSImproved`. It provides `kOS` to add-ons
+that depend on kOS and conflicts with upstream kOS. Releases from 1.6.0.103 (not yet
+released) attach a `kOSImproved-<version>.ckan` file. Install it with CKAN's
+*File → Install from .ckan…*, or `ckan install -c <file or URL>`. The fork is not yet
+in the main CKAN index, so:
+
+- If CKAN manages upstream kOS, remove `kOS` first; CKAN also removes add-ons that
+  depend on it. Install the fork's `.ckan`, then reinstall those add-ons.
+- To update, remove `kOSImproved` and install the newer `.ckan`. A newer `.ckan` does
+  not upgrade in place. PluginData is kept either way.
+
+Upstream's CKAN (`kOS`), SpaceDock and CurseForge listings distribute upstream kOS, not
+this fork. Details and tested client behavior: [CKAN packaging](docs/ckan.md).
 
 Runtime validation is limited to **Windows KSP 1.12.5.3190 under GE-Proton11-7 on Linux**.
 Other platforms and KSP versions are not validated. This is a development fork;

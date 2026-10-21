@@ -22,6 +22,9 @@ The inherited runtime dependency is
   [SharpZipLib tag 0.86.0.518](https://github.com/icsharpcode/SharpZipLib/tree/0.86.0.518),
   commit `cfc69a68fefbc5858fe70b35f7b69fc505b8c2d6`. A source rebuild was not performed;
   stock-distribution identity is verified, not reproducible source-to-binary equivalence.
+- Full GPLv2 text from that commit's `doc/COPYING.txt`:
+  `GameData/kOS/Licenses/SharpZipLib-0.86.0.518-COPYING.txt` (in the repository under
+  `Resources/`). Release pages also carry the matching source archive.
 
 This version's [source license header](https://github.com/icsharpcode/SharpZipLib/blob/0.86.0.518/src/Zip/ZipFile.cs)
 uses **GPL version 2 or later with a linking exception**. Do not apply the current
@@ -40,12 +43,13 @@ Classpath / Free Software Foundation for translated code. The exception states:
 > obligated to do so. If you do not wish to do so, delete this
 > exception statement from your version.
 
-The [package audit](docs/binary-distribution.md) verified all three existing release
-ZIPs against GitHub's asset digests, but found missing license/notice materials and
-incorrect packaged source directions. Before public binary distribution, supply
-applicable complete license texts/notices and appropriate corresponding-source
-arrangements. This inventory is not legal certification or a dependency security assessment.
-No dependency was upgraded or removed by the public-documentation cleanup.
+The [package audit](https://github.com/Jvaxx/kOSIm/blob/master/docs/binary-distribution.md)
+verified all three existing release ZIPs (`1.5.1.100`–`.102`) against GitHub's asset
+digests, but found missing license/notice materials and incorrect packaged source
+directions. Those ZIPs are unchanged. Packages built by `.ci/package.py` (from 1.6.0.103)
+include `LICENSE.md`, this file, the SharpZipLib license text and a `SOURCE.txt` naming
+the exact fork tag/commit and dependency source. This inventory is not legal
+certification or a dependency security assessment.
 
 ## Game references and tooling
 
@@ -53,4 +57,4 @@ KSP/Unity references are proprietary build inputs from the developer's own game
 installation, **not redistributable components of this repository**. NuGet and
 Python documentation/test dependencies have their own licenses and are restored
 locally; do not copy their caches into release packages. ModuleManager is a separate
-installation dependency, not bundled by the fork's documented packaging command.
+installation dependency, not bundled; CKAN installs it as a dependency of `kOSImproved`.

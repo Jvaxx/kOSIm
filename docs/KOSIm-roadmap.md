@@ -20,6 +20,7 @@ removed. Tests and releases are local/manual; no hosted automation.
 | Boundaries | Unity-independent input router/session, explicit lifecycle and thread ownership, separate output screen/view |
 | Workflow | Draft-preserving saved history and Ctrl+R; confirmed paste; copy/selection; CPU status; wheel and follow-output |
 | UI | Scaled green IMGUI chrome, saved geometry, scrollbar, font fallback, CPU/Settings tabs, independent editor and clearer dialogs |
+| Distribution | `kOSImproved` CKAN metadata and solver checks; deterministic release ZIP with license/source materials; KSP 1.12-only metadata (local tooling checks; no game pass) |
 | Follow-up | Shared geometry presets; background opacity; queued telnet writes; picker cleanup; bounded idle/drawing work; throttled history saves; stale per-CPU/temp-file cleanup |
 
 The agreed phases 0–4 are complete. Functional Proton passes were recorded for these
@@ -29,12 +30,14 @@ edge-case coverage. Details: [compatibility contracts](compatibility.md),
 
 Historical fork releases: `1.5.1.100`–`.102` (incorrect version prefix, unchanged).
 Current development: **1.6.0.103, unreleased**; the version correction is not an upstream
-rebase. No next implementation phase or CKAN packaging has been selected.
+rebase. CKAN packaging (`kOSImproved`) is implemented and checked locally, but not yet
+published; see [CKAN packaging](ckan.md). No next implementation phase has been selected.
 
 ## Prioritized follow-up
 
 1. **Publication readiness:** finish [repository/history and distribution checks](publication.md).
    No visibility change, release, deployment or history rewrite is implicit.
+   Release 1.6.0.103 with its `.ckan`, then submit the [NetKAN file](ckan.md#netkan-submission-maintainer-action-after-the-first-release).
 2. **Telnet edge cases:** investigate tiny-grid runaway and negotiation loops before
    expanding remote use. Retain opt-in/loopback defaults and bounded executable input.
 3. **Finish targeted game checks:** pending-history flush on immediate game exit;
@@ -42,8 +45,8 @@ rebase. No next implementation phase or CKAN packaging has been selected.
    install message. See [manual matrix](testing-and-build.md#game-checks).
 4. **Small review cleanup, when justified:** P-12 per-event work; D-02 test-only public
    seams; R-06 picker window IDs; R-07 scene-change error handling (details below).
-5. **Only with an agreed design:** interpreter rebuild cost, further editor conveniences,
-   CKAN packaging or a different renderer. No incidental compiler/VM rewrite or runtime upgrade.
+5. **Only with an agreed design:** interpreter rebuild cost, further editor conveniences
+   or a different renderer. No incidental compiler/VM rewrite or runtime upgrade.
 
 ## Open findings and limitations
 

@@ -11,6 +11,7 @@ maintained development guidance, not a running session diary.
 | [Roadmap and known issues](KOSIm-roadmap.md) | Completed improvements, open findings and prioritized follow-up |
 | [Current handoff](HANDOFF.md) | Short resume point and latest verification; replace stale state rather than append logs |
 | [Publication checks](publication.md) | Public-repository preparation, licensing, privacy and history caveats |
+| [CKAN packaging](ckan.md) | `kOSImproved` metadata, tested client behavior, release and NetKAN steps |
 | [Binary distribution audit](binary-distribution.md) | Verified release payloads/SharpZipLib provenance and missing license/source materials |
 | [Original review](improvements-overview.md) | **Unchanged historical research**, not current status or instructions |
 
