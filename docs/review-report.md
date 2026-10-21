@@ -344,12 +344,16 @@ and `AttachViewer` already sends it.
 
 ### P-07 (Low, kOSIm): the status strip is rebuilt on every IMGUI event
 
+**Status: done** (2026-10-21, with P-08). The layout, state text, chips and size text are kept (`StatusStripCache`) and made again only when the strip's measures, place, state, chips, notice or size change; the state and chips are read once per status. The header title as fitted is kept too (`ShortenedText`). The measurers are made once per window. Measured headless: 0 bytes for an unchanged strip. Details: `testing-and-build.md`, "Fixes from the post-release review".
+
 `TermWindow.DrawStrip` (`TermWindow.cs:1320-1327`) allocates a `new StatusStrip` with
 measuring lambdas, and the size string `ColumnCount + "x" + RowCount`, on every
 `OnGUI` event of an open terminal. Cache both, invalidated on a size, state or font
 change.
 
 ### P-08 (Low, inherited): rows converted to strings on every event
+
+**Status: done** (2026-10-21, with P-07). Each row keeps its string (`TerminalRowTexts`): the same line with the same change tick is unchanged, otherwise its characters are compared with the string kept, so a row only gets a new string when what it shows changed. Measured headless: an unchanged 50 × 36 screen 9,216 bytes per event → 0 (255 × 160: 171,520 → 0). Not measured in game (frame time, GC).
 
 `DrawCharacters` (`TermWindow.cs:1255`) runs `line.ToString().Replace('\0', ' ')` for
 each visible row on every `OnGUI` event: two strings per row per event, times about 2–4
@@ -628,7 +632,7 @@ placement changes.
    so correct it first.
 5. **P-09 (done)** (batched scrollback trim) together with the open "large paste grows with
    the scrollback" item, measured before and after (it was not the cause: PERF-01).
-6. **P-04, P-05, P-07, P-08, P-10 (P-04, P-05, P-10 done):** allocation and I/O trims, ideally with a simple
+6. **P-04, P-05, P-07, P-08, P-10 (done):** allocation and I/O trims, ideally with a simple
    allocation counter in a headless test so the gains can be shown, not assumed.
 7. **L-02, L-03:** decide on pruning or hiding, then document.
 8. **D-01–D-04, R-02–R-07:** cleanup when touching those files.

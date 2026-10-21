@@ -93,6 +93,17 @@ namespace kOS.Screen
         private float fittedScale = float.NaN; // the UI scale the window size was last worked out for
         private string headerTitle = string.Empty;
 
+        // What the window draws on every IMGUI event, kept while it shows the same (review P-07,
+        // P-08): the strip's layout, the header title as fitted, the rows' strings. The measurers
+        // are made once; each measures with the style set just before it is used.
+        private readonly StatusStripCache stripCache = new StatusStripCache();
+        private readonly ShortenedText shownTitle = new ShortenedText();
+        private readonly TerminalRowTexts rowTexts = new TerminalRowTexts();
+        private GUIStyle stripLabel;
+        private GUIStyle titleLabel;
+        private Func<string, float> measureStripText;
+        private Func<string, float> measureTitleText;
+
         // Geometry and scrolling (Phase 4, step 2). The window's position, cells and character
         // height are saved per CPU (TerminalGeometryFile) when they change, at most every
         // geometrySaveInterval and not during a drag, and once more when the window goes:
@@ -289,6 +300,7 @@ namespace kOS.Screen
             guiPaste.Cancel(); // a paste waiting for confirmation is dropped with the window
             resizeEdges = ResizeEdges.None; // a drag cut short changes nothing
             scrollDragging = false;
+            rowTexts.Clear(); // the rows' lines and strings can go while nothing draws them
             base.Close();
         }
 
@@ -1255,10 +1267,10 @@ namespace kOS.Screen
                     {
                         IScreenBufferLine line = buffer[row];
                         if (line == null) continue; // Treat an unavailable row as blank.
-                        // Null cells must advance like spaces, matching PRINT AT semantics.
-                        string lineString = line.ToString().Replace('\0', ' ');
-                        GUI.Label(new Rect(0, (row * charHeight), WindowRect.width - 10, charHeight), lineString, terminalLetterSkin.label);
+                        // Null cells shown as spaces, matching PRINT AT; a row's string is kept while it shows the same (P-08):
+                        GUI.Label(new Rect(0, (row * charHeight), WindowRect.width - 10, charHeight), rowTexts.Get(row, line), terminalLetterSkin.label);
                     }
+                    rowTexts.Keep(rowsToPaint);
                     DrawSelection(snapshot.TopRow, rowsToPaint, screen.ColumnCount, charWidth, charHeight,
                         reversingScreen, screen.Brightness);
 
@@ -1296,9 +1308,11 @@ namespace kOS.Screen
         private void DrawHeader(IScreenBuffer screen, TerminalChromeLayout chrome, float width)
         {
             KOSStyle.Fill(ToRect(chrome.Header(width)), KOSStyle.ChromeBackground);
-            GUIStyle titleStyle = KOSStyle.TitleLabel(chrome.FontSize);
+            titleLabel = KOSStyle.TitleLabel(chrome.FontSize);
+            if (measureTitleText == null)
+                measureTitleText = text => KOSStyle.Measure(titleLabel, text);
             Rect title = ToRect(chrome.Title(width));
-            GUI.Label(title, StatusStrip.Shorten(headerTitle, title.width, text => KOSStyle.Measure(titleStyle, text), KOSStyle.Ellipsis), titleStyle);
+            GUI.Label(title, shownTitle.Get(headerTitle, title.width, titleLabel, measureTitleText, KOSStyle.Ellipsis), titleLabel);
 
             int charHeight = postponedCharPixelHeight >= 0 ? postponedCharPixelHeight : screen.CharacterPixelHeight;
             int smaller = TerminalChromeLayout.SmallerCharacterHeight(charHeight);
@@ -1326,18 +1340,22 @@ namespace kOS.Screen
             Rect strip = ToRect(chrome.Strip(width, height));
             KOSStyle.Fill(strip, KOSStyle.ChromeBackground);
             GUIStyle label = KOSStyle.Label(chrome.FontSize);
+            stripLabel = label;
+            if (measureStripText == null)
+                measureStripText = text => KOSStyle.Measure(stripLabel, text);
             int dot = Math.Max(4, (int)Math.Round(chrome.FontSize * 0.55));
             float dotWidth = dot + Mathf.Round(dot * 0.7f);
-            var placer = new StatusStrip(text => KOSStyle.Measure(label, text), chrome.Padding, chrome.Padding, dotWidth, KOSStyle.Ellipsis);
 
             TerminalStatus shown = status;
-            List<StatusChip> chips = shown == null ? null : shown.Chips;
             string notice = copyNotice != null && DateTime.Now < copyNoticeEnd ? copyNotice : null;
             ScreenRect content = chrome.StripContent(width, height);
             float chipInset = Math.Max(1, Mathf.Round(strip.height * 0.15f));
             var newOutputChip = new Rect(0, 0, 0, 0);
-            foreach (StatusStrip.Placement part in placer.Layout(content.X, content.Width, shown == null ? null : shown.StateText,
-                chips, notice, screen.ColumnCount + "x" + screen.RowCount))
+            // Laid out again only when something it shows changed (P-07):
+            List<StatusStrip.Placement> parts = stripCache.Layout(label, measureStripText, chrome.Padding, chrome.Padding, dotWidth,
+                KOSStyle.Ellipsis, content.X, content.Width, shown, notice, screen.ColumnCount, screen.RowCount);
+            List<StatusChip> chips = stripCache.Chips;
+            foreach (StatusStrip.Placement part in parts)
             {
                 var where = new Rect(part.X, strip.y, part.Width, strip.height);
                 switch (part.Part)
