@@ -1,11 +1,19 @@
 # kOS Mod Changelog
 
-## kOS Improved — Unreleased
+## kOS Improved 1.5.1.102 (2026-10-21)
 
 - Per-window terminal background opacity: right-click unused header
-  space for a 0–100% slider. Text and controls retain their visibility.
-  Opacity is remembered per CPU and saved with geometry presets; older
-  presets use 100%. Headless-tested and built; Proton validation pending.
+  space for a 0–100% slider. Text and controls retain their visibility;
+  transparency does not make the window click-through.
+- Opacity is remembered per CPU and saved with geometry presets. Older
+  geometry files and presets use 100% opacity and remain compatible.
+- The opacity menu stays opaque; Esc or an outside click dismisses it.
+
+Headless-tested and built; the user's in-game opacity checks passed on
+Windows KSP 1.12.5.3190 under GE-Proton11-7. Scripts, KSM files, saves,
+craft and existing public mod APIs remain compatible. Details and the
+validation record: `docs/testing-and-build.md`, "Terminal window opacity"
+and "In-game coverage".
 
 ## kOS Improved 1.5.1.101 (2026-10-21)
 
