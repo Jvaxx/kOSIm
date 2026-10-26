@@ -125,6 +125,11 @@ for unresolved findings. The [manual](../doc/README.md) documents user/script op
   typing is suppressed while open. Focus/power loss, hide/dialog/fault/close dismiss too.
   This is per window, not a script suffix, and does not affect telnet or other windows.
 - Toolbar has CPUs/Settings tabs, read-only power state and descriptive setting labels.
+  In flight, **right-click** on the stock or Blizzy button opens every terminal of the
+  active vessel when any is closed, else closes them all. Opening this way does not take
+  focus. Windows still at the default position (no saved geometry, not moved) are
+  stepped down/right by one header height each, after any already open there; the
+  resulting positions are saved as moves. Left-click/hover behavior is unchanged.
   Numeric fields commit on Enter, panel click-away, tab change or close. Global visual-beep
   and key-click defaults are additive config options; reverse-screen remains script-only.
 - Popup editor is independent/movable/resizable, follows caret only after edits/navigation,

@@ -39,7 +39,7 @@ and the bundled SharpZipLib, bypassing KSPBuildTools. **Do not use it for a mod 
 Results are written to ignored `artifacts/tests/Release/nunit.xml`; the previous report
 is removed first. NuGet restore may need network access on a fresh machine.
 
-`.ci/known-test-failures.json` currently has **no known failures** and a **1,455-test
+`.ci/known-test-failures.json` currently has **no known failures** and a **1,460-test
 minimum**. Raise the minimum as coverage grows. The checker rejects missing/malformed
 reports, duplicate test names, count inconsistencies, errors/skips/inconclusive tests,
 new/changed failures, unexpected passes of a known failure, and inconsistent runner
@@ -157,6 +157,8 @@ from startup logs or a running process.
 - Per-save shared history across CPUs/telnet, per-CPU geometry, shared presets, legacy
   five-field preset opacity fallback, restart/reload, prune safeguards and legacy
   history deletion; archive raw bytes/atomic failures/link safety.
+- Toolbar right-click (stock and Blizzy): open/close all active-vessel terminals, no
+  focus taken, stepped default positions, no left-click/panel side effects.
 - Opacity at 0/partial/100%, reverse/beep and no alpha stacking; popup outside/Esc
   dismissal, typing suppression, focus/hide/power/fault dismissal, no click-through,
   no opacity-only resize notifications or stale hot controls/blockers.
@@ -180,8 +182,13 @@ results are in [HANDOFF.md](HANDOFF.md). Still unverified or only partially cove
   repaint recovery. Wayland remote-driving tools and overlay were not fully checked.
 
 1.6.0.104 (dev copy, 2026-10-26): the maintainer reported the following working; this was
-not individually instrumented:
+not individually instrumented, and Blizzy's toolbar is not installed in the dev copy:
 
+- **Right-click toggle:** with 2+ CPUs on the active vessel, open and close; mixed
+  state (one open first); no keyboard/flight-control capture until a terminal is
+  clicked; stepped positions for windows without geometry and their save. Check that
+  right-click doesn't toggle the panel or the left-click state, in map view too,
+  and that it does nothing in VAB/SPH. Blizzy only if installed.
 - **Shared history:** a command typed on one CPU recalled by Up and Ctrl+R on another
   and over telnet; vessel switch, quickload and scene change keep it; `history.txt`
   written under the save; old `kOS/history/` files removed (Player.log line) after a

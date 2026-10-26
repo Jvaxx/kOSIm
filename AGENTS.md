@@ -54,7 +54,7 @@
 - Run **`bash .ci/test.sh`** for headless checks (`PYTHON=python` if needed).
   Compilation is not test execution: report actual discovery/execution/outcomes.
 - Add regression tests for fixes; use real models where possible. Keep
-  `.ci/known-test-failures.json` honest (currently empty; minimum 1,455).
+  `.ci/known-test-failures.json` honest (currently empty; minimum 1,460).
   Do not expand it to hide regressions; raise the count as coverage grows.
 - Run the local gate before calling a change complete. Record the full build and
   game checks separately; Mono headless tests do not validate Unity/Proton behavior.

@@ -2,18 +2,66 @@
 
 ## Resume point
 
-**Current state:** **kOS Improved 1.6.0.103 is released** (2026-10-21) at
+**Latest release:** **kOS Improved 1.6.0.103** (2026-10-21) at
 [v1.6.0.103](https://github.com/Jvaxx/kOSIm/releases/tag/v1.6.0.103), tag on `5453bc25`,
-as a regular (non-pre) release marked latest. It is the first release with a standalone
-`kOSImproved` `.ckan` and with license/source materials in the ZIP. The NetKAN file was submitted as
-[KSP-CKAN/NetKAN#11747](https://github.com/KSP-CKAN/NetKAN/pull/11747) from fork
-`Jvaxx/NetKAN`, branch `add-kOSImproved`. Its "Inflate netkans" run is
-**action_required** (first-contributor approval by CKAN maintainers). Not yet in the CKAN index.
+regular release marked latest. NetKAN submission
+[KSP-CKAN/NetKAN#11747](https://github.com/KSP-CKAN/NetKAN/pull/11747) (fork `Jvaxx/NetKAN`,
+branch `add-kOSImproved`) waits for first-contributor approval; not yet in the CKAN index.
 
-No deployment to the dev copy and no game launch were performed for this release.
-Historical `.100`–`.102` ZIPs stay as published (maintainer decision).
+**Unreleased 1.6.0.104 on `master`** (`kOS.props`, `(Unreleased)` changelog entry), committed as
+two commits (shared history, then right-click), **not pushed, not released** (maintainer: no release
+yet). Two user-requested changes (2026-10-26), headless-tested, full-built, deployed to the dev copy
+and reported working in game by the maintainer:
 
-## Release record
+1. **Shared command history per save** (replaces per-CPU history; user chose per-save scope,
+   no option, delete old files without merging).
+   - `src/kOS.Safe/Screen/CommandHistoryList.cs` (new): the commands, bound 500, one line-number
+     counter, never-reused entry ids, store with lazy load and 2 s save throttle (moved from
+     `CommandLineEditor`).
+   - `CommandHistory.cs`: now a per-prompt view over a list (own draft, position by id,
+     unrecorded leading-space command). Public API kept; new `CommandHistory(CommandHistoryList)`.
+   - `CommandLineEditor.cs`: `HistoryList` setter to share a list; search match kept by id;
+     `HistoryStore`/`HistoryClock`/`SavePendingHistory` delegate to the list.
+   - `SharedCommandHistory.cs` (new): `Saves.Acquire(path)`/`Release(list)`, one list per file,
+     reference-counted; last release saves and forgets (next flight re-reads the file).
+   - `kOSProcessor.cs`: in flight, acquires `saves/<save>/kOS/history.txt` in `InitObjects`,
+     releases in `OnDestroy`; outside flight a CPU keeps a private in-memory history.
+   - `CpuFilePrune.cs`/`CpuFilePruner.cs`: geometry-only save-based pruning; old
+     `kOS/history/<persistentId>[-n].txt` deleted unconditionally (not links, not through a
+     linked folder, unknown names kept, folder removed when empty); temp leftovers beside
+     `history.txt` swept. `HISTORY_FOLDER` became `LEGACY_HISTORY_FOLDER` (fork-only constant).
+2. **Toolbar right-click in flight** (`KOSToolbarWindow.cs`): stock `onRightClick` (field
+   confirmed in the KSP 1.12.5 assembly) and Blizzy `MouseButton == 1`. If any active-vessel
+   terminal is closed, open all without focus; else close all. Rules in
+   `src/kOS.Safe/Screen/VesselTerminals.cs`; `TermWindow.AtDefaultPosition` /
+   `StepFromDefaultPosition` step windows still at (50, 60) by one header height each.
+
+Docs updated: `CHANGELOG.md`, `docs/compatibility.md` (prompt, toolbar, persisted state, prune),
+`docs/testing-and-build.md` (matrix + pending game checks), roadmap table, test minimum 1,460
+(`AGENTS.md`, testing guide, `.ci/known-test-failures.json`).
+
+### Verification of 1.6.0.104
+
+With `PATH="$HOME/.cache/kosim-tools/dotnet:$PATH"`, `DOTNET_CLI_TELEMETRY_OPTOUT=1`, `DOTNET_NOLOGO=1`:
+
+- `bash .ci/test.sh`: 49 Python tests OK; NUnit **1,460 discovered/executed/passed** (25 new:
+  `SharedHistoryTest`, `VesselTerminalsTest`, legacy-history prune tests), 0 errors/failures/skips.
+- Mutation check: index-based search matching made `ASearchKeepsItsMatchWhenTheOtherPromptAddsCommands`
+  and `ADroppedMatchIsNoMatch` fail; restored.
+- `dotnet build kOS.sln -c Release --no-incremental`: **0 errors, 44 warnings** (baseline; none new);
+  `python3 .ci/check-version.py --built` consistent at 1.6.0.104.
+
+- Deployed (game closed) with `rsync -rlt --checksum`, no deletion, `Plugins/PluginData/` excluded;
+  installed `kOS.dll` `22be0393…` and `kOS.Safe.dll` `50a4e90d…` match the build. Previous install
+  backed up under the dev copy's `kOS-GameData-backups/kOS-before-v1.6.0.104-*`. The deployed build
+  predates the commits only by documentation changes.
+- In game: maintainer reported the [1.6.0.104 checks](testing-and-build.md#remaining-gaps-from-prior-passes)
+  as working (not individually instrumented).
+
+**Not performed:** Blizzy's toolbar (not installed), Sphinx build (no `.rst` changed), release
+packaging, push.
+
+## Release record (1.6.0.103)
 
 | Asset | Size | SHA-256 |
 | --- | --- | --- |
@@ -30,7 +78,7 @@ SharpZipLib archive is the GitHub archive of commit `cfc69a68`: assembly version
 0.86.0.518, linking exception in `src/Zip/ZipFile.cs`, identical `doc/COPYING.txt`.
 Release notes: ignored `artifacts/release-1.6.0.103-notes.md`.
 
-## Verification (tagged commit `5453bc25`)
+## Release verification (tagged commit `5453bc25`)
 
 With `PATH="$HOME/.cache/kosim-tools/dotnet:$PATH"`, `DOTNET_CLI_TELEMETRY_OPTOUT=1`, `DOTNET_NOLOGO=1`:
 
@@ -53,11 +101,8 @@ a manual install; local `netkan.exe` inflation.
 
 ## Next steps
 
-1. Watch NetKAN#11747: respond to reviewer questions. After merge, check `ckan update` +
-   `ckan show kOSImproved` against the default repository, then update README,
-   packaged `Readme`, `docs/ckan.md` and the manual downloads page to say it is indexed.
-2. Optional with approval: deploy 1.6.0.103 to the isolated dev copy and check the
-   main-menu version/commit in Player.log.
-3. Next development version: set `KSPBT_ModVersion` to 1.6.0.104 with a new
-   `(Unreleased)` changelog entry when the next change starts.
-4. Remaining implementation and manual coverage: roadmap and testing guide.
+1. Release 1.6.0.104 only when the maintainer asks (`RELEASECHECKLIST.md`); push likewise.
+2. Watch NetKAN#11747: respond to reviewer questions. After merge, check `ckan update` +
+   `ckan show kOSImproved`, then update README, packaged `Readme`, `docs/ckan.md` and the
+   manual downloads page to say it is indexed.
+3. Remaining implementation and manual coverage: roadmap and testing guide.

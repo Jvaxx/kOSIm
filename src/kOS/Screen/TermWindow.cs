@@ -193,10 +193,13 @@ namespace kOS.Screen
 
         private Sound.SoundMaker soundMaker;        
 
+        /// <summary>Where a window without a saved position opens.</summary>
+        private const float DEFAULT_X = 50, DEFAULT_Y = 60;
+
         public TermWindow()
         {
             IsPowered = true;
-            WindowRect = new Rect(50, 60, 0, 0); // will get resized later in AttachTo().
+            WindowRect = new Rect(DEFAULT_X, DEFAULT_Y, 0, 0); // will get resized later in AttachTo().
             session = new TerminalSession<TelnetSingletonServer>(DateTime.Now);
             inputRouter = new TerminalInputRouter<TelnetSingletonServer>(this);
             guiPaste = new TerminalGuiPaste<TelnetSingletonServer>(inputRouter, () => shared == null ? null : shared.Screen);
@@ -324,6 +327,24 @@ namespace kOS.Screen
         public void Toggle()
         {
             Toggle(true);
+        }
+
+        /// <summary>Whether the window is where a window without a saved position opens (<see cref="VesselTerminals"/>).</summary>
+        public bool AtDefaultPosition
+        {
+            get { return WindowRect.x == DEFAULT_X && WindowRect.y == DEFAULT_Y; }
+        }
+
+        /// <summary>
+        /// Place the window <paramref name="steps"/> header heights down and right of the default
+        /// position, so the terminals a right click on the toolbar button opens together do not
+        /// hide each other (<see cref="VesselTerminals"/>); kept on screen when drawn, saved as a move.
+        /// </summary>
+        public void StepFromDefaultPosition(int steps)
+        {
+            float step = steps * Layout.HeaderHeight;
+            WindowRect = new Rect(DEFAULT_X + step, DEFAULT_Y + step, WindowRect.width, WindowRect.height);
+            keeper.FitWhollyNext();
         }
 
         /// <param name="takeFocus">False for an action group or a script.</param>

@@ -137,6 +137,7 @@ namespace kOS.Screen
                     CallbackOnDisable,
                     APP_SCENES,
                     launcherButtonTexture);
+                launcherButton.onRightClick = CallbackOnRightClick;
 
                 launcher.AddOnShowCallback(CallbackOnShow);
                 launcher.AddOnHideCallback(CallbackOnHide);
@@ -167,7 +168,13 @@ namespace kOS.Screen
             blizzyButton = ToolbarManager.Instance.add("kOS", "kOSButton");
             blizzyButton.TexturePath = "kOS/GFX/dds_launcher-button-blizzy";
             blizzyButton.ToolTip = "kOS";
-            blizzyButton.OnClick += e => CallbackOnClickBlizzy();
+            blizzyButton.OnClick += e =>
+            {
+                if (e.MouseButton == 1)
+                    CallbackOnRightClick();
+                else
+                    CallbackOnClickBlizzy();
+            };
         }
 
         /// <summary>
@@ -249,6 +256,54 @@ namespace kOS.Screen
             SafeHouse.Logger.SuperVerbose("KOSToolBarWindow: PROOF: CallbackOnFalse()");
             clickedOn = false;
             Close();
+        }
+
+        /// <summary>
+        /// Callback for a right click on the button: in flight, the active vessel's terminals
+        /// all open, or all close when they are all open (<see cref="VesselTerminals"/>).
+        /// </summary>
+        public void CallbackOnRightClick()
+        {
+            SafeHouse.Logger.SuperVerbose("KOSToolBarWindow: PROOF: CallbackOnRightClick()");
+            ToggleVesselTerminals();
+        }
+
+        /// <summary>
+        /// Open the active vessel's terminals when any is closed, else close them all. They open
+        /// without the keyboard (a click on one gives it), so the flight controls stay with the
+        /// player; windows without a place of their own are stepped apart.
+        /// </summary>
+        private static void ToggleVesselTerminals()
+        {
+            if (!HighLogic.LoadedSceneIsFlight) return;
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null) return;
+
+            var windows = new List<TermWindow>();
+            foreach (kOSProcessor module in kOSProcessor.AllInstances())
+            {
+                if (module == null || module.part == null || module.part.vessel != vessel) continue;
+                TermWindow window = module.GetWindow();
+                if (window != null)
+                    windows.Add(window);
+            }
+            if (windows.Count == 0) return;
+
+            var open = windows.Select(window => window.IsOpen).ToList();
+            if (!VesselTerminals.OpensAll(open))
+            {
+                foreach (TermWindow window in windows)
+                    window.Close();
+                return;
+            }
+            int[] steps = VesselTerminals.CascadeSteps(open, windows.Select(window => window.AtDefaultPosition).ToList());
+            for (int i = 0; i < windows.Count; ++i)
+            {
+                if (open[i]) continue;
+                if (steps[i] > 0)
+                    windows[i].StepFromDefaultPosition(steps[i]);
+                windows[i].Open(false);
+            }
         }
 
         /// <summary>Callback for when the mouse is hovering over the button</summary>

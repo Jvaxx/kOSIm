@@ -7,6 +7,12 @@ and credits refer to KSP-KOS/KOS. Current development contracts and known issues
 
 ## kOS Improved 1.6.0.104 (Unreleased)
 
+- Right-click the kOS toolbar button in flight to open every terminal of
+  the active vessel; when they are all open, right-click again to close
+  them. Terminals open without taking the keyboard: click one to type.
+  Terminals with no saved position open stepped down and to the right
+  instead of on top of each other. Works with the stock launcher and
+  Blizzy's toolbar. Left-click is unchanged.
 - One command history per save, shared by every CPU and telnet client,
   instead of one per CPU: Up/Down and Ctrl+R find commands typed on any
   terminal. Each terminal keeps its own draft, position and search.
@@ -14,8 +20,9 @@ and credits refer to KSP-KOS/KOS. Current development contracts and known issues
 - Old per-CPU history files (`saves/<save>/kOS/history/`) are deleted,
   not merged, the next time the save is loaded from the main menu.
 
-Headless-tested and built; the maintainer reported it working in game on
-Windows KSP 1.12.5.3190 under GE-Proton11-7. Scripts, KSM files, saves, craft and public mod APIs
+Headless-tested and built; the maintainer reported both changes working
+in game on Windows KSP 1.12.5.3190 under GE-Proton11-7 (Blizzy's toolbar
+not checked). Scripts, KSM files, saves, craft and public mod APIs
 remain compatible.
 
 ## kOS Improved 1.6.0.103 (2026-10-21)
