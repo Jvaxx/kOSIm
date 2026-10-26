@@ -22,7 +22,7 @@ removed. Tests and releases are local/manual; no hosted automation.
 | UI | Scaled green IMGUI chrome, saved geometry, scrollbar, font fallback, CPU/Settings tabs, independent editor and clearer dialogs |
 | Distribution | `kOSImproved` CKAN metadata and solver checks; deterministic release ZIP with license/source materials; KSP 1.12-only metadata (local tooling checks; no game pass) |
 | Follow-up | Shared geometry presets; background opacity; queued telnet writes; picker cleanup; bounded idle/drawing work; throttled history saves; stale per-CPU/temp-file cleanup |
-| 1.6.0.104 (unreleased; user-reported game pass) | Per-save command history shared by all CPUs (old per-CPU files deleted); toolbar right-click opens/closes the active vessel's terminals |
+| 1.6.0.104 (user-reported game pass) | Per-save command history shared by all CPUs (old per-CPU files deleted); toolbar right-click opens/closes the active vessel's terminals |
 
 The agreed phases 0–4 are complete. Functional Proton passes were recorded for these
 features, with exceptions below; do not interpret that as exhaustive platform or
@@ -30,8 +30,9 @@ edge-case coverage. Details: [compatibility contracts](compatibility.md),
 [changelog](../CHANGELOG.md), [current verification](HANDOFF.md).
 
 Historical fork releases: `1.5.1.100`–`.102` (incorrect version prefix, unchanged).
-Latest release: **1.6.0.103**; the version correction is not an upstream rebase. It is
-the first release with a `kOSImproved` `.ckan`; see [CKAN packaging](ckan.md). No next implementation phase has been selected.
+Latest release: **1.6.0.104** (2026-10-26). **1.6.0.103** corrected the version prefix
+(not an upstream rebase) and was the first release with a `kOSImproved` `.ckan`; see
+[CKAN packaging](ckan.md). No next implementation phase has been selected.
 
 ## Prioritized follow-up
 

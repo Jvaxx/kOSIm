@@ -5,7 +5,7 @@ Fork entries come first; inherited upstream release history follows under
 and credits refer to KSP-KOS/KOS. Current development contracts and known issues:
 [developer documentation](docs/README.md).
 
-## kOS Improved 1.6.0.104 (Unreleased)
+## kOS Improved 1.6.0.104 (2026-10-26)
 
 - Right-click the kOS toolbar button in flight to open every terminal of
   the active vessel; when they are all open, right-click again to close
