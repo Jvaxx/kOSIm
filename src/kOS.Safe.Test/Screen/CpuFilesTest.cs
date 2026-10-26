@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using kOS.Safe.Persistence;
 using kOS.Safe.Screen;
 using kOS.Safe.Utilities;
@@ -74,7 +75,8 @@ namespace kOS.Safe.Test.Terminal
 
     /// <summary>
     /// Review L-02: the per-CPU files of parts that no save has any more are removed when a
-    /// save is loaded; a doubt keeps them.
+    /// save is loaded; a doubt keeps them. The per-CPU command histories of earlier versions
+    /// are removed whatever the saves hold (shared history, user decision 2026-10-26).
     /// </summary>
     [TestFixture]
     public class CpuFilePruneTest
@@ -124,7 +126,14 @@ namespace kOS.Safe.Test.Terminal
         [TearDown]
         public void TearDown()
         {
-            Directory.Delete(Path.GetDirectoryName(Path.GetDirectoryName(save)), true);
+            string root = Path.GetDirectoryName(Path.GetDirectoryName(save));
+            // Links first, so the cleanup itself never depends on the code under test.
+            foreach (string path in Directory.GetFileSystemEntries(root, "*", SearchOption.AllDirectories)
+                .Where(p => kOS.Safe.Test.Persistence.SymbolicLinks.IsLink(p)).OrderByDescending(p => p.Length))
+            {
+                File.Delete(path);
+            }
+            Directory.Delete(root, true);
         }
 
         [Test]
@@ -165,14 +174,14 @@ namespace kOS.Safe.Test.Terminal
             WriteSave("Backup/persistent (2026_10_20_18_56_51).sfs", Save(4));
             WriteSave("persistent.sfs.before-2cpu", Save()); // not a save: ignored
             string[] kept = {
-                CpuFile("history", "1.txt"), CpuFile("terminal", "1.txt"), // in the loaded game
-                CpuFile("history", "2.txt"), CpuFile("history", "2-1.txt"), // in persistent.sfs only
-                CpuFile("history", "3.txt"), // in the quicksave
+                CpuFile("terminal", "1.txt"), // in the loaded game
+                CpuFile("terminal", "2.txt"), CpuFile("terminal", "2-1.txt"), // in persistent.sfs only
+                CpuFile("terminal", "3.txt"), // in the quicksave
                 CpuFile("terminal", "4.txt"), // in a backup
-                CpuFile("history", "notes.txt"), CpuFile("terminal", "9a.txt"), // not the processor's names
-                CpuFile("history", "6.txt", now.AddSeconds(-20)), // changed since the load
+                CpuFile("terminal", "notes.txt"), CpuFile("terminal", "9a.txt"), // not the processor's names
+                CpuFile("terminal", "6.txt", now.AddSeconds(-20)), // changed since the load
             };
-            string[] removed = { CpuFile("history", "5.txt"), CpuFile("terminal", "5.txt"), CpuFile("history", "5-1.txt") };
+            string[] removed = { CpuFile("terminal", "5.txt"), CpuFile("terminal", "5-1.txt"), CpuFile("terminal", "8.txt") };
 
             CpuFilePrune.Result result = CpuFilePrune.Run(save, new HashSet<uint> { 1 }, now);
 
@@ -188,7 +197,7 @@ namespace kOS.Safe.Test.Terminal
             string whole = Save(2);
             WriteSave("persistent.sfs", Save(1));
             WriteSave("named.sfs", whole.Substring(0, whole.Length / 2)); // being written, or damaged
-            string gone = CpuFile("history", "5.txt");
+            string gone = CpuFile("terminal", "5.txt");
 
             CpuFilePrune.Result result = CpuFilePrune.Run(save, new HashSet<uint> { 1 }, now);
 
@@ -221,6 +230,83 @@ namespace kOS.Safe.Test.Terminal
             Assert.AreEqual(1, result.TemporaryDeleted);
             Assert.IsFalse(File.Exists(old));
             Assert.IsTrue(File.Exists(fresh), "a save in progress");
+        }
+
+        [Test]
+        public void PerCpuHistoriesOfEarlierVersionsAreDeletedWhateverTheSavesHold()
+        {
+            WriteSave("persistent.sfs", Save(1, 2));
+            WriteSave("named.sfs", "GAME\n{\n"); // unreadable: keeps every geometry file
+            string[] removed = {
+                CpuFile("history", "1.txt"), // in the loaded game
+                CpuFile("history", "2-1.txt"), // in a save
+                CpuFile("history", "6.txt", now.AddSeconds(-5)), // however recent
+            };
+            string notes = CpuFile("history", "notes.txt");
+            string geometry = CpuFile("terminal", "5.txt");
+            string shared = Path.Combine(save, "kOS", CpuFilePrune.SHARED_HISTORY_FILE);
+            File.WriteAllText(shared, CommandHistoryFile.HEADER + "\nprint 1.\n");
+
+            CpuFilePrune.Result result = CpuFilePrune.Run(save, new HashSet<uint> { 1 }, now);
+
+            Assert.AreEqual(3, result.LegacyHistoryDeleted);
+            foreach (string path in removed) Assert.IsFalse(File.Exists(path), path);
+            Assert.IsTrue(File.Exists(notes), "not a processor's name");
+            Assert.IsTrue(Directory.Exists(Path.Combine(save, "kOS", "history")), "a folder with other files stays");
+            StringAssert.Contains("named.sfs", result.Skipped, "the geometry files are still pruned only from whole saves");
+            Assert.IsTrue(File.Exists(geometry));
+            Assert.AreEqual(CommandHistoryFile.HEADER + "\nprint 1.\n", File.ReadAllText(shared), "the shared history is not touched");
+        }
+
+        [Test]
+        public void AnEmptiedLegacyHistoryFolderGoes()
+        {
+            CpuFile("history", "1.txt");
+            CpuFile("history", ".kosim-save-0123456789abcdef0123456789abcdef.tmp");
+
+            CpuFilePrune.Result result = CpuFilePrune.Run(save, new HashSet<uint> { 1 }, now);
+
+            Assert.AreEqual(1, result.LegacyHistoryDeleted);
+            Assert.AreEqual(1, result.TemporaryDeleted);
+            Assert.IsFalse(Directory.Exists(Path.Combine(save, "kOS", "history")));
+            Assert.IsTrue(Directory.Exists(Path.Combine(save, "kOS")), "only the history folder");
+        }
+
+        [Test]
+        public void LinkedLegacyHistoriesAreNotFollowed()
+        {
+            string outside = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(save)), "outside");
+            Directory.CreateDirectory(outside);
+            string target = Path.Combine(outside, "7.txt");
+            File.WriteAllText(target, "kept\n");
+            string history = Path.Combine(save, "kOS", "history");
+            Directory.CreateDirectory(history);
+            kOS.Safe.Test.Persistence.SymbolicLinks.Create(target, Path.Combine(history, "7.txt"));
+
+            Assert.AreEqual(0, CpuFilePrune.Run(save, new HashSet<uint>(), now).LegacyHistoryDeleted, "a linked file");
+            Assert.IsTrue(File.Exists(target));
+            Assert.IsTrue(kOS.Safe.Test.Persistence.SymbolicLinks.IsLink(Path.Combine(history, "7.txt")));
+
+            File.Delete(Path.Combine(history, "7.txt"));
+            Directory.Delete(history);
+            kOS.Safe.Test.Persistence.SymbolicLinks.Create(outside, history);
+            Assert.AreEqual(0, CpuFilePrune.Run(save, new HashSet<uint>(), now).LegacyHistoryDeleted, "a linked folder");
+            Assert.IsTrue(File.Exists(target));
+        }
+
+        [Test]
+        public void ACrashsTemporaryFileBesideTheSharedHistoryGoesOnceOld()
+        {
+            string old = CpuFile("", ".kosim-save-0123456789abcdef0123456789abcdef.tmp");
+            string fresh = CpuFile("", ".kosim-save-fedcba9876543210fedcba9876543210.tmp", now.AddSeconds(-10));
+            string other = CpuFile("", "notes.txt");
+
+            CpuFilePrune.Result result = CpuFilePrune.Run(save, new HashSet<uint>(), now);
+
+            Assert.AreEqual(1, result.TemporaryDeleted);
+            Assert.IsFalse(File.Exists(old));
+            Assert.IsTrue(File.Exists(fresh), "a save in progress");
+            Assert.IsTrue(File.Exists(other));
         }
 
         [Test]

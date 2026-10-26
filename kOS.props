@@ -11,7 +11,7 @@
     <!-- First three fields follow upstream; fourth is the continuous kOSIM build counter,
          NOT upstream's fourth field. Drives assembly/file versions, kerboscript VERSION,
          generated kOS.version and KSPAssembly("kOS", 1, 6, 0). -->
-    <KSPBT_ModVersion>1.6.0.103</KSPBT_ModVersion>
+    <KSPBT_ModVersion>1.6.0.104</KSPBT_ModVersion>
     <Version>$(KSPBT_ModVersion)</Version>
   </PropertyGroup>
 </Project>

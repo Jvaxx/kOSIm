@@ -13,7 +13,8 @@ using NUnit.Framework;
 namespace kOS.Safe.Test.Terminal
 {
     /// <summary>
-    /// Phase 3, decisions H3/H4: the history saved per CPU (<see cref="CommandHistoryFile"/>,
+    /// Phase 3, decisions H3/H4: the history saved to a store (<see cref="CommandHistoryFile"/>; in
+    /// the game one per save, shared: <see cref="SharedHistoryTest"/>,
     /// read on first use, saved when a recorded command changes it but at most every 2 s
     /// (review P-10), kept on reboot), and commands typed with a leading space not recorded.
     /// </summary>

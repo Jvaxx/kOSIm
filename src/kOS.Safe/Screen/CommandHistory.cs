@@ -4,8 +4,11 @@ using System.Collections.Generic;
 namespace kOS.Safe.Screen
 {
     /// <summary>
-    /// The interpreter's command history (Phase 3, P3-1): the Up/Down recall with the
-    /// draft kept aside, and the source of interpreter lines for error messages.
+    /// One interpreter's command history (Phase 3, P3-1): the Up/Down recall with the draft
+    /// kept aside, and the source of interpreter lines for error messages. The commands
+    /// themselves are in a <see cref="CommandHistoryList"/>, its own or one shared with the
+    /// other terminals (<see cref="SharedCommandHistory"/>); the position, the draft and the
+    /// newest unrecorded command are this interpreter's.
     /// <para>Bounded at <see cref="MAX_ENTRIES"/> commands; the oldest are dropped.</para>
     /// <para>Every command gets a range of interpreter line numbers, one per line of its
     /// text, counted on from the previous command's and never reused. The compiler is
@@ -14,6 +17,8 @@ namespace kOS.Safe.Screen
     /// A dropped command's lines read as <see cref="TRIMMED_LINE"/>.</para>
     /// <para>A command typed with a leading space runs but is not recorded (decision H4):
     /// only the newest such command keeps its lines, for its own error messages.</para>
+    /// <para>The position is kept by the recalled command's id, so commands another terminal
+    /// adds meanwhile do not move it.</para>
     /// Main thread only (the interpreter's).
     /// </summary>
     public sealed class CommandHistory
@@ -23,17 +28,12 @@ namespace kOS.Safe.Screen
 
         public const string TRIMMED_LINE = "(command no longer in the history)";
 
-        private struct Entry
-        {
-            public string Text;
-            public int FirstLine;
-        }
+        private const long DRAFT = 0; // the recalled id when the draft is shown; ids start at 1
 
-        private readonly int maxEntries;
-        private readonly List<Entry> entries = new List<Entry>();
-        private int nextLine = 1;
-        private Entry unrecorded; // the newest command typed with a leading space; Text null if none
-        private int position; // index into entries of the recalled command; entries.Count = the draft
+        private readonly CommandHistoryList list;
+        private string unrecordedText; // the newest command typed with a leading space; null if none
+        private int unrecordedFirstLine;
+        private long recalledId = DRAFT;
         private string draftText = string.Empty;
         private int draftCursor;
 
@@ -41,29 +41,30 @@ namespace kOS.Safe.Screen
         {
         }
 
-        public CommandHistory(int maxEntries)
+        public CommandHistory(int maxEntries) : this(new CommandHistoryList(maxEntries))
         {
-            if (maxEntries < 1) throw new ArgumentOutOfRangeException("maxEntries");
-            this.maxEntries = maxEntries;
         }
 
-        public int Count { get { return entries.Count; } }
+        /// <param name="list">the commands, possibly shared with other histories</param>
+        public CommandHistory(CommandHistoryList list)
+        {
+            if (list == null) throw new ArgumentNullException("list");
+            this.list = list;
+        }
+
+        /// <summary>The recorded commands, possibly shared with other terminals.</summary>
+        public CommandHistoryList List { get { return list; } }
+
+        public int Count { get { return list.Count; } }
 
         /// <summary>Changes whenever the recorded commands change (to know when to save them).</summary>
-        public int Version { get; private set; }
+        public int Version { get { return list.Version; } }
 
         /// <summary>The recorded commands, oldest first.</summary>
-        public IEnumerable<string> Commands
-        {
-            get
-            {
-                foreach (Entry entry in entries)
-                    yield return entry.Text;
-            }
-        }
+        public IEnumerable<string> Commands { get { return list.Commands; } }
 
         /// <summary>Whether a command is shown rather than the draft.</summary>
-        public bool IsRecalling { get { return position < entries.Count; } }
+        public bool IsRecalling { get { return recalledId != DRAFT; } }
 
         /// <summary>
         /// Record an entered command and go back to an empty draft. An empty command, a
@@ -73,69 +74,30 @@ namespace kOS.Safe.Screen
         public int Add(string commandText)
         {
             if (commandText == null) commandText = string.Empty;
-            draftText = string.Empty;
-            draftCursor = 0;
-            int firstLine;
-            if (commandText.Length == 0)
+            ResetNavigation();
+            if (commandText.Length > 0 && commandText[0] == ' ')
             {
-                firstLine = nextLine; // compiles to nothing; a line no command owns
+                unrecordedText = commandText;
+                unrecordedFirstLine = list.ReserveLines(commandText);
+                return unrecordedFirstLine;
             }
-            else if (commandText[0] == ' ')
-            {
-                firstLine = nextLine;
-                unrecorded = new Entry { Text = commandText, FirstLine = firstLine };
-                nextLine += CountLines(commandText);
-            }
-            else if (entries.Count > 0 && entries[entries.Count - 1].Text == commandText)
-            {
-                firstLine = entries[entries.Count - 1].FirstLine;
-            }
-            else
-            {
-                firstLine = nextLine;
-                entries.Add(new Entry { Text = commandText, FirstLine = firstLine });
-                nextLine += CountLines(commandText);
-                if (entries.Count > maxEntries)
-                    entries.RemoveRange(0, entries.Count - maxEntries);
-                ++Version;
-            }
-            position = entries.Count;
-            return firstLine;
+            return list.Add(commandText);
         }
 
         /// <summary>
-        /// Put saved commands (oldest first) before the ones recorded so far, within the
-        /// bound (the oldest are dropped). Empty commands and ones with a leading space are
-        /// skipped. They get new line numbers; the draft and the position are reset.
+        /// Put saved commands (oldest first) before the ones recorded so far
+        /// (<see cref="CommandHistoryList.Load"/>); the draft and the position are reset.
         /// </summary>
         public void Load(IEnumerable<string> savedCommands)
         {
-            if (savedCommands == null) throw new ArgumentNullException("savedCommands");
-            var commands = new List<string>();
-            foreach (string text in savedCommands)
-            {
-                if (string.IsNullOrEmpty(text) || text[0] == ' ') continue;
-                if (commands.Count > 0 && commands[commands.Count - 1] == text) continue;
-                commands.Add(text);
-            }
-            foreach (Entry entry in entries)
-                commands.Add(entry.Text);
-            if (commands.Count > maxEntries)
-                commands.RemoveRange(0, commands.Count - maxEntries);
-            entries.Clear();
-            foreach (string text in commands)
-            {
-                entries.Add(new Entry { Text = text, FirstLine = nextLine });
-                nextLine += CountLines(text);
-            }
-            ++Version;
+            list.Load(savedCommands);
             ResetNavigation();
         }
 
         /// <summary>Back to an empty draft at the newest end (a reboot keeps the commands).</summary>
         public void ResetNavigation()
         {
-            position = entries.Count;
+            recalledId = DRAFT;
             draftText = string.Empty;
             draftCursor = 0;
         }
@@ -143,7 +105,8 @@ namespace kOS.Safe.Screen
         /// <summary>
         /// Move through the history: -1 is older (Up), +1 newer (Down). Leaving the draft
         /// keeps it; moving past the newest command brings it back with its cursor.
-        /// Changes made to a recalled command are not kept.
+        /// Changes made to a recalled command are not kept. When the recalled command is
+        /// gone meanwhile (dropped from a full shared history), the move goes from where it was.
         /// </summary>
         /// <param name="delta">-1 or +1</param>
         /// <param name="currentText">the line being edited</param>
@@ -155,32 +118,63 @@ namespace kOS.Safe.Screen
         {
             text = null;
             cursor = 0;
-            int newPosition = position + Math.Sign(delta);
-            if (delta == 0 || newPosition < 0 || newPosition > entries.Count)
-                return false;
+            if (delta == 0) return false;
+            int count = list.Count;
+            int target;
             if (!IsRecalling)
             {
-                draftText = currentText ?? string.Empty;
-                draftCursor = Math.Max(0, Math.Min(currentCursor, draftText.Length));
+                if (delta > 0 || count == 0) return false;
+                target = count - 1;
             }
-            position = newPosition;
-            if (IsRecalling)
+            else
             {
-                text = entries[position].Text;
+                int index = list.IndexAtOrAfterId(recalledId); // the recalled command, or the next newer one
+                if (delta < 0)
+                    target = index - 1;
+                else
+                    target = index < count && list.EntryId(index) == recalledId ? index + 1 : index;
+                if (target < 0) return false;
+            }
+
+            if (!IsRecalling)
+                KeepDraft(currentText, currentCursor);
+            if (target < count)
+            {
+                recalledId = list.EntryId(target);
+                text = list.EntryText(target);
                 cursor = text.Length;
             }
             else
             {
+                recalledId = DRAFT;
                 text = draftText;
                 cursor = draftCursor;
             }
             return true;
         }
 
+        private void KeepDraft(string currentText, int currentCursor)
+        {
+            draftText = currentText ?? string.Empty;
+            draftCursor = Math.Max(0, Math.Min(currentCursor, draftText.Length));
+        }
+
         /// <summary>The text of a command, by index: 0 is the oldest, <see cref="Count"/> - 1 the newest.</summary>
         public string EntryText(int index)
         {
-            return entries[index].Text;
+            return list.EntryText(index);
+        }
+
+        /// <summary>The id of a command, by index (<see cref="CommandHistoryList.EntryId"/>).</summary>
+        public long EntryId(int index)
+        {
+            return list.EntryId(index);
+        }
+
+        /// <summary>The index of the command with this id; -1 once it is gone.</summary>
+        public int IndexOfId(long id)
+        {
+            return list.IndexOfId(id);
         }
 
         /// <summary>
@@ -191,14 +185,7 @@ namespace kOS.Safe.Screen
         /// <returns>false when no older command matches</returns>
         public bool TryFindOlder(string query, int startIndex, string skipText, out int index)
         {
-            if (query == null) throw new ArgumentNullException("query");
-            for (index = Math.Min(startIndex, entries.Count - 1); index >= 0; --index)
-            {
-                string text = entries[index].Text;
-                if (text != skipText && text.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
-                    return true;
-            }
-            return false;
+            return list.TryFindOlder(query, startIndex, skipText, out index);
         }
 
         /// <summary>
@@ -208,52 +195,27 @@ namespace kOS.Safe.Screen
         /// </summary>
         public void Recall(int index, string currentText, int currentCursor)
         {
-            if (index < 0 || index >= entries.Count) throw new ArgumentOutOfRangeException("index");
+            if (index < 0 || index >= list.Count) throw new ArgumentOutOfRangeException("index");
             if (!IsRecalling)
-            {
-                draftText = currentText ?? string.Empty;
-                draftCursor = Math.Max(0, Math.Min(currentCursor, draftText.Length));
-            }
-            position = index;
+                KeepDraft(currentText, currentCursor);
+            recalledId = list.EntryId(index);
         }
 
         /// <summary>The text of one interpreter line, by the numbers <see cref="Add"/> handed out.</summary>
         public string GetLine(int lineNumber)
         {
-            if (unrecorded.Text != null && lineNumber >= unrecorded.FirstLine &&
-                lineNumber < unrecorded.FirstLine + CountLines(unrecorded.Text))
-                return unrecorded.Text.Split('\n')[lineNumber - unrecorded.FirstLine];
-            for (int i = entries.Count - 1; i >= 0; --i)
-            {
-                Entry entry = entries[i];
-                if (lineNumber >= entry.FirstLine)
-                {
-                    string[] lines = entry.Text.Split('\n');
-                    int offset = lineNumber - entry.FirstLine;
-                    return offset < lines.Length ? lines[offset] : TRIMMED_LINE;
-                }
-            }
-            return TRIMMED_LINE;
+            if (unrecordedText != null && lineNumber >= unrecordedFirstLine &&
+                lineNumber < unrecordedFirstLine + CommandHistoryList.CountLines(unrecordedText))
+                return unrecordedText.Split('\n')[lineNumber - unrecordedFirstLine];
+            return list.GetLine(lineNumber) ?? TRIMMED_LINE;
         }
 
-        /// <summary>Forget every command and the draft. Line numbers restart at 1.</summary>
+        /// <summary>Forget every command (of every history sharing the list) and the draft. Line numbers restart at 1.</summary>
         public void Clear()
         {
-            entries.Clear();
-            unrecorded = new Entry();
-            ++Version;
-            nextLine = 1;
-            position = 0;
-            draftText = string.Empty;
-            draftCursor = 0;
-        }
-
-        private static int CountLines(string text)
-        {
-            int lines = 1;
-            foreach (char ch in text)
-                if (ch == '\n') ++lines;
-            return lines;
+            list.Clear();
+            unrecordedText = null;
+            ResetNavigation();
         }
     }
 }

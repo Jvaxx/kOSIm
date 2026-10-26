@@ -5,6 +5,19 @@ Fork entries come first; inherited upstream release history follows under
 and credits refer to KSP-KOS/KOS. Current development contracts and known issues:
 [developer documentation](docs/README.md).
 
+## kOS Improved 1.6.0.104 (Unreleased)
+
+- One command history per save, shared by every CPU and telnet client,
+  instead of one per CPU: Up/Down and Ctrl+R find commands typed on any
+  terminal. Each terminal keeps its own draft, position and search.
+  Kept in `saves/<save>/kOS/history.txt`, still 500 commands.
+- Old per-CPU history files (`saves/<save>/kOS/history/`) are deleted,
+  not merged, the next time the save is loaded from the main menu.
+
+Headless-tested and built; the maintainer reported it working in game on
+Windows KSP 1.12.5.3190 under GE-Proton11-7. Scripts, KSM files, saves, craft and public mod APIs
+remain compatible.
+
 ## kOS Improved 1.6.0.103 (2026-10-21)
 
 Versioning correction and CKAN packaging; no new gameplay or terminal behavior.

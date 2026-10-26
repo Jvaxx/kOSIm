@@ -64,6 +64,7 @@ namespace kOS.Module
         private static readonly List<kOSProcessor> allMyInstances = new List<kOSProcessor>();
         public bool HasBooted { get; set; }
         private bool objectsInitialized = false;
+        private CommandHistoryList sharedHistory; // the save's, given back when this CPU goes; null outside flight
         private int  numUpdatesAfterStartHappened = 0;
         private bool finishedRP1ProceduralAvionicsUpdate = false;
 
@@ -570,16 +571,19 @@ namespace kOS.Module
         private static Regex VolumeNameRemoveChars = new Regex("[/\\\\<>:\"|?*]*", RegexOptions.Compiled);
 
         /// <summary>
-        /// This CPU's command history file (Phase 3, decision H3): under the save's folder,
-        /// not on a volume, keyed by the part's <c>persistentId</c> (and the module's index
-        /// for a second kOS module on one part). None outside the flight scene.
+        /// The command history file every CPU of the save shares (Phase 3 decision H3; shared
+        /// since user decision 2026-10-26): <c>saves/&lt;save&gt;/kOS/history.txt</c>, not on a
+        /// volume. None outside the flight scene (the history is then this CPU's, in memory).
         /// </summary>
-        private string CommandHistoryPath()
+        private static string SharedCommandHistoryPath()
         {
-            return CpuFilePath(CpuFilePrune.HISTORY_FOLDER);
+            if (!HighLogic.LoadedSceneIsFlight || string.IsNullOrEmpty(HighLogic.SaveFolder))
+                return null;
+            return System.IO.Path.Combine(CpuFilePruner.SaveFolderPath(HighLogic.SaveFolder), "kOS",
+                CpuFilePrune.SHARED_HISTORY_FILE);
         }
 
-        /// <summary>This CPU's terminal geometry file (Phase 4, step 2), next to its history.</summary>
+        /// <summary>This CPU's terminal geometry file (Phase 4, step 2).</summary>
         private string TerminalGeometryPath()
         {
             return CpuFilePath(CpuFilePrune.GEOMETRY_FOLDER);
@@ -620,7 +624,12 @@ namespace kOS.Module
             shared.UpdateHandler = new UpdateHandler();
             shared.BindingMgr = new BindingManager(shared);
             var interpreter = new Screen.ConnectivityInterpreter(shared);
-            interpreter.HistoryStore = new CommandHistoryFile(CommandHistoryPath); // read on first use
+            string historyPath = SharedCommandHistoryPath();
+            if (historyPath != null)
+            {
+                sharedHistory = SharedCommandHistory.Saves.Acquire(historyPath); // read on first use
+                interpreter.HistoryList = sharedHistory;
+            }
             shared.Interpreter = interpreter;
             shared.Screen = shared.Interpreter;
             shared.ScriptHandler = new KSScript();
@@ -810,6 +819,8 @@ namespace kOS.Module
                 if (shared.Window != null)
                     shared.Window.DetachAllTelnets();
                 SaveCommandHistory(true); // the last commands, before the interpreter goes
+                SharedCommandHistory.Saves.Release(sharedHistory); // the last CPU of the save lets it go
+                sharedHistory = null;
                 shared.Cpu.BreakExecution(false);
                 shared.Cpu.Dispose();
                 shared.DestroyObjects();

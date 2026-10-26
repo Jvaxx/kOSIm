@@ -75,6 +75,12 @@ for unresolved findings. The [manual](../doc/README.md) documents user/script op
 - History retains **500 commands**, including a draft/caret when navigating Up/Down.
   Empty/BREAK lines and consecutive duplicates are omitted. A **leading space** runs
   a command without recording it. Interpreter error source lines count multiline input.
+- In flight, **one history per save** is shared by every CPU's GUI and telnet prompt;
+  each prompt keeps its own draft, Up/Down position, search and unrecorded command.
+  A recalled entry or search match is kept by identity while other prompts add or
+  trim commands. Line numbers come from one shared counter, so error source lines stay
+  correct; with more CPUs, a prompt-defined function's source can be trimmed sooner.
+  Outside flight, a CPU's history is in memory only.
 - Ctrl+R searches history in GUI and telnet. Enter runs the match; Esc/Ctrl+C cancels
   search without breaking; navigation takes the match for editing. Telnet Ctrl+L repaints;
   Ctrl+R still repaints in the welcome menu, not the attached prompt.
@@ -129,20 +135,24 @@ for unresolved findings. The [manual](../doc/README.md) documents user/script op
 
 | State | Location and policy |
 | --- | --- |
-| History | `saves/<save>/kOS/history/<persistentId>[-n].txt`; UTF-8 no BOM, escaped lines, 16 MiB read cap; save at most every 2 s and on CPU destruction/store change |
+| History | `saves/<save>/kOS/history.txt`, shared by the save's CPUs; UTF-8 no BOM, escaped lines, 16 MiB read cap; read when the first CPU of a flight scene uses it; save at most every 2 s and when any CPU is destroyed; forgotten when the last CPU goes, so the next flight reads it again |
 | Geometry | `saves/<save>/kOS/terminal/<persistentId>[-n].txt`; integer `x`, `y`, `columns`, `rows`, `charheight`, optional `opacity`; 4 KiB read cap; checked every 0.5 s, save at most every 2 s, not while dragging, final save on destroy |
 | Shared presets | `GameData/kOS/Plugins/PluginData/kOS/terminal-presets.txt`; 3 slots (`1.x`, etc.), 4 KiB read cap, read once; all five geometry fields required, opacity optional |
 
-Per-CPU files are flight-only. Multiple modules on one part get the `-n` suffix.
-Quickload/revert do not roll history/geometry back; reboot keeps history. A game crash
+History and per-CPU files are flight-only. Multiple modules on one part get the `-n`
+suffix. Quickload/revert do not roll history/geometry back; reboot keeps history. A game crash
 can lose the last 2 s of commands. Delete a file to restore defaults. Missing/invalid
 opacity means **100%**, including old presets; no forced migration or write on load.
 Files use the atomic writer, tolerate unknown keys and log failures once.
 
-After a save loads **from the main menu**, a worker prunes history/geometry of parts
-absent from the loaded game and all `.sfs` files in that save folder and its `Backup`.
+After a save loads **from the main menu**, a worker prunes geometry of parts absent
+from the loaded game and all `.sfs` files in that save folder and its `Backup`.
 Recent files (<1 minute), links and unknown names are kept. Any unreadable/incomplete
 save blocks pruning. Craft-only parts are not retained. No prune on quickload/revert.
+The same worker **deletes** the old per-CPU histories (`kOS/history/<persistentId>[-n].txt`,
+from 1.6.0.103 and earlier) whatever the saves hold, without merging them, then the
+folder when empty. It keeps links, unknown names and anything under a linked folder.
+Old temporary save files beside `history.txt` are swept too.
 
 ## Files and volumes
 

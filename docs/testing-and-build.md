@@ -39,7 +39,7 @@ and the bundled SharpZipLib, bypassing KSPBuildTools. **Do not use it for a mod 
 Results are written to ignored `artifacts/tests/Release/nunit.xml`; the previous report
 is removed first. NuGet restore may need network access on a fresh machine.
 
-`.ci/known-test-failures.json` currently has **no known failures** and a **1,435-test
+`.ci/known-test-failures.json` currently has **no known failures** and a **1,455-test
 minimum**. Raise the minimum as coverage grows. The checker rejects missing/malformed
 reports, duplicate test names, count inconsistencies, errors/skips/inconclusive tests,
 new/changed failures, unexpected passes of a known failure, and inconsistent runner
@@ -154,8 +154,9 @@ from startup logs or a running process.
   loss/recovery, name tag, editor, toolbar; script opens must not steal focus.
 - Fonts/cursor/cell alignment at several sizes, input layouts, clipboard, UI scales
   and screen edges/resolution changes; native objects after repeated open/close.
-- Per-CPU history/geometry, shared presets, legacy five-field preset opacity fallback,
-  restart/reload, prune safeguards; archive raw bytes/atomic failures/link safety.
+- Per-save shared history across CPUs/telnet, per-CPU geometry, shared presets, legacy
+  five-field preset opacity fallback, restart/reload, prune safeguards and legacy
+  history deletion; archive raw bytes/atomic failures/link safety.
 - Opacity at 0/partial/100%, reverse/beep and no alpha stacking; popup outside/Esc
   dismissal, typing suppression, focus/hide/power/fault dismissal, no click-through,
   no opacity-only resize notifications or stale hot controls/blockers.
@@ -177,5 +178,13 @@ results are in [HANDOFF.md](HANDOFF.md). Still unverified or only partially cove
 - Volume objects across undocking, `EDIT` of file objects, Windows-side locked
   destinations, third-party volume providers; real PuTTY/Microsoft Telnet and stalled
   repaint recovery. Wayland remote-driving tools and overlay were not fully checked.
+
+1.6.0.104 (dev copy, 2026-10-26): the maintainer reported the following working; this was
+not individually instrumented:
+
+- **Shared history:** a command typed on one CPU recalled by Up and Ctrl+R on another
+  and over telnet; vessel switch, quickload and scene change keep it; `history.txt`
+  written under the save; old `kOS/history/` files removed (Player.log line) after a
+  main-menu load, without touching geometry files.
 
 Open bugs are in the [roadmap](KOSIm-roadmap.md), not hidden in old session logs.

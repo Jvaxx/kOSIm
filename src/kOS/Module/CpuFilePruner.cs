@@ -7,8 +7,9 @@ using UnityEngine;
 namespace kOS.Module
 {
     /// <summary>
-    /// Removes the command history and terminal geometry files of parts no save has any more
-    /// (review L-02; <see cref="CpuFilePrune"/>) once a save is loaded from the main menu: not
+    /// Removes the terminal geometry files of parts no save has any more (review L-02), and the
+    /// per-CPU command histories of earlier versions (<see cref="CpuFilePrune"/>), once a save
+    /// is loaded from the main menu: not
     /// on a quickload, a revert or a scene change, so a vessel those take away keeps its files
     /// until the save is next loaded from the main menu. In the main menu it listens for the
     /// load; in the first game scene after it, it takes the loaded game's part ids and prunes
@@ -93,9 +94,10 @@ namespace kOS.Module
                 // Debug.Log is safe off the game thread.
                 if (result.Skipped != null)
                     Debug.Log("kOS: CPU files of parts no save has not removed: " + result.Skipped);
-                else if (result.Deleted > 0 || result.TemporaryDeleted > 0)
-                    Debug.Log(string.Format("kOS: removed {0} CPU file(s) of parts no save has, and {1} leftover temporary file(s), in {2}",
-                        result.Deleted, result.TemporaryDeleted, saveFolder));
+                if (result.Deleted > 0 || result.TemporaryDeleted > 0 || result.LegacyHistoryDeleted > 0)
+                    Debug.Log(string.Format("kOS: removed {0} CPU file(s) of parts no save has, {1} per-CPU command history file(s) " +
+                        "replaced by the shared history and {2} leftover temporary file(s), in {3}",
+                        result.Deleted, result.LegacyHistoryDeleted, result.TemporaryDeleted, saveFolder));
             }
             catch (Exception e)
             {
