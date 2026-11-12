@@ -809,8 +809,9 @@ namespace kOS.Module
         {
             SafeHouse.Logger.SuperVerbose("kOSProcessor.OnDestroy()!");
 
+            // Removing keeps the order. No sort here: it reads FlightGlobals.ActiveVessel, which
+            // can be gone when a scene ends, and throwing would skip the cleanup below.
             allMyInstances.RemoveAll(m => m == this);
-            SortAllInstances();
 
             if (shared != null)
             {
@@ -1247,8 +1248,9 @@ namespace kOS.Module
 
         public void SetAutopilotMode(int mode)
         {
-            // First change the real setting underneath the UI:
-            FlightGlobals.ActiveVessel.Autopilot.SetMode((VesselAutopilot.AutopilotMode) mode);
+            // This CPU's own vessel: setting the active vessel's mode instead made SASMODE
+            // on a vessel that is not the active one change the SAS of the one that is.
+            vessel.Autopilot.SetMode((VesselAutopilot.AutopilotMode) mode);
         }
 
         public string BootFilename

@@ -58,9 +58,12 @@ namespace kOS.Binding
                 VesselUtils.UnsetTarget();
             });
 
+            // KSP takes the target away for some frames after a vessel switch (see VesselTargeting):
+            VesselTargeting.Hook();
+
             shared.BindingMgr.AddGetter("TARGET", () =>
             {
-                var target = (shared.Vessel == FlightGlobals.ActiveVessel) ? FlightGlobals.fetch.VesselTarget : shared.Vessel.targetObject;
+                var target = VesselTargeting.GetTarget(shared.Vessel);
 
                 var vessel = target as Vessel;
                 if (vessel != null)
@@ -78,8 +81,7 @@ namespace kOS.Binding
             shared.BindingMgr.AddGetter("HASTARGET", () =>
             {
                 // the ship has a target if the object does not equal null.
-                return (shared.Vessel == FlightGlobals.ActiveVessel ?
-                    FlightGlobals.fetch.VesselTarget : shared.Vessel.targetObject) != null;
+                return VesselTargeting.GetTarget(shared.Vessel) != null;
             });
 
         }

@@ -23,6 +23,7 @@ removed. Tests and releases are local/manual; no hosted automation.
 | Distribution | `kOSImproved` CKAN metadata and solver checks; deterministic release ZIP with license/source materials; KSP 1.12-only metadata (local tooling checks; no game pass) |
 | Follow-up | Shared geometry presets; background opacity; queued telnet writes; picker cleanup; bounded idle/drawing work; throttled history saves; stale per-CPU/temp-file cleanup |
 | 1.6.0.104 (user-reported game pass) | Per-save command history shared by all CPUs (old per-CPU files deleted); toolbar right-click opens/closes the active vessel's terminals |
+| 1.6.0.105 (user-reported game pass) | `TARGET`/`HASTARGET` survive KSP's target clear-and-restore on vessel switch and docking; `SASMODE` and pilot trim setters act only on the CPU's own vessel; CPU cleanup on scene exit cannot be skipped by the instance sort |
 
 The agreed phases 0–4 are complete. Functional Proton passes were recorded for these
 features, with exceptions below; do not interpret that as exhaustive platform or

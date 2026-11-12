@@ -185,6 +185,32 @@ Old temporary save files beside `history.txt` are swept too.
   separate. Popup selection commits once, and delayed widget callbacks retain GUI origin.
   Nested primitive display formatting is fixed without changing serialization formats.
 
+## Flight bindings
+
+- **`TARGET`/`HASTARGET` across a vessel switch** (1.6.0.105): KSP 1.12.5 clears the
+  target of the vessel that becomes active (`Vessel.ResumeTarget`) and restores it from
+  a coroutine: a frame later at best, later on a vessel still in its physics hold (25
+  frames from load, 75 when landed), 121 frames later at most. The getters now also
+  report the target KSP has saved for that restore (`Vessel.pTI`): for the active vessel
+  during the 125 frames after the switch (`TargetResume`), and for a vessel that was
+  left before the restore. Another vessel docking to or grappling the active one counts
+  as a switch (KSP clears and restores the same way). After those
+  frames the active vessel reports only what KSP has, so a restore KSP never makes (a
+  target that is gone, or one with no orbit driver such as the Sun) still ends in
+  "No TARGET is selected", later than before. Setting `TARGET` is unchanged, and KSP
+  still overrides a target set during those frames when it restores. Setting `SASMODE`
+  to `"TARGET"`/`"ANTITARGET"` or `NAVMODE` to `"TARGET"` while only the saved target is
+  reported makes kOS set that target at once (KSP's own restore then sets it again), so
+  a `HASTARGET` guard still protects those setters.
+- **`SASMODE`** (1.6.0.105) reads and sets the autopilot of the vessel the CPU is on now.
+  Upstream also set the mode of the active vessel, and kept using the vessel the CPU
+  started on. `kOSProcessor.SetAutopilotMode` remains, acting on the processor's vessel.
+- **Pilot trim setters** (1.6.0.105): `SHIP:CONTROL:PILOTYAWTRIM`, `PILOTROLLTRIM`,
+  `PILOTPITCHTRIM`, `PILOTWHEELTHROTTLE`, `PILOTWHEELTHROTTLETRIM` and
+  `PILOTWHEELSTEERTRIM` set the player's input only from the active vessel, as their
+  getters and `PILOTMAINTHROTTLE` already did. Upstream wrote the active vessel's input
+  from any vessel; from another vessel they now do nothing.
+
 ## Telnet limits and behavior
 
 Incremental protocol/UTF-8 parsing preserves fragmented input. CR, LF, CRLF, LFCR and

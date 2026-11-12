@@ -19,7 +19,11 @@ namespace kOS.Binding
     [Binding("ksp")]
     public class FlightControlManager : Binding
     {
-        private Vessel currentVessel;
+        /// <summary>
+        /// The vessel this CPU is on now: not the one it was on when the bindings were made,
+        /// which docking, undocking and staging can leave behind.
+        /// </summary>
+        private Vessel currentVessel { get { return Shared.Vessel; } }
         private static readonly Dictionary<uint, FlightControl> flightControls = new Dictionary<uint, FlightControl>();
         public SharedObjects Shared { get; set; }
 
@@ -40,8 +44,6 @@ namespace kOS.Binding
             }
 
             SafeHouse.Logger.Log("FlightControlManager.AddTo " + Shared.Vessel.id);
-
-            currentVessel = shared.Vessel;
 
             shared.BindingMgr.AddBoundVariable("THROTTLE", GetThrottleValue, SetThrottleValue);
             shared.BindingMgr.AddBoundVariable("STEERING", GetSteeringValue, SetSteeringValue);
@@ -150,16 +152,19 @@ namespace kOS.Binding
         {
             if (currentVessel.Autopilot.Mode != autopilotMode)
             {
+                // HASTARGET is already true while KSP is still about to restore the target:
+                if (autopilotMode == VesselAutopilot.AutopilotMode.Target ||
+                    autopilotMode == VesselAutopilot.AutopilotMode.AntiTarget)
+                    VesselTargeting.RestorePending(currentVessel);
                 if (!currentVessel.Autopilot.CanSetMode(autopilotMode))
                 {
                     // throw an exception if the mode is not available
                     throw new KOSSituationallyInvalidException(
                         string.Format("Cannot set autopilot value, pilot/probe does not support {0}, or there is no node/target", autopilotMode));
                 }
+                // Only this vessel's autopilot: the navball buttons follow the active vessel's by themselves.
                 currentVessel.Autopilot.SetMode(autopilotMode);
                 //currentVessel.Autopilot.Enable();
-                // change the autopilot indicator
-                ((kOSProcessor)Shared.Processor).SetAutopilotMode((int)autopilotMode);
                 if (RemoteTechHook.IsAvailable(currentVessel.id))
                 {
                     //Debug.Log(string.Format("kOS: Adding RemoteTechPilot: autopilot For : " + currentVessel.id));
@@ -283,6 +288,8 @@ namespace kOS.Binding
                         SetNavMode(FlightGlobals.SpeedDisplayModes.Surface);
                         break;
                     case "target":
+                        // HASTARGET is already true while KSP is still about to restore the target:
+                        VesselTargeting.RestorePending(Shared.Vessel);
                         if(FlightGlobals.fetch.VesselTarget== null) {
                             throw new KOSException("Cannot set navigation mode: there is no target");
                         }

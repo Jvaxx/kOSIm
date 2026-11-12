@@ -39,7 +39,7 @@ and the bundled SharpZipLib, bypassing KSPBuildTools. **Do not use it for a mod 
 Results are written to ignored `artifacts/tests/Release/nunit.xml`; the previous report
 is removed first. NuGet restore may need network access on a fresh machine.
 
-`.ci/known-test-failures.json` currently has **no known failures** and a **1,460-test
+`.ci/known-test-failures.json` currently has **no known failures** and a **1,464-test
 minimum**. Raise the minimum as coverage grows. The checker rejects missing/malformed
 reports, duplicate test names, count inconsistencies, errors/skips/inconclusive tests,
 new/changed failures, unexpected passes of a known failure, and inconsistent runner
@@ -193,5 +193,28 @@ not individually instrumented, and Blizzy's toolbar is not installed in the dev 
   and over telnet; vessel switch, quickload and scene change keep it; `history.txt`
   written under the save; old `kOS/history/` files removed (Player.log line) after a
   main-menu load, without touching geometry files.
+
+1.6.0.105 (dev copy, 2026-11-12): the maintainer reported the build working; which of
+these checks were run was not recorded (they need two vessels with CPUs within physics range):
+
+- **Target across a switch:** each vessel targets the other and runs
+  `LOCK STEERING TO TARGET:POSITION. WAIT UNTIL FALSE.`; switch back and forth with
+  `[`/`]` many times: both programs keep running and steering, the navball target
+  returns each time. Repeat right after a quickload (longer gap), with a docking port
+  and a body as target, and with `PRINT HASTARGET.` in a loop (no `False` blip).
+  With no target set, `PRINT TARGET.` still fails with "No TARGET is selected".
+- **Target setters and docking:** with
+  `UNTIL FALSE { IF HASTARGET { SET NAVMODE TO "TARGET". SET SASMODE TO "TARGET". } WAIT 0. }`
+  running on both (SAS on), switch back and forth: no error, navball and SAS stay on
+  target. With a station targeting a third vessel or a body and locked on
+  `TARGET:POSITION`, dock another vessel to it: the program keeps running.
+- **Pilot trim and scene exit:** `SET SHIP:CONTROL:PILOTPITCHTRIM TO 0.5.` from the
+  vessel that is not active leaves the active vessel's trim alone; from the active one
+  it still sets it. Type a command, leave to the space centre at once, return: the
+  command is in the history and `KSP.log` has no exception from `kOSProcessor.OnDestroy`.
+- **SASMODE:** `SET SASMODE TO "PROGRADE".` from the vessel that is not active changes
+  only that vessel (check after switching to it); the active vessel's navball buttons
+  stay put. From the active vessel the buttons follow as before. After undocking, a CPU
+  on the departing vessel reads and sets its own vessel's mode.
 
 Open bugs are in the [roadmap](KOSIm-roadmap.md), not hidden in old session logs.

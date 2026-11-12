@@ -5,6 +5,32 @@ Fork entries come first; inherited upstream release history follows under
 and credits refer to KSP-KOS/KOS. Current development contracts and known issues:
 [developer documentation](docs/README.md).
 
+## kOS Improved 1.6.0.105 (Unreleased)
+
+- Switching to a vessel no longer kills its script when the script reads
+  `TARGET`, as in `LOCK STEERING TO TARGET:POSITION.` KSP takes the target
+  of the vessel you switch to away and gives it back a frame or more
+  later (longer on a vessel that has just loaded); the script died in
+  between with "No TARGET is selected". `TARGET` and
+  `HASTARGET` now report the target KSP is about to restore. The same
+  holds for a vessel left again before KSP restored its target, and when
+  another vessel docks to or grapples the active one. Setting `SASMODE`
+  or `NAVMODE` to `"TARGET"` in that time restores the target at once.
+- `SET SASMODE` on a vessel that is not the active one no longer also
+  changes the SAS mode of the active vessel. `SASMODE` now follows the
+  CPU to the vessel it is on after docking, undocking or staging.
+- Setting a pilot trim (`SHIP:CONTROL:PILOTPITCHTRIM` and the other
+  settable `PILOT...` suffixes) from a vessel that is not the active one
+  no longer changes the trim of the active vessel; it does nothing.
+- Leaving the flight scene can no longer skip a CPU's cleanup (last
+  typed commands saved, telnet clients detached) because of an error
+  while sorting the list of CPUs.
+
+All were inherited from upstream. Headless-tested and built; the
+maintainer reported the build working in game on Windows KSP 1.12.5.3190
+under GE-Proton11-7 (which of the listed checks were run was not
+recorded). KSM files, saves, craft and public mod APIs are unchanged.
+
 ## kOS Improved 1.6.0.104 (2026-10-26)
 
 - Right-click the kOS toolbar button in flight to open every terminal of

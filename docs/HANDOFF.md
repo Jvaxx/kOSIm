@@ -32,6 +32,76 @@ yet in the CKAN index, so CKAN users update by removing `kOSImproved` and instal
    close all. Rules in `src/kOS.Safe/Screen/VesselTerminals.cs`; `TermWindow` steps windows
    still at the default position by one header height each.
 
+## In progress: 1.6.0.105 (unreleased, uncommitted working tree)
+
+Two inherited flight-binding bugs, reported by the maintainer from a two-vessel
+rendezvous (each vessel running `LOCK STEERING TO TARGET:POSITION`):
+
+1. **`TARGET` across a vessel switch.** KSP 1.12.5 `Vessel.ResumeTarget` (read from the
+   disassembled `Assembly-CSharp.dll`) clears the new active vessel's target and restores
+   it from a coroutine 1–121 frames later, keeping the target to restore in `Vessel.pTI`
+   (nulled on restore). The getter threw "No TARGET is selected" in between, ending the
+   program.
+   - `src/kOS/Utilities/VesselTargeting.cs`: `GetTarget(vessel)` = live target, else
+     `pTI.FindTarget()` for the active vessel within the window, and for a non-active
+     vessel with no `targetObject`. `Hook()` notes the frame of `onVesselChange` and of
+     `onPartCouple` (docking/grappling call `MakeActive` on the active vessel in the
+     frame of `Part.Couple`, with no `onVesselChange`).
+   - `src/kOS.Safe/Utilities/TargetResume.cs`: the 125-frame window rule (tested).
+   - `src/kOS/Binding/MissionSettings.cs`: `TARGET` and `HASTARGET` getters use it.
+   - `VesselTargeting.RestorePending(vessel)`: called by `SASMODE` `"TARGET"`/
+     `"ANTITARGET"` and `NAVMODE` `"TARGET"` (`FlightControlManager.cs`) so a script that
+     saw `HASTARGET` can set them: sets the pending target now (`VesselUtils.SetTarget`
+     for the active vessel, `Vessel.targetObject` for another), never the vessel itself.
+2. **`SASMODE`.** `kOSProcessor.SetAutopilotMode` set the *active* vessel's mode; it now
+   sets the processor's vessel, and `FlightControlManager` no longer calls it (it already
+   sets its own vessel). `FlightControlManager.currentVessel` is now `Shared.Vessel`
+   instead of the vessel captured when the bindings were made.
+
+A whole-mod code review before the release (read-only, not all inherited code) gave eight
+findings. Fixed: the two above in `VesselTargeting` (docking, `RestorePending`), and
+
+3. **Pilot trim setters** (`src/kOS/Suffixed/FlightControl.cs` `WritePilot`): wrote the
+   active vessel's `FlightInputHandler.state` from any vessel; now only from the active one.
+4. **`kOSProcessor.OnDestroy`**: no longer calls `SortAllInstances()` (its comparator reads
+   `FlightGlobals.ActiveVessel`; a throw skipped the history save/release, telnet detach
+   and CPU dispose). `RemoveAll` keeps the order.
+
+**Review findings left open** (next session):
+
+- `src/kOS.Safe/Screen/CommandHistoryList.cs` `EnsureLoaded`: a `history.txt` that exists
+  but cannot be read (locked, denied, over 16 MiB) loads as empty and the next command
+  saves over it.
+- `src/kOS/Screen/TermWindow.cs` Ctrl+C/X/D/A/E test only `e.control`, so AltGr (Ctrl+Alt
+  on Windows layouts) triggers them; only paste and search exclude Alt. How Proton reports
+  AltGr is unchecked.
+- `src/kOS.Safe/Screen/CpuFilePrune.cs`: the legacy-history delete checks only whether
+  `kOS/history` itself is a link, not its parents, and the geometry prune has no folder
+  link check; `compatibility.md` says anything under a linked folder is kept.
+- `VesselTargeting.GetTarget`: a non-active vessel left before the restore runs
+  `pTI.FindTarget()` on every read (each physics tick under `LOCK STEERING`).
+
+Also changed: `kOS.props` 1.6.0.105, changelog `(Unreleased)` entry, `compatibility.md`
+(new "Flight bindings" section), manual checks in `testing-and-build.md`, test minimum
+1,464 (`.ci/known-test-failures.json`, `AGENTS.md`).
+
+Verified: `bash .ci/test.sh` 49 Python OK, NUnit **1,464 discovered/executed/passed**;
+`dotnet build kOS.sln -c Release --no-incremental` **0 errors, 44 warnings** (baseline);
+`python3 .ci/check-version.py --built` consistent at 1.6.0.105.
+
+Deployed to the dev copy (game closed, uncommitted build): `GameData/kOS` backed up to
+`kOS-GameData-backups/kOS-before-v1.6.0.105-dev-20261112-153510`, then `kOS.dll`
+(`2d13d039…`), `kOS.Safe.dll` (`b11a0cc9…`) and `kOS.version` copied; hashes match the
+repository outputs, PluginData untouched, `launch-dev.sh --check` passed. Rebuild and
+redeploy after committing: the DLLs embed the source commit.
+
+In game (2026-11-12, that deployed build): the maintainer reported it working; which of
+the listed checks were run was not recorded. The fixes are in Unity-side code the
+headless tests do not reach: only the window rule is unit-tested. Known limits: a restore
+KSP never makes (target gone, or no orbit driver, e.g. the Sun) still ends in
+"No TARGET is selected" once the window is over; `SET TARGET` during the window is still
+overridden by KSP's restore.
+
 ## Release record (1.6.0.104)
 
 | Asset | Size | SHA-256 |
@@ -75,6 +145,6 @@ installed); Sphinx build (no `.rst` changed); CKAN GUI; older CKAN clients.
 1. Watch NetKAN#11747: respond to reviewer questions. After merge, check `ckan update` +
    `ckan show kOSImproved`, then update README, packaged `Readme`, `docs/ckan.md` and the
    manual downloads page to say it is indexed.
-2. Next development version: bump `kOS.props` to 1.6.0.105 with a new `(Unreleased)`
-   changelog entry only when new changes start.
+2. Game-check 1.6.0.105 on the dev copy (two-vessel list in
+   [testing-and-build.md](testing-and-build.md#game-checks)), then commit.
 3. Remaining implementation and manual coverage: roadmap and testing guide.

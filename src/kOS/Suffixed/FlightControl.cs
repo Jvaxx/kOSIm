@@ -132,7 +132,8 @@ namespace kOS.Suffixed
 
         private void WritePilot(ref float flightInputValue, float newVal)
         {
-            if (FlightGlobals.ActiveVessel)
+            // The pilot's input belongs to the active vessel only (as ReadPilot):
+            if (Vessel == FlightGlobals.ActiveVessel)
                 flightInputValue = newVal;
         }
 
