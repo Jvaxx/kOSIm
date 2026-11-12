@@ -5,7 +5,7 @@ Fork entries come first; inherited upstream release history follows under
 and credits refer to KSP-KOS/KOS. Current development contracts and known issues:
 [developer documentation](docs/README.md).
 
-## kOS Improved 1.6.0.105 (Unreleased)
+## kOS Improved 1.6.0.105 (2026-11-12)
 
 - Switching to a vessel no longer kills its script when the script reads
   `TARGET`, as in `LOCK STEERING TO TARGET:POSITION.` KSP takes the target

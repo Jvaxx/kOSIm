@@ -31,7 +31,7 @@ edge-case coverage. Details: [compatibility contracts](compatibility.md),
 [changelog](../CHANGELOG.md), [current verification](HANDOFF.md).
 
 Historical fork releases: `1.5.1.100`–`.102` (incorrect version prefix, unchanged).
-Latest release: **1.6.0.104** (2026-10-26). **1.6.0.103** corrected the version prefix
+Latest release: **1.6.0.105** (2026-11-12). **1.6.0.103** corrected the version prefix
 (not an upstream rebase) and was the first release with a `kOSImproved` `.ckan`; see
 [CKAN packaging](ckan.md). No next implementation phase has been selected.
 
