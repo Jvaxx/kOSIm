@@ -77,6 +77,11 @@ before claiming a fix. Labels are retained for continuity.
 - **Files:** legacy text reads remain lossy for binary; use raw APIs. Atomic replacement
   does not provide external-change detection or power-loss durability. Link behavior and
   the concurrent-filesystem limitation are documented in [compatibility.md](compatibility.md#files-and-volumes).
+- **Code review before 1.6.0.105 (read from code, not reproduced):** an unreadable
+  `history.txt` loads as empty and is then saved over; Ctrl+C/X/D/A/E in the terminal
+  also fire with AltGr; the save prune does not check for linked parent folders; a
+  non-active vessel left before KSP restored its target looks the target up on every
+  `TARGET` read. Details: [handoff](HANDOFF.md#open-code-review-findings).
 - **PERF-01 (inherited):** every prompt command rebuilds the accumulated program
   (`ProgramContext.AddParts` → `ProgramBuilder.BuildProgram`, then instruction-pointer
   lookup). Temporary headless instrumentation on Mono 6.12 over 3,000 commands measured
